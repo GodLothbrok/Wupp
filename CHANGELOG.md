@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.3.8-pre.3] - 2026-11-22
+
+### ✨ Features
+- ⚙️ Redesigned Settings with a search bar, quick category pills, info popups, and an inline chat font-size slider.
+
 ## [0.3.8-pre.2] - 2026-11-23
 
 ### ✨ Features
