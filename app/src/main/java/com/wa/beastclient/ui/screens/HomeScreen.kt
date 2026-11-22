@@ -4380,6 +4380,7 @@ private fun ToolsVaultTab(
     val bridgeStatus by viewModel.bridgeStatus.collectAsState()
     val allChats by viewModel.allChats.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
+    val autoUpdateEnabled by viewModel.autoUpdateEnabled.collectAsState()
     val includePreReleases by viewModel.includePreReleases.collectAsState()
     var ownProfile by remember { mutableStateOf(OwnProfileUi()) }
     var showProfileEditorDialog by remember { mutableStateOf(false) }
@@ -5176,6 +5177,14 @@ private fun ToolsVaultTab(
                             else -> viewModel.checkForUpdates(silent = false)
                         }
                     }
+                )
+                ExpressiveSegmentedSwitchRow(
+                    icon = Icons.Rounded.SystemUpdate,
+                    title = "Check for Updates Automatically",
+                    subtitle = "Look for new releases when Wupp opens",
+                    checked = autoUpdateEnabled,
+                    position = ExpressiveSegmentPosition.MIDDLE,
+                    onCheckedChange = viewModel::setAutoUpdateEnabled
                 )
                 ExpressiveSegmentedSwitchRow(
                     icon = Icons.Rounded.SystemUpdate,
