@@ -17,9 +17,6 @@ import androidx.core.content.FileProvider
 import com.wa.beastclient.BuildConfig
 import com.wa.beastclient.MainActivity
 import com.wa.beastclient.R
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -136,19 +133,21 @@ object WuppUpdater {
     fun init(context: Context) {
         if (initialized) return
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _autoCheckEnabled.value = prefs.getBoolean(KEY_AUTO_CHECK, true)
+        if (!prefs.getBoolean(KEY_AUTO_CHECK, true)) {
+            prefs.edit().putBoolean(KEY_AUTO_CHECK, true).apply()
+        }
+        _autoCheckEnabled.value = true
         _includePreReleases.value = prefs.getBoolean(KEY_INCLUDE_PRE_RELEASES, false)
         initialized = true
     }
 
-    fun setAutoCheckEnabled(context: Context, enabled: Boolean) {
+    fun setAutoCheckEnabled(context: Context, @Suppress("UNUSED_PARAMETER") enabled: Boolean) {
         init(context)
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean(KEY_AUTO_CHECK, enabled)
+            .putBoolean(KEY_AUTO_CHECK, true)
             .apply()
-        _autoCheckEnabled.value = enabled
-        if (!enabled) cancelUpdateNotification(context)
+        _autoCheckEnabled.value = true
     }
 
     fun setIncludePreReleases(context: Context, enabled: Boolean) {
@@ -163,7 +162,6 @@ object WuppUpdater {
         val curRelease = when (cur) {
             is UpdateUiState.UpdateAvailable -> cur.release
             is UpdateUiState.ReadyToInstall -> cur.release
-            is UpdateUiState.Error -> cur.release
             else -> null
         }
         if (cur is UpdateUiState.UpToDate ||
@@ -173,7 +171,6 @@ object WuppUpdater {
             _state.value = UpdateUiState.Idle
             if (!enabled && curRelease?.isPreRelease == true) {
                 _showPromptDialog.value = false
-                cancelUpdateNotification(context)
             }
         }
     }
@@ -191,6 +188,12 @@ object WuppUpdater {
         val appCtx = context.applicationContext
         init(appCtx)
         if (!_autoCheckEnabled.value) return
+        val current = _state.value
+        if (!dismissedInCurrentVisit &&
+            (current is UpdateUiState.UpdateAvailable || current is UpdateUiState.ReadyToInstall)
+        ) {
+            _showPromptDialog.value = true
+        }
         checkForUpdates(appCtx, silent = true)
     }
 
@@ -201,7 +204,6 @@ object WuppUpdater {
             val tag = when (val s = _state.value) {
                 is UpdateUiState.UpdateAvailable -> s.release.tagName
                 is UpdateUiState.ReadyToInstall -> s.release.tagName
-                is UpdateUiState.Error -> s.release?.tagName
                 else -> null
             }
             if (!tag.isNullOrBlank()) {
@@ -209,7 +211,6 @@ object WuppUpdater {
                     .edit()
                     .putString(KEY_SKIPPED_TAG, tag)
                     .apply()
-                cancelUpdateNotification(context)
             }
         }
     }
@@ -219,29 +220,24 @@ object WuppUpdater {
         init(appCtx)
         val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-        val skippedTag = prefs.getString(KEY_SKIPPED_TAG, null)
         if (!silent) {
             dismissedInCurrentVisit = false
-        } else if (!_autoCheckEnabled.value) {
-            return _state.value
         }
 
         if (_state.value is UpdateUiState.Downloading) {
-            if (!silent) _showPromptDialog.value = true
+            if (!silent || !dismissedInCurrentVisit) _showPromptDialog.value = true
             return _state.value
         }
 
         if (silent) {
+            if (!_autoCheckEnabled.value) return _state.value
             val now = System.currentTimeMillis()
             val lastCheck = prefs.getLong(KEY_LAST_CHECK_MS, 0L)
             if (now - lastCheck < AUTO_CHECK_INTERVAL_MS && _state.value !is UpdateUiState.Idle) {
                 val cur = _state.value
-                val tag = when (cur) {
-                    is UpdateUiState.UpdateAvailable -> cur.release.tagName
-                    is UpdateUiState.ReadyToInstall -> cur.release.tagName
-                    else -> null
-                }
-                if (!dismissedInCurrentVisit && tag != null && tag != skippedTag) {
+                if (!dismissedInCurrentVisit &&
+                    (cur is UpdateUiState.UpdateAvailable || cur is UpdateUiState.ReadyToInstall)
+                ) {
                     _showPromptDialog.value = true
                 }
                 return cur
@@ -255,14 +251,11 @@ object WuppUpdater {
         try {
             _state.value = UpdateUiState.Checking(silent = silent)
             val repoSlug = BuildConfig.GITHUB_REPO.trim().trim('/')
-            var includePre: Boolean
-            var result: Result<AppReleaseInfo?>
-            do {
-                includePre = _includePreReleases.value
-                result = withContext(Dispatchers.IO) {
-                    fetchLatestRelease(repoSlug, includePreReleases = includePre)
-                }
-            } while (includePre != _includePreReleases.value)
+            val includePre = _includePreReleases.value
+
+            val result = withContext(Dispatchers.IO) {
+                fetchLatestRelease(repoSlug, includePreReleases = includePre)
+            }
 
             prefs.edit().putLong(KEY_LAST_CHECK_MS, System.currentTimeMillis()).apply()
 
@@ -277,10 +270,10 @@ object WuppUpdater {
                             UpdateUiState.UpdateAvailable(release)
                         }
                         _state.value = nextState
-                        val showAutomatically = _autoCheckEnabled.value && !dismissedInCurrentVisit &&
-                            release.tagName != prefs.getString(KEY_SKIPPED_TAG, null)
-                        if (!silent || showAutomatically) _showPromptDialog.value = true
-                        if (silent && showAutomatically) postUpdateNotification(appCtx, release)
+                        if (!silent || !dismissedInCurrentVisit) {
+                            _showPromptDialog.value = true
+                            postUpdateNotification(appCtx, release)
+                        }
                         nextState
                     } else {
                         val upToDate = UpdateUiState.UpToDate(current, System.currentTimeMillis())
@@ -297,9 +290,6 @@ object WuppUpdater {
                     errorState
                 }
             )
-        } catch (cancelled: CancellationException) {
-            _state.value = UpdateUiState.Idle
-            throw cancelled
         } finally {
             checkInFlight = false
         }
@@ -335,18 +325,15 @@ object WuppUpdater {
             return
         }
 
-        val previous = _state.value
-        if (previous is UpdateUiState.Downloading || previous is UpdateUiState.Checking) return
-        val downloading = UpdateUiState.Downloading(
+        _state.value = UpdateUiState.Downloading(
             release = release,
             progressPercent = 0,
             downloadedBytes = 0L,
             totalBytes = release.apkSizeBytes
         )
-        if (!_state.compareAndSet(previous, downloading)) return
 
-        val result = runCatching {
-            withContext(Dispatchers.IO) {
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
                 val dir = updatesDir(appCtx)
                 val safeTag = release.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                 val outFile = File(dir, "Wupp-$safeTag.apk")
@@ -370,25 +357,17 @@ object WuppUpdater {
                             if (code !in 200..299) {
                                 throw IllegalStateException("Download error (HTTP $code)")
                             }
-                            val transferSize = conn.contentLengthLong
-                            val total = release.apkSizeBytes.takeIf { it > 0L } ?: transferSize
-                            if (release.apkSizeBytes > 0L && transferSize > 0L && transferSize != release.apkSizeBytes) {
-                                throw IllegalStateException("Download size does not match the release")
-                            }
+                            val total = conn.contentLengthLong.takeIf { it > 0L } ?: release.apkSizeBytes
                             conn.inputStream.use { input ->
                                 FileOutputStream(tmpFile).use { output ->
                                     val buf = ByteArray(16 * 1024)
                                     var downloaded = 0L
                                     var lastEmitMs = 0L
                                     while (true) {
-                                        currentCoroutineContext().ensureActive()
                                         val read = input.read(buf)
-                                        if (read < 0) break
-                                        downloaded += read
-                                        if (total > 0L && downloaded > total) {
-                                            throw IllegalStateException("Download exceeded the expected size")
-                                        }
+                                        if (read <= 0) break
                                         output.write(buf, 0, read)
+                                        downloaded += read
                                         val now = System.currentTimeMillis()
                                         if (now - lastEmitMs >= 120L || (total > 0 && downloaded >= total)) {
                                             lastEmitMs = now
@@ -401,9 +380,6 @@ object WuppUpdater {
                                             )
                                         }
                                     }
-                                    if (total > 0L && downloaded != total) {
-                                        throw IllegalStateException("Downloaded APK is incomplete")
-                                    }
                                     output.flush()
                                 }
                             }
@@ -414,16 +390,16 @@ object WuppUpdater {
                         if (!tmpFile.exists() || tmpFile.length() < 100_000L) {
                             throw IllegalStateException("Downloaded APK is incomplete")
                         }
-                        currentCoroutineContext().ensureActive()
-                        if ((outFile.exists() && !outFile.delete()) || !tmpFile.renameTo(outFile)) {
-                            throw IllegalStateException("Unable to save the downloaded APK")
+                        if (outFile.exists()) outFile.delete()
+                        if (!tmpFile.renameTo(outFile)) {
+                            tmpFile.copyTo(outFile, overwrite = true)
+                            tmpFile.delete()
                         }
                         downloadedFile = outFile
                         break
-                    } catch (err: Exception) {
-                        if (tmpFile.exists()) tmpFile.delete()
-                        if (err is CancellationException) throw err
+                    } catch (err: Throwable) {
                         lastErr = err
+                        if (tmpFile.exists()) tmpFile.delete()
                         if (attempt < 2) delay(900L)
                     }
                 }
@@ -436,12 +412,16 @@ object WuppUpdater {
                 activeInstallRelease = release
                 activeInstallApkPath = apkFile.absolutePath
                 _state.value = UpdateUiState.ReadyToInstall(release, apkFile.absolutePath)
+                installApk(appCtx, apkFile).onFailure { err ->
+                    _state.value = UpdateUiState.Error(
+                        message = err.message ?: "Unable to start update installer",
+                        silent = false,
+                        release = release,
+                        apkPath = apkFile.absolutePath
+                    )
+                }
             },
             onFailure = { err ->
-                if (err is CancellationException) {
-                    _state.value = UpdateUiState.UpdateAvailable(release)
-                    throw err
-                }
                 _state.value = UpdateUiState.Error(
                     message = err.message ?: "Download error — tap Retry or Open the web.",
                     silent = false,
@@ -690,10 +670,6 @@ object WuppUpdater {
             }
         }
         throw IllegalStateException("Too many redirects while downloading update")
-    }
-
-    private fun cancelUpdateNotification(context: Context) {
-        context.getSystemService(NotificationManager::class.java)?.cancel(UPDATE_NOTIFICATION_ID)
     }
 
     private fun postUpdateNotification(context: Context, release: AppReleaseInfo) {

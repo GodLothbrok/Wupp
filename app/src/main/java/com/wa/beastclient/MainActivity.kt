@@ -361,7 +361,7 @@ class MainActivity : FragmentActivity() {
                         onDownload = { release -> vm.downloadUpdate(release) },
                         onInstall = { apkFile -> vm.installDownloadedApk(apkFile) },
                         onInstallExternal = { apkFile -> vm.installExternalApkFallback(apkFile) },
-                        onSkipVersion = { vm.dismissUpdatePrompt(skipVersion = true) },
+                        onSkipVersion = { vm.dismissUpdatePrompt(skipVersion = false) },
                         onDismiss = { vm.dismissUpdatePrompt(skipVersion = false) }
                     )
                 }
