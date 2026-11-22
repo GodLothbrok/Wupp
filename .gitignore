@@ -1,0 +1,38 @@
+# Gradle & Android build artifacts
+.gradle/
+build/
+app/build/
+captures/
+*.apk
+*.ap_
+*.aab
+*.dex
+*.xapk
+*.apks
+
+# Keystores & signing secrets
+*.jks
+*.keystore
+*.p12
+signing.properties
+
+# Local environment configuration
+local.properties
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Kotlin / KSP generated caches
+.kotlin/
+app/schemas/*.json.tmp
+
+# Native Rust build outputs (built from source in CI and local build scripts)
+rustbridge/target/
+app/src/main/jniLibs/
+*.so
+*.exe
+*.test

@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a bug or unexpected behavior in Wupp
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check existing issues first so duplicates stay low, then fill in what you know below.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: Describe what broke and what you expected instead.
+      placeholder: Delivery ticks stayed on one grey check after the contact read the message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the steps needed to trigger the bug.
+      placeholder: |
+        1. Open a chat thread
+        2. Send a photo
+        3. Return to the chat list and check the tick status
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Wupp version
+      description: Shown in Settings under Updates & GitHub Support.
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Android version and device
+      placeholder: Android 15, Redmi Note 13
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Context or screenshots
+      description: Optional logcat output, screenshots, or screen recordings.
+    validations:
+      required: false
