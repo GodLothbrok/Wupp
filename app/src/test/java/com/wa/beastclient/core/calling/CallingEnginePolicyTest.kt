@@ -7,6 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CallingEnginePolicyTest {
+    @Test
+    fun missingOrientationPreservesLastFrameAndExplicitZeroResetsIt() {
+        assertEquals(270, resolveRemoteOrientation(270, -1))
+        assertEquals(0, resolveRemoteOrientation(270, 0))
+        assertEquals(90, resolveRemoteOrientation(0, 3))
+    }
+
 
     @Test
     fun extractDialablePhoneDigitsPrefersPnJidAndFallsBackPastLid() {

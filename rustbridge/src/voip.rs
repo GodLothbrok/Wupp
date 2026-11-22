@@ -712,7 +712,7 @@ fn spawn_call_monitor(runtime: Arc<BridgeRuntime>, call: Arc<ActiveCall>) {
                             serde_json::json!({
                                 "callId": call_clone.call_id,
                                 "state": format!("{state:?}"),
-                                "orientation": orientation.unwrap_or(0),
+                                "orientation": orientation,
                                 "hasToken": has_token,
                                 "isVideo": call_clone.is_video.load(Ordering::Relaxed),
                             }),

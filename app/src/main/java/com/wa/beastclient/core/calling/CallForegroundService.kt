@@ -110,12 +110,19 @@ class CallForegroundService : Service() {
         )
 
         val declinePi = serviceActionPendingIntent(101, ACTION_DECLINE_CALL)
-        val answerPi = if (state.canAnswerInApp) {
+        val needsPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
+            (state.isVideo && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+        val answerPi = if (state.canAnswerInApp && needsPermission) {
+            fullScreenIntent
+        } else if (state.canAnswerInApp) {
             serviceActionPendingIntent(102, ACTION_ANSWER_CALL)
         } else {
             serviceActionPendingIntent(103, ACTION_OPEN_OFFICIAL_WA)
         }
         val hangupPi = serviceActionPendingIntent(104, ACTION_END_CALL)
+        val ringing = state.phase == CallPhase.INCOMING_RINGING
+        val active = state.phase == CallPhase.ACTIVE
+        val notificationText = if (active) (if (state.isVideo) "Video call" else "Voice call") else state.statusText
         val callerName = state.peerName.ifBlank { "WhatsApp Call" }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -132,12 +139,21 @@ class CallForegroundService : Service() {
                 .setSmallIcon(R.drawable.ic_stat_wupp)
                 .setContentTitle(callerName)
                 .setContentText(
-                    state.statusText.ifBlank {
+                    notificationText.ifBlank {
                         if (state.isVideo) "Video call" else "Voice call"
                     }
                 )
                 .setStyle(style)
-                .setFullScreenIntent(fullScreenIntent, true)
+                .setContentIntent(fullScreenIntent)
+                .setOnlyAlertOnce(true)
+                .apply {
+                    if (ringing) setFullScreenIntent(fullScreenIntent, true)
+                    if (active) {
+                        setWhen(state.connectedAtEpochMs)
+                        setUsesChronometer(true)
+                        setShowWhen(true)
+                    }
+                }
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_CALL)
                 .build()
@@ -146,10 +162,19 @@ class CallForegroundService : Service() {
         val compat = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_wupp)
             .setContentTitle(callerName)
-            .setContentText(state.statusText.ifBlank { if (state.isVideo) "Video call" else "Voice call" })
+            .setContentText(notificationText.ifBlank { if (state.isVideo) "Video call" else "Voice call" })
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setFullScreenIntent(fullScreenIntent, true)
+            .setContentIntent(fullScreenIntent)
+            .setOnlyAlertOnce(true)
+            .apply {
+                if (ringing) setFullScreenIntent(fullScreenIntent, true)
+                if (active) {
+                    setWhen(state.connectedAtEpochMs)
+                    setUsesChronometer(true)
+                    setShowWhen(true)
+                }
+            }
             .setOngoing(true)
         if (state.phase == CallPhase.INCOMING_RINGING) {
             compat.addAction(0, "Decline", declinePi)

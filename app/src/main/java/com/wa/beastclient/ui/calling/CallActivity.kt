@@ -67,6 +67,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -74,6 +77,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -131,8 +135,8 @@ class CallActivity : ComponentActivity() {
         setContent {
             val stealth by StealthMatrixManager.config.collectAsState()
             val callState by CallStateManager.uiState.collectAsState()
-            var pendingAnswerAudioOnly by remember { mutableStateOf<Boolean?>(null) }
-            var pendingUpgradeToVideo by remember { mutableStateOf(false) }
+            var pendingAnswerAudioOnly by rememberSaveable(callState.callId) { mutableStateOf<Boolean?>(null) }
+            var pendingUpgradeToVideo by rememberSaveable(callState.callId) { mutableStateOf(false) }
 
             val callPermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
@@ -146,7 +150,7 @@ class CallActivity : ComponentActivity() {
                 pendingAnswerAudioOnly = null
                 pendingUpgradeToVideo = false
                 if (micGranted && audioOnly != null) {
-                    CallStateManager.answerIncomingCall(audioOnly = audioOnly)
+                    CallStateManager.answerIncomingCall(audioOnly = audioOnly || !camGranted)
                 } else if (camGranted && wantUpgrade) {
                     CallStateManager.upgradeToVideo()
                 }
@@ -247,7 +251,7 @@ class CallActivity : ComponentActivity() {
                     onToggleMute = { CallStateManager.toggleMute() },
                     onToggleRecording = { CallStateManager.toggleCallRecording() },
                     onToggleCamera = {
-                        if (!callState.isVideo) {
+                        if (!callState.isVideo || callState.isCameraOff) {
                             requestCameraThenUpgrade()
                         } else {
                             CallStateManager.toggleCamera()
@@ -286,6 +290,7 @@ class CallActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CallScreenContent(
     state: CallUiState,
@@ -341,9 +346,9 @@ private fun CallScreenContent(
             }
     ) {
         if (showVideoFeed) {
-            val remoteCwDeg = state.remoteOrientationDegrees
-            val remoteW = state.remoteVideoWidth
-            val remoteH = state.remoteVideoHeight
+            val remoteCwDeg by rememberUpdatedState(state.remoteOrientationDegrees)
+            val remoteW by rememberUpdatedState(state.remoteVideoWidth)
+            val remoteH by rememberUpdatedState(state.remoteVideoHeight)
             AndroidView(
                 factory = { ctx ->
                     TextureView(ctx).apply {
@@ -399,13 +404,14 @@ private fun CallScreenContent(
                             var boundSurface: Surface? = null
                             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                                    applyVideoTextureTransform(this@apply, w, h, 480, 640, 0, fillCrop = true)
+                                    st.setDefaultBufferSize(640, 480)
+                                    applyLocalPreviewTransform(this@apply, w, h)
                                     val s = Surface(st)
                                     boundSurface = s
                                     CallStateManager.attachLocalVideoSurface(s)
                                 }
                                 override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
-                                    applyVideoTextureTransform(this@apply, w, h, 480, 640, 0, fillCrop = true)
+                                    applyLocalPreviewTransform(this@apply, w, h)
                                 }
                                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
                                 override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
@@ -419,7 +425,7 @@ private fun CallScreenContent(
                     },
                     update = { tv ->
                         if (tv.width > 0 && tv.height > 0) {
-                            applyVideoTextureTransform(tv, tv.width, tv.height, 480, 640, 0, fillCrop = true)
+                            applyLocalPreviewTransform(tv, tv.width, tv.height)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
@@ -634,9 +640,9 @@ private fun CallScreenContent(
                             }
 
                             else -> {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(34.dp))
                                         .background(Color(0xD917242C))
@@ -650,12 +656,8 @@ private fun CallScreenContent(
                                             active = state.audioRoute != CallAudioRoute.EARPIECE,
                                             onClick = {
                                                 if (state.availableRoutes.size <= 2) {
-                                                    val next = if (state.audioRoute == CallAudioRoute.SPEAKER) {
-                                                        CallAudioRoute.EARPIECE
-                                                    } else {
-                                                        CallAudioRoute.SPEAKER
-                                                    }
-                                                    onSelectAudioRoute(next)
+                                                    state.availableRoutes.firstOrNull { it != state.audioRoute }
+                                                        ?.let(onSelectAudioRoute)
                                                 } else {
                                                     showRouteMenu = true
                                                 }
@@ -881,6 +883,17 @@ private fun CallPillToggle(
             maxLines = 1
         )
     }
+}
+
+private fun applyLocalPreviewTransform(view: TextureView, width: Int, height: Int) {
+    // Camera2 supplies the sensor transform to TextureView. Compensate for screen rotation.
+    val degrees = when (view.display?.rotation) {
+        Surface.ROTATION_90 -> 270
+        Surface.ROTATION_180 -> 180
+        Surface.ROTATION_270 -> 90
+        else -> 0
+    }
+    applyVideoTextureTransform(view, width, height, 480, 640, degrees, fillCrop = true)
 }
 
 private fun applyVideoTextureTransform(

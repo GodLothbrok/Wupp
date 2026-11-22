@@ -88,6 +88,10 @@ class CallAudioController(
 
     fun startInCallAudio(isVideo: Boolean) {
         mainHandler.post {
+            if (inCallAudioActive) {
+                updateVideoState(isVideo)
+                return@post
+            }
             stopRinging()
             currentIsVideo = isVideo
             inCallAudioActive = true
@@ -105,6 +109,7 @@ class CallAudioController(
 
     fun updateVideoState(isVideo: Boolean) {
         mainHandler.post {
+            if (currentIsVideo == isVideo) return@post
             currentIsVideo = isVideo
             if (inCallAudioActive) {
                 val available = queryAvailableRoutes()

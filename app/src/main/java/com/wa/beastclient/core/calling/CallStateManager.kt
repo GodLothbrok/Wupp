@@ -429,7 +429,6 @@ object CallStateManager {
             if (cur.phase == CallPhase.IDLE || cur.phase == CallPhase.FAILED) return@launch
             if (callId.isNotBlank() && cur.callId.isNotBlank() && cur.callId != callId) return@launch
 
-            val deg = whatsappOrientationToClockwiseDegrees(orientationQuarterTurns)
             val activeId = cur.callId.ifBlank { callId }
 
             when (videoState.trim()) {
@@ -439,7 +438,7 @@ object CallStateManager {
                             isVideo = true,
                             hasRemoteVideo = true,
                             pendingVideoUpgrade = false,
-                            remoteOrientationDegrees = deg
+                            remoteOrientationDegrees = resolveRemoteOrientation(it.remoteOrientationDegrees, orientationQuarterTurns)
                         )
                     }
                     audioController?.updateVideoState(true)
@@ -450,7 +449,7 @@ object CallStateManager {
                     _uiState.update {
                         it.copy(
                             pendingVideoUpgrade = upgradePending,
-                            remoteOrientationDegrees = deg
+                            remoteOrientationDegrees = resolveRemoteOrientation(it.remoteOrientationDegrees, orientationQuarterTurns)
                         )
                     }
                 }
@@ -463,12 +462,12 @@ object CallStateManager {
                             hasRemoteVideo = false,
                             isVideo = isVideo || !it.isCameraOff,
                             pendingVideoUpgrade = false,
-                            remoteOrientationDegrees = deg
+                            remoteOrientationDegrees = resolveRemoteOrientation(it.remoteOrientationDegrees, orientationQuarterTurns)
                         )
                     }
                 }
                 else -> {
-                    _uiState.update { it.copy(remoteOrientationDegrees = deg) }
+                    _uiState.update { it.copy(remoteOrientationDegrees = resolveRemoteOrientation(it.remoteOrientationDegrees, orientationQuarterTurns)) }
                 }
             }
         }
@@ -686,7 +685,7 @@ object CallStateManager {
         audioController?.startInCallAudio(isVideo = videoMode)
         if (effectiveId.isNotBlank()) {
             ensureMediaPipelinesStarted(effectiveId, startVideo = videoMode)
-            if (StealthMatrixManager.config.value.autoRecordCalls && !_uiState.value.isRecording) {
+            if (!wasActive && StealthMatrixManager.config.value.autoRecordCalls && !_uiState.value.isRecording) {
                 toggleCallRecording()
             }
         }
@@ -711,7 +710,6 @@ object CallStateManager {
                             recordingDurationSec = recSec
                         )
                     }
-                    appContext?.let { CallForegroundService.sync(it, _uiState.value) }
                     delay(1000L)
                 }
             }

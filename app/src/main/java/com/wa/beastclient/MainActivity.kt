@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.FrameLayout
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.activity.compose.BackHandler
 import androidx.fragment.app.FragmentActivity
@@ -133,8 +134,19 @@ class MainActivity : FragmentActivity() {
             LaunchedEffect(requestedChatJid, setupDone, bridgeStatus.isLoggedIn, isAppLocked) {
                 val target = requestedChatJid
                 if (!target.isNullOrBlank() && setupDone && bridgeStatus.isLoggedIn && !isAppLocked) {
+                    val chat = vm.observeChat(target).first()
+                    if (vm.isAppLocked.value || pendingOpenChatJid.value != target) return@LaunchedEffect
+                    val hidden = vm.appLockConfig.value.hideLockedChatsBehindLock &&
+                        !vm.lockedChatsRevealed.value && chat?.isLocked == true
                     activeContactInfoJid = null
-                    selectedChatJid = target
+                    selectedChatJid = target.takeUnless { hidden }
+                    if (hidden) {
+                        android.widget.Toast.makeText(
+                            this@MainActivity,
+                            "Unlock locked chats to open this conversation",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     pendingOpenChatJid.value = null
                 }
             }

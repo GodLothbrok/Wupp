@@ -71,6 +71,9 @@ internal fun whatsappOrientationToClockwiseDegrees(orientationQuarterTurns: Int)
         else -> 0
     }
 
+internal fun resolveRemoteOrientation(currentDegrees: Int, reportedQuarterTurns: Int): Int =
+    if (reportedQuarterTurns in 0..3) whatsappOrientationToClockwiseDegrees(reportedQuarterTurns) else currentDegrees
+
 /**
  * Extracts dialable phone digits from PN JIDs (`@s.whatsapp.net`) or resolved phone strings while
  * rejecting unmapped `@lid`, group, or broadcast identifiers.

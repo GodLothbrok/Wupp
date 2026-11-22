@@ -427,12 +427,15 @@ class NativeVoipVideoPipeline(
                 val inIdx = runCatching { dec.dequeueInputBuffer(15_000) }.getOrElse { -1 }
                 if (inIdx >= 0) {
                     val inBuf = dec.getInputBuffer(inIdx)
-                    if (inBuf != null) {
-                        inBuf.clear()
-                        inBuf.put(payload, 0, payload.size.coerceAtMost(inBuf.remaining()))
-                        val ptsUs = (ts90k * 1_000L) / 90L
+                    inBuf?.clear()
+                    val ptsUs = (ts90k * 1_000L) / 90L
+                    if (inBuf != null && payload.size <= inBuf.remaining()) {
+                        inBuf.put(payload)
                         val decFlags = if (isKey) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
                         dec.queueInputBuffer(inIdx, 0, payload.size, ptsUs, decFlags)
+                    } else {
+                        // Return the slot without feeding a truncated frame to the decoder.
+                        dec.queueInputBuffer(inIdx, 0, 0, ptsUs, 0)
                     }
                 }
 

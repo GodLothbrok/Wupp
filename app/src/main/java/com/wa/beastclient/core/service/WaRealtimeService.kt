@@ -827,7 +827,7 @@ class WaRealtimeService : Service() {
             "CALL_VIDEO_STATE" -> CallStateManager.onNativeVideoStateUpdate(
                 callId = json.optString("callId"),
                 videoState = json.optString("state"),
-                orientationQuarterTurns = json.optInt("orientation", 0),
+                orientationQuarterTurns = json.optInt("orientation", -1),
                 upgradePending = json.optBoolean("hasToken", false),
                 isVideo = json.optBoolean("isVideo", false)
             )

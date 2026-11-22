@@ -110,7 +110,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.BreakIterator
 
 /**
  * Inserts [insert] into [current] at the active selection range (replacing any selected text)
@@ -131,6 +130,8 @@ internal fun insertTextAtSelection(current: TextFieldValue, insert: String): Tex
     )
 }
 
+private val emojiGrapheme = Regex("""\X""")
+
 /**
  * Deletes the selected range, or one full Unicode grapheme cluster before the cursor,
  * preventing split surrogate pairs or broken ZWJ emoji sequences.
@@ -147,12 +148,10 @@ internal fun deleteBeforeSelection(current: TextFieldValue): TextFieldValue {
         )
     }
     if (start == 0) return current
-    val iterator = BreakIterator.getCharacterInstance().apply { setText(text) }
-    val prev = iterator.preceding(start).takeIf { it != BreakIterator.DONE } ?: (start - 1)
-    val safePrev = prev.coerceIn(0, start)
+    val cluster = emojiGrapheme.findAll(text).first { it.range.last + 1 >= start }
     return TextFieldValue(
-        text = text.removeRange(safePrev, start),
-        selection = TextRange(safePrev)
+        text = text.removeRange(cluster.range.first, cluster.range.last + 1),
+        selection = TextRange(cluster.range.first)
     )
 }
 
