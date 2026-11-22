@@ -529,7 +529,7 @@ val LocalWuppShowSeconds = staticCompositionLocalOf { false }
 val LocalWuppUse24Hour = staticCompositionLocalOf { false }
 val LocalWuppChatFontScale = staticCompositionLocalOf { 1.0f }
 val LocalWuppClassicUi = staticCompositionLocalOf { false }
-val LocalWuppBubbleRadiusDp = staticCompositionLocalOf { 16 }
+val LocalWuppBubbleRadiusDp = staticCompositionLocalOf { 17 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -541,7 +541,7 @@ fun WhatsAppTheme(
     useSystemFont: Boolean = false,
     fontStyle: WuppFontStyle = if (useSystemFont) WuppFontStyle.SYSTEM else WuppFontStyle.ROBO_CLEAN,
     customFontPath: String = "",
-    bubbleCornerRadiusDp: Int = 16,
+    bubbleCornerRadiusDp: Int = 17,
     customOutgoingBubbleArgb: Long = 0L,
     customIncomingBubbleArgb: Long = 0L,
     showSecondsInTimestamps: Boolean = false,

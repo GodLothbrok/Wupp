@@ -2,16 +2,17 @@
 
 ## [Unreleased]
 
-## [0.3.7-pre.1] - 2026-11-22
+## [0.3.7] - 2026-11-22
 
 ### ✨ Features
-- 🎨 Added a Material You Dynamic Colors toggle plus 6 new themes, Pure Black OLED mode, custom fonts, and bubble style options (#70).
+- 🎨 Added a Material You Dynamic Colors toggle plus 6 new themes, Pure Black OLED mode, custom fonts, and bubble style options (#70, #95).
 - 📢 Added an optional Separate Channels Tab and a pinned Message Yourself entry in New Chat (#69).
 - 🛡️ Added Anti-Call Protection modes to silence or auto-decline all or unknown callers (#73).
 - 🖼️ Upgraded the Chat Info screen with a full Media, Docs, and Links wall with video thumbnails and tap-to-download (#76).
-- ✨ Added Sticker Studio for creating custom transparent stickers with background cutout, text, and drawing tools.
-- 🎙️ Added in-app call recording and organized locked folders inside the Media Vault.
-- 🕘 Added a searchable Deleted and Edited Message History viewer and a Per-Chat Quick Controls sheet.
+- ✨ Added Sticker Studio for creating custom transparent stickers with background cutout, text, and drawing tools (#64).
+- 🎙️ Added in-app call recording and organized locked folders inside the Media Vault (#64).
+- 🕘 Added a searchable Deleted and Edited Message History viewer and a Per-Chat Quick Controls sheet (#64).
+- 💬 Updated default chat bubble corner roundness to `17dp`.
 
 ### 🛠️ Fixes
 - 👥 Fixed duplicate 1-on-1 chats appearing for the same contact and merged existing split threads automatically (#116).

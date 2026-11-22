@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 class WhatsAppBubbleShape(
     private val isFromMe: Boolean,
     private val showTail: Boolean,
-    private val cornerRadiusDp: Int = 16
+    private val cornerRadiusDp: Int = 17
 ) : Shape {
     override fun createOutline(
         size: Size,
