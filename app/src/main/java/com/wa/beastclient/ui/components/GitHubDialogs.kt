@@ -301,7 +301,7 @@ fun AppUpdateDialog(
     onDownload: (AppReleaseInfo) -> Unit,
     onInstall: (File) -> Unit,
     onInstallExternal: (File) -> Unit = {},
-    onSkipVersion: () -> Unit = {},
+    onSkipVersion: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val colors = LocalWaColors.current
@@ -352,6 +352,7 @@ fun AppUpdateDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 22.dp)
         ) {
@@ -568,7 +569,7 @@ fun AppUpdateDialog(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Primary CTA pill ("Install here" / "Install now" / "Retry download" / "Download in background")
+            // Primary action for the current update state
             when (state) {
                 is UpdateUiState.Error -> {
                     Column(
@@ -705,7 +706,7 @@ fun AppUpdateDialog(
                             .height(50.dp)
                     ) {
                         Text(
-                            text = if (!release.apkDownloadUrl.isNullOrBlank()) "Install here" else "View release",
+                            text = if (!release.apkDownloadUrl.isNullOrBlank()) "Download update" else "View release",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -746,6 +747,12 @@ fun AppUpdateDialog(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                }
+            }
+
+            if (!isDownloading) {
+                TextButton(onClick = onSkipVersion, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text("Skip this version", color = colors.textSecondary)
                 }
             }
         }

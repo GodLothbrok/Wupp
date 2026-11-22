@@ -2,7 +2,6 @@ package com.wa.beastclient.ui.components
 
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -77,11 +77,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.wa.beastclient.data.db.MessageEntity
 import com.wa.beastclient.ui.theme.LocalWuppShowSeconds
 import com.wa.beastclient.ui.theme.LocalWuppUse24Hour
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -155,7 +158,6 @@ fun FullScreenMediaViewer(
     gallery: List<MessageEntity> = emptyList(),
     senderDisplayNameFor: (MessageEntity) -> String = { senderDisplayName }
 ) {
-    val context = LocalContext.current
     val pages = remember(msg.id, gallery) { resolveLightboxPages(msg, gallery) }
     val pagerState = rememberPagerState(
         initialPage = resolveLightboxStartIndex(pages, msg.id),
@@ -297,7 +299,7 @@ fun FullScreenMediaViewer(
                         }
                         val subtitle = listOf(formattedTime, positionLabel)
                             .filter { it.isNotBlank() }
-                            .joinToString("  Â·  ")
+                            .joinToString("  ·  ")
                         if (subtitle.isNotBlank()) {
                             Text(
                                 text = subtitle,
@@ -393,47 +395,46 @@ fun FullScreenMediaViewer(
                             lineHeight = 20.sp
                         )
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
-                                .clip(RoundedCornerShape(23.dp))
-                                .background(Color(0xFF202C33).copy(alpha = 0.92f))
-                                .clickable {
-                                    if (onReply != null) {
-                                        onReply(current)
-                                        onDismiss()
+                    if (onReply != null || onQuickReaction != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+                        ) {
+                            if (onReply != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                        .clip(RoundedCornerShape(23.dp))
+                                        .background(Color(0xFF202C33).copy(alpha = 0.92f))
+                                        .clickable {
+                                            onReply(current)
+                                            onDismiss()
+                                        }
+                                        .padding(horizontal = 18.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = "Reply",
+                                        color = Color(0xFFD1D7DB),
+                                        fontSize = 15.sp
+                                    )
+                                }
+                            }
+                            if (onQuickReaction != null) {
+                                listOf("❤️", "🙏", "👍", "😊").forEach { emoji ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF202C33).copy(alpha = 0.92f))
+                                            .clickable { onQuickReaction(current, emoji) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = emoji, fontSize = 18.sp, maxLines = 1)
                                     }
                                 }
-                                .padding(horizontal = 18.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = "Reply",
-                                color = Color(0xFFD1D7DB),
-                                fontSize = 15.sp
-                            )
-                        }
-                        listOf("â¤ï¸", "ðŸ™", "ðŸ‘", "ðŸ˜Š").forEach { emoji ->
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF202C33).copy(alpha = 0.92f))
-                                    .clickable {
-                                        if (onQuickReaction != null) {
-                                            onQuickReaction(current, emoji)
-                                            Toast.makeText(context, "Reacted $emoji", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(text = emoji, fontSize = 18.sp)
                             }
                         }
                     }
@@ -467,6 +468,7 @@ private fun MediaLightboxPage(
                 AudioLightboxStage(
                     file = mediaFile,
                     durationSec = msg.durationSec,
+                    label = if (msg.msgType.equals("PTT", ignoreCase = true)) "Voice message" else "Audio message",
                     onToggleChrome = onToggleChrome
                 )
             } else {
@@ -618,12 +620,20 @@ private fun VideoLightboxStage(
             playWhenReady = true
         }
     }
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember(player) { mutableStateOf(true) }
+    var playbackFailed by remember(player) { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
+
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackFailed = true
+                isPlaying = false
+            }
+
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
@@ -675,7 +685,11 @@ private fun VideoLightboxStage(
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.56f))
                     .clickable {
-                        if (player.playbackState == Player.STATE_ENDED) {
+                        if (playbackFailed) {
+                            playbackFailed = false
+                            player.prepare()
+                            player.play()
+                        } else if (player.playbackState == Player.STATE_ENDED) {
                             player.seekTo(0L)
                             player.play()
                         } else if (player.isPlaying) {
@@ -688,14 +702,25 @@ private fun VideoLightboxStage(
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    contentDescription = when {
+                        playbackFailed -> "Retry playback"
+                        isPlaying -> "Pause"
+                        else -> "Play"
+                    },
                     tint = Color.White,
                     modifier = Modifier.size(34.dp)
                 )
             }
         }
+        if (playbackFailed) {
+            Text(
+                text = "Video couldn't play. Tap play to retry.",
+                color = Color.White,
+                modifier = Modifier.align(Alignment.Center).offset(y = 52.dp)
+            )
+        }
         AnimatedVisibility(
-            visible = durationMs > 0L && (showChrome || !isPlaying),
+            visible = !playbackFailed && durationMs > 0L && (showChrome || !isPlaying),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -723,6 +748,7 @@ private fun VideoLightboxStage(
 private fun AudioLightboxStage(
     file: File,
     durationSec: Int,
+    label: String,
     onToggleChrome: () -> Unit
 ) {
     val context = LocalContext.current
@@ -733,12 +759,20 @@ private fun AudioLightboxStage(
             playWhenReady = true
         }
     }
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember(player) { mutableStateOf(true) }
+    var playbackFailed by remember(player) { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf((durationSec.coerceAtLeast(0) * 1000L)) }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
+
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackFailed = true
+                isPlaying = false
+            }
+
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
@@ -801,7 +835,7 @@ private fun AudioLightboxStage(
                 )
             }
             Text(
-                text = "Voice message Â· View once",
+                text = if (playbackFailed) "Audio couldn't play. Tap play to retry." else label,
                 color = Color.White,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium
@@ -812,7 +846,11 @@ private fun AudioLightboxStage(
                     .clip(CircleShape)
                     .background(Color(0xFF25D366))
                     .clickable {
-                        if (player.playbackState == Player.STATE_ENDED) {
+                        if (playbackFailed) {
+                            playbackFailed = false
+                            player.prepare()
+                            player.play()
+                        } else if (player.playbackState == Player.STATE_ENDED) {
                             player.seekTo(0L)
                             player.play()
                         } else if (player.isPlaying) {
@@ -825,7 +863,11 @@ private fun AudioLightboxStage(
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    contentDescription = when {
+                        playbackFailed -> "Retry playback"
+                        isPlaying -> "Pause"
+                        else -> "Play"
+                    },
                     tint = Color(0xFF0B141A),
                     modifier = Modifier.size(36.dp)
                 )
@@ -833,6 +875,7 @@ private fun AudioLightboxStage(
             val safeDur = durationMs.coerceAtLeast(1L)
             Slider(
                 value = (positionMs.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f),
+                enabled = !playbackFailed && durationMs > 0L,
                 onValueChange = { frac ->
                     player.seekTo((frac * safeDur).toLong())
                 },

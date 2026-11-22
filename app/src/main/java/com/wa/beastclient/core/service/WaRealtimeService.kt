@@ -1401,10 +1401,7 @@ class WaRealtimeService : Service() {
             isSelf = false
         )
         val state = notificationThreads.compute(msg.chatJid) { _, existing ->
-            val updated = (existing?.entries ?: mutableListOf()).apply {
-                add(entry)
-                while (size > 6) removeAt(0)
-            }
+            val updated = (existing?.entries.orEmpty() + entry).takeLast(6)
             NotificationChatState(
                 chatTitle = chatTitle,
                 isGroup = isGroup,
@@ -2595,7 +2592,7 @@ class WaRealtimeService : Service() {
             val chatTitle: String,
             val isGroup: Boolean,
             val lastMessageId: String,
-            val entries: MutableList<NotificationHistoryEntry>
+            val entries: List<NotificationHistoryEntry>
         )
 
         private val notificationThreads = ConcurrentHashMap<String, NotificationChatState>()
@@ -2604,41 +2601,23 @@ class WaRealtimeService : Service() {
             notificationThreads.remove(chatJid)
         }
 
-        fun appendSelfReplyToNotification(
+        suspend fun appendSelfReplyToNotification(
             context: Context,
             chatJid: String,
             replyText: String,
             timestampMs: Long
         ) {
             val appCtx = context.applicationContext
-            val state = notificationThreads[chatJid] ?: run {
-                val mgr = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                mgr?.cancel(notificationIdForChat(chatJid))
-                return
-            }
-            synchronized(state) {
-                state.entries.add(
-                    NotificationHistoryEntry(
-                        senderName = "You",
-                        text = replyText,
-                        timestamp = timestampMs,
-                        isSelf = true
-                    )
-                )
-                while (state.entries.size > 6) {
-                    state.entries.removeAt(0)
-                }
-            }
+            val entry = NotificationHistoryEntry("You", replyText, timestampMs, isSelf = true)
+            val state = notificationThreads.computeIfPresent(chatJid) { _, current ->
+                current.copy(entries = (current.entries + entry).takeLast(6))
+            } ?: return
             dispatchChatNotification(appCtx, chatJid, state, alertOnce = true)
         }
 
-        fun refreshMessageNotificationAfterAction(context: Context, chatJid: String) {
+        suspend fun refreshMessageNotificationAfterAction(context: Context, chatJid: String) {
             val appCtx = context.applicationContext
-            val state = notificationThreads[chatJid] ?: run {
-                val mgr = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                mgr?.cancel(notificationIdForChat(chatJid))
-                return
-            }
+            val state = notificationThreads[chatJid] ?: return
             dispatchChatNotification(appCtx, chatJid, state, alertOnce = true)
         }
 
@@ -2657,7 +2636,7 @@ class WaRealtimeService : Service() {
             }
         }
 
-        private fun dispatchChatNotification(
+        private suspend fun dispatchChatNotification(
             appCtx: Context,
             chatJid: String,
             state: NotificationChatState,
@@ -2667,12 +2646,15 @@ class WaRealtimeService : Service() {
             ensureMessageNotificationChannel(mgr)
 
             val stealthCfg = StealthMatrixManager.config.value
+            val privateConversation = isPrivateMessageNotification(WaUiDatabase.getInstance(appCtx).waDao(), chatJid)
+            val showPreview = stealthCfg.notifyShowPreview && !privateConversation
             val policy = resolveNotificationActionPolicy(
-                notifyShowPreview = stealthCfg.notifyShowPreview,
+                notifyShowPreview = showPreview,
                 isChannel = chatJid.endsWith("@newsletter"),
                 isAnnounceLocked = _announceLockedGroups.value.contains(chatJid)
             )
-            val entriesSnapshot = synchronized(state) { state.entries.toList() }
+            if (notificationThreads[chatJid] !== state) return
+            val entriesSnapshot = state.entries
             val latest = entriesSnapshot.lastOrNull()
             val notifId = notificationIdForChat(chatJid)
 
@@ -2688,7 +2670,7 @@ class WaRealtimeService : Service() {
             )
 
             val fallbackText = when {
-                !stealthCfg.notifyShowPreview -> "New message"
+                !showPreview -> "New message"
                 latest == null -> "New message"
                 state.isGroup && !latest.isSelf && latest.senderName.isNotBlank() ->
                     "${latest.senderName}: ${latest.text}"
@@ -2697,7 +2679,8 @@ class WaRealtimeService : Service() {
 
             val builder = NotificationCompat.Builder(appCtx, MESSAGES_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_wupp)
-                .setContentTitle(state.chatTitle)
+                .setContentTitle(if (privateConversation) "Wupp" else state.chatTitle)
+                .setVisibility(if (privateConversation) NotificationCompat.VISIBILITY_SECRET else NotificationCompat.VISIBILITY_PRIVATE)
                 .setContentText(fallbackText)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -2709,7 +2692,7 @@ class WaRealtimeService : Service() {
                 .setGroup("wupp_messages")
                 .setContentIntent(contentPendingIntent)
 
-            if (stealthCfg.notifyShowPreview && entriesSnapshot.isNotEmpty()) {
+            if (showPreview && entriesSnapshot.isNotEmpty()) {
                 val mePerson = Person.Builder().setName("You").build()
                 val style = NotificationCompat.MessagingStyle(mePerson)
                     .setGroupConversation(state.isGroup)
@@ -3166,7 +3149,8 @@ class WaRealtimeService : Service() {
             chatJid: String,
             text: String,
             quoted: MessageEntity?,
-            ghostMentionEveryone: Boolean
+            ghostMentionEveryone: Boolean,
+            requireLinkedSession: Boolean = false
         ): Result<MessageEntity> = withContext(Dispatchers.IO) {
             runCatching {
                 ensureOnlineForOutbound()
@@ -3206,6 +3190,8 @@ class WaRealtimeService : Service() {
                         mentionsCsv,
                         !privacy.sendChatPresence
                     )
+                } else if (requireLinkedSession) {
+                    error("Open Wupp and reconnect before replying")
                 } else {
                     "LOCAL_${UUID.randomUUID().toString().take(12).uppercase()}"
                 }
