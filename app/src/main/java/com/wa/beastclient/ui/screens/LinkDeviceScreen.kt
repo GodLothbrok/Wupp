@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Refresh
@@ -75,6 +76,9 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.wa.beastclient.R
 import com.wa.beastclient.core.service.BridgeStatus
+import com.wa.beastclient.domain.accounts.AccountManager
+import com.wa.beastclient.domain.accounts.WuppAccount
+import com.wa.beastclient.ui.components.AccountSwitcherSheet
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
 
@@ -83,12 +87,20 @@ import com.wa.beastclient.ui.theme.LocalWaMonoFamily
 fun LinkDeviceScreen(
     bridgeStatus: BridgeStatus,
     onPairPhone: (String, (String) -> Unit) -> Unit,
-    onRefreshConnection: () -> Unit
+    onRefreshConnection: () -> Unit,
+    accounts: List<WuppAccount> = emptyList(),
+    activeAccountId: String = AccountManager.DEFAULT_ACCOUNT_ID,
+    isSwitchingAccount: Boolean = false,
+    onSwitchAccount: (String) -> Unit = {},
+    onAddAccount: (String) -> Unit = {},
+    onRenameAccount: (String, String) -> Unit = { _, _ -> },
+    onRemoveAccount: (String) -> Unit = {}
 ) {
     val colors = LocalWaColors.current
     val mono = LocalWaMonoFamily.current
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    var showAccountSwitcherSheet by remember { mutableStateOf(false) }
 
     // 0 = QR code, 1 = Phone number
     var selectedMode by rememberSaveable { mutableIntStateOf(0) }
@@ -117,7 +129,35 @@ fun LinkDeviceScreen(
                 .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(10.dp))
+            if (accounts.size > 1) {
+                val activeAcc = accounts.firstOrNull { it.id == activeAccountId }
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .clip(RoundedCornerShape(100))
+                        .background(colors.elevatedBar)
+                        .border(1.dp, colors.divider, RoundedCornerShape(100))
+                        .clickable(enabled = !isSwitchingAccount) { showAccountSwitcherSheet = true }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.ManageAccounts,
+                        contentDescription = null,
+                        tint = colors.brightGreen,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${activeAcc?.displayTitle ?: "Account"} · Switch (${accounts.size})",
+                        color = colors.textPrimary,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+            Spacer(modifier = Modifier.height(14.dp))
 
             Image(
                 painter = painterResource(R.drawable.wupp_logo),
@@ -492,6 +532,19 @@ fun LinkDeviceScreen(
                 )
             }
         }
+    }
+
+    if (showAccountSwitcherSheet) {
+        AccountSwitcherSheet(
+            accounts = accounts,
+            activeAccountId = activeAccountId,
+            isSwitching = isSwitchingAccount,
+            onSelectAccount = onSwitchAccount,
+            onAddAccount = onAddAccount,
+            onRenameAccount = onRenameAccount,
+            onRemoveAccount = onRemoveAccount,
+            onDismiss = { showAccountSwitcherSheet = false }
+        )
     }
 }
 

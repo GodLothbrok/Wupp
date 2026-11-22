@@ -101,6 +101,15 @@ pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeDisconne
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeShutdownClient<'a>(
+    _env: JNIEnv<'a>,
+    _cls: JClass<'a>,
+) {
+    let Some(rt) = BridgeRuntime::get() else { return };
+    rt.rt.block_on(client::shutdown_client(&rt));
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeResetSocket<'a>(
     _env: JNIEnv<'a>,
     _cls: JClass<'a>,

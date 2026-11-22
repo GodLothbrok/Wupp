@@ -27,6 +27,7 @@ import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.wa.beastclient.MainActivity
 import com.wa.beastclient.R
+import com.wa.beastclient.core.calling.CallPhase
 import com.wa.beastclient.core.calling.CallStateManager
 import com.wa.beastclient.data.db.ChatEntity
 import com.wa.beastclient.data.db.ContactEntity
@@ -39,10 +40,13 @@ import com.wa.beastclient.data.db.ProfileHistoryEntity
 import com.wa.beastclient.data.db.StatusEntity
 import com.wa.beastclient.data.db.WaDao
 import com.wa.beastclient.data.db.WaUiDatabase
+import com.wa.beastclient.data.media.CustomStickerStore
 import com.wa.beastclient.data.media.EagerMediaVault
 import com.wa.beastclient.data.media.OutboundQualityMode
 import com.wa.beastclient.data.media.SoundPoolManager
 import com.wa.beastclient.data.media.StickerFavoritesStore
+import com.wa.beastclient.domain.accounts.AccountManager
+import java.util.concurrent.atomic.AtomicBoolean
 import com.wa.beastclient.domain.contacts.DeviceContactFallbackResolver
 import com.wa.beastclient.domain.security.AppLockManager
 import com.wa.beastclient.domain.stealth.StealthMatrixManager
@@ -281,12 +285,24 @@ class WaRealtimeService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        AccountManager.init(applicationContext)
         dao = WaUiDatabase.getInstance(applicationContext).waDao()
+        loadPersistedAliases(applicationContext)
         EagerMediaVault.ensureDirectories(applicationContext)
         StealthMatrixManager.init(applicationContext)
         CallStateManager.init(applicationContext)
         SoundPoolManager.init(applicationContext)
 
+        launchStartupMaintenance()
+
+        promoteForeground("Real-time sync starting…")
+        startEventConsumer()
+        registerNetworkWatcher()
+        initializeGoBridge()
+        startSocketWatchdog()
+    }
+
+    private fun launchStartupMaintenance() {
         serviceScope.launch {
             reloadGroupLocks(applicationContext)
             runCatching {
@@ -313,7 +329,7 @@ class WaRealtimeService : Service() {
                 dao.purgeLegacyDecryptStubMessages()
                 dao.deleteOrphanReactions()
                 dao.normalizeViewOncePreviews()
-                val healPrefs = getSharedPreferences("wupp_migrations", Context.MODE_PRIVATE)
+                val healPrefs = AccountManager.getScopedPreferences(applicationContext, "wupp_migrations")
                 if (!healPrefs.getBoolean("newsletter_unread_healed_v1", false)) {
                     dao.resetInflatedNewsletterUnread()
                     healPrefs.edit().putBoolean("newsletter_unread_healed_v1", true).apply()
@@ -381,12 +397,35 @@ class WaRealtimeService : Service() {
                 purgeExpiredEphemeralIfNeeded()
             }
         }
+    }
 
+    internal fun clearSessionCachesBeforeSwitch() {
+        postConnectSyncJob?.cancel()
+        postConnectSyncJob = null
+        synchronized(avatarBatchLock) {
+            avatarBatchFlushJob?.cancel()
+            avatarBatchFlushJob = null
+            pendingAvatarBatch.clear()
+        }
+        typingExpiryJobs.values.forEach { it.cancel() }
+        typingExpiryJobs.clear()
+        while (realtimeChannel.tryReceive().isSuccess) {}
+        while (syncChannel.tryReceive().isSuccess) {}
+        pushnameCache.clear()
+        requestedAvatarJids.clear()
+        pendingReactions.clear()
+        pendingPins.clear()
+        pendingRevokes.clear()
+        chatAliasToCanonical.clear()
+        lastWatchdogReconnectMs = 0L
+        watchdogConsecutiveFailures = 0
+    }
+
+    internal fun rebindAfterAccountSwitch() {
+        dao = WaUiDatabase.getInstance(applicationContext).waDao()
+        launchStartupMaintenance()
         promoteForeground("Real-time sync starting…")
-        startEventConsumer()
-        registerNetworkWatcher()
         initializeGoBridge()
-        startSocketWatchdog()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -625,7 +664,8 @@ class WaRealtimeService : Service() {
                     }
                     target.trySend(eventType to payloadJson)
                 }
-                Whatsbridge.initClient(applicationContext.filesDir.absolutePath, callback)
+                val dataRoot = AccountManager.dataDir(applicationContext)
+                Whatsbridge.initClient(dataRoot.absolutePath, callback)
                 Whatsbridge.setGhostPresence(StealthMatrixManager.config.value.ghostPresence)
                 syncAutoDownloadPolicy(applicationContext)
                 val loggedIn = runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)
@@ -756,6 +796,9 @@ class WaRealtimeService : Service() {
                     latestPairCode = if (nextLoggedIn) null else _bridgeStatus.value.latestPairCode,
                     lastError = errSummary ?: if (st == "CONNECTED") null else _bridgeStatus.value.lastError
                 )
+                if (st != "LOGGED_OUT" && own.isNotBlank()) {
+                    AccountManager.updateActiveIdentity(applicationContext, ownJid = own)
+                }
                 val statusLine = when {
                     !nextLoggedIn -> "Waiting to link WhatsApp"
                     effectiveState == "OFFLINE_PAUSED" -> "Offline mode (sync paused)"
@@ -1758,7 +1801,7 @@ class WaRealtimeService : Service() {
         ) {
             val vaultFile = File(localPath)
             if (vaultFile.exists() && vaultFile.length() > 0L) {
-                val galleryPrefs = applicationContext.getSharedPreferences("wupp_gallery_exported", Context.MODE_PRIVATE)
+                val galleryPrefs = AccountManager.getScopedPreferences(applicationContext, "wupp_gallery_exported")
                 val exportKey = "exp_$messageId"
                 if (!galleryPrefs.getBoolean(exportKey, false)) {
                     val resolvedMime = mimeType.ifBlank { msg.mimeType }.ifBlank {
@@ -2323,7 +2366,7 @@ class WaRealtimeService : Service() {
             if (aliasesLoaded) return
             synchronized(persistedLidToPn) {
                 if (aliasesLoaded) return
-                val prefs = context.applicationContext.getSharedPreferences(ALIAS_PREFS_NAME, Context.MODE_PRIVATE)
+                val prefs = AccountManager.getScopedPreferences(context, ALIAS_PREFS_NAME)
                 prefs.all.forEach { (lid, pnAny) ->
                     val pn = (pnAny as? String).orEmpty().trim()
                     if (lid.endsWith("@lid") && pn.endsWith("@s.whatsapp.net")) {
@@ -2341,12 +2384,19 @@ class WaRealtimeService : Service() {
             val existing = persistedLidToPn.put(cleanLid, cleanPn)
             instance?.chatAliasToCanonical?.set(cleanLid, cleanPn)
             if (existing != cleanPn) {
-                context.applicationContext
-                    .getSharedPreferences(ALIAS_PREFS_NAME, Context.MODE_PRIVATE)
+                AccountManager.getScopedPreferences(context, ALIAS_PREFS_NAME)
                     .edit()
                     .putString(cleanLid, cleanPn)
                     .apply()
             }
+        }
+
+        internal fun resetAliasesForAccountSwitch(context: Context) {
+            synchronized(persistedLidToPn) {
+                persistedLidToPn.clear()
+                aliasesLoaded = false
+            }
+            loadPersistedAliases(context)
         }
 
         internal suspend fun resolveCanonicalOutboundChatJid(
@@ -2799,7 +2849,7 @@ class WaRealtimeService : Service() {
         private val lastChatHistoryAnchorMs = ConcurrentHashMap<String, Long>()
 
         private fun reloadGroupLocks(context: Context) {
-            val prefs = context.applicationContext.getSharedPreferences("wupp_group_locks", Context.MODE_PRIVATE)
+            val prefs = AccountManager.getScopedPreferences(context, "wupp_group_locks")
             val saved = prefs.getStringSet("locked_groups", emptySet()) ?: emptySet()
             _announceLockedGroups.value = saved.toSet()
         }
@@ -2810,7 +2860,7 @@ class WaRealtimeService : Service() {
                 if (locked) next.add(jid) else next.remove(jid)
             }
             _announceLockedGroups.value = next
-            context.applicationContext.getSharedPreferences("wupp_group_locks", Context.MODE_PRIVATE)
+            AccountManager.getScopedPreferences(context, "wupp_group_locks")
                 .edit()
                 .putStringSet("locked_groups", next)
                 .apply()
@@ -4321,13 +4371,17 @@ class WaRealtimeService : Service() {
                     throw unwrapReflectFailure(t)
                 }
                 val obj = JSONObject(raw.orEmpty().ifBlank { "{}" })
-                OwnProfileUi(
+                val profile = OwnProfileUi(
                     ownJid = obj.optString("ownJid", ownJid),
                     phone = obj.optString("phone", phone),
                     pushName = obj.optString("pushName", ""),
                     about = obj.optString("about", ""),
                     syncSupported = true
                 )
+                instance?.applicationContext?.let { ctx ->
+                    AccountManager.updateActiveIdentity(ctx, profile.ownJid, profile.pushName)
+                }
+                profile
             }
         }
 
@@ -4450,13 +4504,106 @@ class WaRealtimeService : Service() {
                 }
             }
 
+        private val accountSwitchInFlight = AtomicBoolean(false)
+
+        suspend fun switchActiveAccount(
+            context: Context,
+            targetAccountId: String
+        ): Result<Unit> = withContext(Dispatchers.IO) {
+            val appCtx = context.applicationContext
+            AccountManager.init(appCtx)
+            if (CallStateManager.uiState.value.phase != CallPhase.IDLE) {
+                return@withContext Result.failure(IllegalStateException("End active call before switching accounts"))
+            }
+            val cleanTarget = targetAccountId.trim().ifBlank { AccountManager.DEFAULT_ACCOUNT_ID }
+            if (AccountManager.accounts.value.none { it.id == cleanTarget }) {
+                return@withContext Result.failure(IllegalStateException("Account not found"))
+            }
+            if (cleanTarget == AccountManager.activeAccountId.value && _bridgeStatus.value.engineReady) {
+                return@withContext Result.success(Unit)
+            }
+            if (!accountSwitchInFlight.compareAndSet(false, true)) {
+                return@withContext Result.failure(IllegalStateException("Account switch already in progress"))
+            }
+            try {
+                try {
+                    Whatsbridge.shutdownClient()
+                } catch (_: UnsatisfiedLinkError) {
+                    runCatching { Whatsbridge.disconnectClient() }
+                } catch (err: Throwable) {
+                    Log.w(TAG, "shutdownClient warning during account switch: ${err.message}")
+                }
+
+                val mgr = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                notificationThreads.keys.toList().forEach { jid ->
+                    runCatching { mgr?.cancel(notificationIdForChat(jid)) }
+                }
+                notificationThreads.clear()
+                lastChatHistoryAnchorMs.clear()
+                sentStatusReceiptIds.clear()
+                _announceLockedGroups.value = emptySet()
+                activeChatJid.value = null
+                terminalSyncHalted = false
+                rateLimitedUntilElapsedMs = 0L
+                _downloadingMediaIds.value = emptySet()
+                _failedMediaIds.value = emptyMap()
+
+                instance?.clearSessionCachesBeforeSwitch()
+                WaUiDatabase.closeAndResetInstance()
+
+                if (!AccountManager.setActiveAccount(appCtx, cleanTarget)) {
+                    return@withContext Result.failure(IllegalStateException("Unable to activate account"))
+                }
+
+                EagerMediaVault.ensureDirectories(appCtx)
+                StealthMatrixManager.reloadForActiveAccount(appCtx)
+                CustomStickerStore.getInstance(appCtx).reloadForActiveAccount()
+                StickerFavoritesStore.getInstance(appCtx).reloadForActiveAccount()
+                resetAliasesForAccountSwitch(appCtx)
+                reloadGroupLocks(appCtx)
+                _bridgeStatus.value = BridgeStatus(
+                    engineReady = false,
+                    connectionState = "SWITCHING_ACCOUNT"
+                )
+
+                val svc = instance
+                if (svc != null) {
+                    svc.rebindAfterAccountSwitch()
+                } else {
+                    ensureStarted(appCtx)
+                }
+                Result.success(Unit)
+            } catch (t: Throwable) {
+                Log.e(TAG, "switchActiveAccount failed", t)
+                Result.failure(t)
+            } finally {
+                accountSwitchInFlight.set(false)
+            }
+        }
+
         fun computeStorageStats(context: Context): WuppStorageStats {
             val appCtx = context.applicationContext
-            val dbBytes = (appCtx.databaseList() ?: emptyArray())
-                .sumOf { dbName -> appCtx.getDatabasePath(dbName)?.length() ?: 0L }
-            val mediaRoot = File(appCtx.filesDir, "wa_vault")
-            val altFilesSize = folderByteSize(appCtx.filesDir)
-            val vaultBytes = if (mediaRoot.exists()) folderByteSize(mediaRoot) else altFilesSize
+            AccountManager.init(appCtx)
+            val uiDb = AccountManager.roomDatabaseFile(appCtx)
+            val dataRoot = AccountManager.dataDir(appCtx)
+            val rustDb = File(dataRoot, "wa_rust.db")
+            val dbFiles = listOf(
+                uiDb,
+                File("${uiDb.absolutePath}-wal"),
+                File("${uiDb.absolutePath}-shm"),
+                rustDb,
+                File("${rustDb.absolutePath}-wal"),
+                File("${rustDb.absolutePath}-shm")
+            )
+            val dbBytes = dbFiles.sumOf { if (it.exists() && it.isFile) it.length() else 0L }
+            val mediaRoot = File(dataRoot, "wa_vault")
+            val vaultBytes = if (mediaRoot.exists()) {
+                folderByteSize(mediaRoot)
+            } else {
+                listOf("media", "vault", "stickers")
+                    .map { File(dataRoot, it) }
+                    .sumOf { folderByteSize(it) }
+            }
             val cacheBytes = folderByteSize(appCtx.cacheDir)
             return WuppStorageStats(
                 dbBytes = dbBytes,

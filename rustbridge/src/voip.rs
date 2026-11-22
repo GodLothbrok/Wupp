@@ -103,6 +103,17 @@ impl VoipRegistry {
         }
     }
 
+    pub fn clear_all(&self) {
+        self.pending_offers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.active_calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+
     pub fn on_incoming_call_event(&self, call: &IncomingCall, runtime: &BridgeRuntime) {
         let from_jid = canonical_jid_str(&call.from.to_string());
         match &call.action {

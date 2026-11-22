@@ -35,6 +35,10 @@ class CustomStickerStore private constructor(private val appContext: Context) {
         refresh()
     }
 
+    fun reloadForActiveAccount() {
+        refresh()
+    }
+
     fun refresh() {
         val loaded = loadManifest().filter { File(it.filePath).let { f -> f.exists() && f.length() > 0L } }
         val knownPaths = loaded.mapTo(HashSet()) { it.filePath }

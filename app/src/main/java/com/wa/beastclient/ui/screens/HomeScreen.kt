@@ -242,6 +242,8 @@ import com.wa.beastclient.ui.components.buildContactStatusSummaries
 import com.wa.beastclient.ui.components.formatFontScaleLabel
 import com.wa.beastclient.ui.components.isOwnStatusSender
 import com.wa.beastclient.ui.components.partitionOwnAndContactStatuses
+import androidx.compose.material.icons.rounded.ManageAccounts
+import com.wa.beastclient.ui.components.AccountSwitcherSheet
 import com.wa.beastclient.ui.components.GitHubFeedbackDialog
 import com.wa.beastclient.ui.components.GitHubFeedbackType
 import com.wa.beastclient.ui.MainViewModel
@@ -423,6 +425,7 @@ fun HomeScreen(
     var activeVaultViewer by remember { mutableStateOf<MessageEntity?>(null) }
     var activeFeedbackType by remember { mutableStateOf<GitHubFeedbackType?>(null) }
     var showThemePickerDialog by remember { mutableStateOf(false) }
+    var showAccountSwitcherSheet by remember { mutableStateOf(false) }
     var showMediaVaultSheet by remember { mutableStateOf(false) }
     var showMessageHistorySheet by remember { mutableStateOf(false) }
     var messageHistoryChatFilter by remember { mutableStateOf<String?>(null) }
@@ -900,6 +903,14 @@ fun HomeScreen(
                                 onClick = {
                                     overflowExpanded = false
                                     showPairingDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Switch account") },
+                                leadingIcon = { Icon(Icons.Rounded.ManageAccounts, null) },
+                                onClick = {
+                                    overflowExpanded = false
+                                    showAccountSwitcherSheet = true
                                 }
                             )
                             DropdownMenuItem(
@@ -1510,6 +1521,22 @@ fun HomeScreen(
             canSendNow = false,
             onSaveToPack = { bmp, label -> viewModel.saveCustomSticker(bmp, label) },
             onDismiss = { showStickerStudioDialog = false }
+        )
+    }
+
+    if (showAccountSwitcherSheet) {
+        val accounts by viewModel.accounts.collectAsState()
+        val activeAccountId by viewModel.activeAccountId.collectAsState()
+        val isSwitchingAccount by viewModel.isSwitchingAccount.collectAsState()
+        AccountSwitcherSheet(
+            accounts = accounts,
+            activeAccountId = activeAccountId,
+            isSwitching = isSwitchingAccount,
+            onSelectAccount = { viewModel.switchAccount(it) },
+            onAddAccount = { viewModel.addAndSwitchAccount(it) },
+            onRenameAccount = { id, label -> viewModel.renameAccount(id, label) },
+            onRemoveAccount = { viewModel.removeInactiveAccount(it) },
+            onDismiss = { showAccountSwitcherSheet = false }
         )
     }
 
@@ -4379,9 +4406,13 @@ private fun ToolsVaultTab(
     val appLockConfig by viewModel.appLockConfig.collectAsState()
     val bridgeStatus by viewModel.bridgeStatus.collectAsState()
     val allChats by viewModel.allChats.collectAsState()
+    val accounts by viewModel.accounts.collectAsState()
+    val activeAccountId by viewModel.activeAccountId.collectAsState()
+    val isSwitchingAccount by viewModel.isSwitchingAccount.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val includePreReleases by viewModel.includePreReleases.collectAsState()
     var ownProfile by remember { mutableStateOf(OwnProfileUi()) }
+    var showAccountSwitcherSheet by remember { mutableStateOf(false) }
     var showProfileEditorDialog by remember { mutableStateOf(false) }
     var showAccountPrivacyDialog by remember { mutableStateOf(false) }
     var showBlockedContactsDialog by remember { mutableStateOf(false) }
@@ -4468,12 +4499,33 @@ private fun ToolsVaultTab(
         }
 
         item(key = "patch_section_account_privacy") {
+            val activeAccount = accounts.firstOrNull { it.id == activeAccountId } ?: accounts.firstOrNull()
+            val acctSubtitle = buildString {
+                if (activeAccount != null) {
+                    append(activeAccount.displayTitle)
+                    val phone = activeAccount.displayPhone
+                    if (phone.isNotBlank()) {
+                        append(" (")
+                        append(phone)
+                        append(")")
+                    }
+                    append(" · ")
+                }
+                append(if (accounts.size == 1) "1 account · Tap to add another" else "${accounts.size} accounts")
+            }
             ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_account_privacy)) {
+                ExpressiveSegmentedActionRow(
+                    icon = Icons.Rounded.ManageAccounts,
+                    title = "Switch or add WhatsApp account",
+                    subtitle = acctSubtitle,
+                    position = ExpressiveSegmentPosition.TOP,
+                    onClick = { showAccountSwitcherSheet = true }
+                )
                 ExpressiveSegmentedActionRow(
                     icon = Icons.Rounded.AdminPanelSettings,
                     title = stringResource(R.string.settings_wa_privacy_title),
                     subtitle = stringResource(R.string.settings_wa_privacy_subtitle),
-                    position = ExpressiveSegmentPosition.TOP,
+                    position = ExpressiveSegmentPosition.MIDDLE,
                     onClick = { showAccountPrivacyDialog = true }
                 )
                 ExpressiveSegmentedActionRow(
@@ -5367,6 +5419,19 @@ private fun ToolsVaultTab(
 
     if (showCompanionScopeDialog) {
         CompanionScopeInfoDialog(onDismiss = { showCompanionScopeDialog = false })
+    }
+
+    if (showAccountSwitcherSheet) {
+        AccountSwitcherSheet(
+            accounts = accounts,
+            activeAccountId = activeAccountId,
+            isSwitching = isSwitchingAccount,
+            onSelectAccount = { viewModel.switchAccount(it) },
+            onAddAccount = { viewModel.addAndSwitchAccount(it) },
+            onRenameAccount = { id, label -> viewModel.renameAccount(id, label) },
+            onRemoveAccount = { viewModel.removeInactiveAccount(it) },
+            onDismiss = { showAccountSwitcherSheet = false }
+        )
     }
 
     if (showWallpaperDialog) {

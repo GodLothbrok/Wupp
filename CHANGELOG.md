@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.3.8-pre.2] - 2026-11-23
+
+### ✨ Features
+- 👥 Added a WhatsApp account switcher so you can link and switch between multiple accounts with separate chats, media, and settings.
+
 ## [0.3.8-pre.1] - 2026-11-22
 
 ### 🛠️ Fixes

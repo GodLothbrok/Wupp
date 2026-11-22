@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.wa.beastclient.domain.accounts.AccountManager
 import java.io.File
 
 @Database(
@@ -118,11 +119,12 @@ abstract class WaUiDatabase : RoomDatabase() {
         }
 
         fun getInstance(context: Context): WaUiDatabase {
+            AccountManager.init(context)
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     WaUiDatabase::class.java,
-                    File(context.applicationContext.filesDir, "wa_ui.db").absolutePath
+                    AccountManager.roomDatabaseFile(context).absolutePath
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
@@ -136,6 +138,13 @@ abstract class WaUiDatabase : RoomDatabase() {
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }
+            }
+        }
+
+        fun closeAndResetInstance() {
+            synchronized(this) {
+                runCatching { INSTANCE?.close() }
+                INSTANCE = null
             }
         }
     }

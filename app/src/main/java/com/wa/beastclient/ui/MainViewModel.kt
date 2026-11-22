@@ -26,6 +26,7 @@ import com.wa.beastclient.data.db.MessageEntity
 import com.wa.beastclient.data.db.PresenceLogEntity
 import com.wa.beastclient.data.db.ProfileHistoryEntity
 import com.wa.beastclient.data.db.StatusEntity
+import com.wa.beastclient.data.db.WaDao
 import com.wa.beastclient.data.db.WaUiDatabase
 import com.wa.beastclient.data.media.BuiltinSticker
 import com.wa.beastclient.data.media.CuppyPackManager
@@ -37,6 +38,8 @@ import com.wa.beastclient.data.media.OutboundQualityMode
 import com.wa.beastclient.data.media.hasExtractableAudioTrack
 import com.wa.beastclient.data.media.SoundPoolManager
 import com.wa.beastclient.data.media.StickerFavoritesStore
+import com.wa.beastclient.domain.accounts.AccountManager
+import com.wa.beastclient.domain.accounts.WuppAccount
 import com.wa.beastclient.domain.contacts.DeviceContactFallbackResolver
 import com.wa.beastclient.domain.security.AppLockConfig
 import com.wa.beastclient.domain.security.AppLockManager
@@ -57,6 +60,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -150,9 +154,21 @@ internal fun filterHomeThreads(
     )
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
-    private val dao = WaUiDatabase.getInstance(appContext).waDao()
+    private val dao: WaDao
+        get() = WaUiDatabase.getInstance(appContext).waDao()
+
+    val accounts: StateFlow<List<WuppAccount>> = AccountManager.accounts
+    val activeAccountId: StateFlow<String> = AccountManager.activeAccountId
+    val accountGeneration: StateFlow<Long> = AccountManager.accountGeneration
+
+    private val _isSwitchingAccount = MutableStateFlow(false)
+    val isSwitchingAccount: StateFlow<Boolean> = _isSwitchingAccount.asStateFlow()
+
+    private val activeDaoFlow: Flow<WaDao> = AccountManager.accountGeneration
+        .map { WaUiDatabase.getInstance(appContext).waDao() }
 
     val stealthConfig: StateFlow<GlobalStealthConfig> = StealthMatrixManager.config
     val appLockConfig: StateFlow<AppLockConfig> = AppLockManager.config
@@ -167,6 +183,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lockedChatsRevealed: StateFlow<Boolean> = _lockedChatsRevealed.asStateFlow()
 
     init {
+        AccountManager.init(appContext)
         WuppUpdater.init(appContext)
         viewModelScope.launch {
             WuppUpdater.checkForUpdates(appContext, silent = true)
@@ -175,6 +192,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppLockManager.isLocked.collect { locked ->
                 if (locked) {
                     _lockedChatsRevealed.value = false
+                }
+            }
+        }
+        viewModelScope.launch {
+            AccountManager.accountGeneration.drop(1).collect {
+                synchronized(pagerFlowCache) {
+                    pagerFlowCache.clear()
+                }
+                _ftsSearchResults.value = emptyList()
+                _homeSearchQuery.value = ""
+                _bulkVerifyOutput.value = null
+                _lockedChatsRevealed.value = false
+                _participantMeta.value = emptyMap()
+                viewModelScope.launch(Dispatchers.IO) {
+                    purgeExpiredStatuses()
                 }
             }
         }
@@ -212,18 +244,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var activeRecordingFile: File? = null
     private var recordingStartMs: Long = 0L
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val allChats: StateFlow<List<ChatEntity>> = _includeArchived
-        .flatMapLatest { dao.observeChats(it) }
+    val allChats: StateFlow<List<ChatEntity>> = combine(activeDaoFlow, _includeArchived) { activeDao, archived ->
+        activeDao to archived
+    }
+        .flatMapLatest { (activeDao, archived) -> activeDao.observeChats(archived) }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    val allContacts: StateFlow<List<ContactEntity>> = dao.observeContacts()
+    val allContacts: StateFlow<List<ContactEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeContacts() }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    val callLogs: StateFlow<List<MessageEntity>> = dao.observeCallLogs()
+    val callLogs: StateFlow<List<MessageEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeCallLogs() }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    val recentStickers: StateFlow<List<MessageEntity>> = dao.observeRecentStickers()
+    val recentStickers: StateFlow<List<MessageEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeRecentStickers() }
         .map { list ->
             list.filter { !it.localMediaPath.isNullOrBlank() && File(it.localMediaPath).exists() }
         }
@@ -254,7 +290,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val customStickerStore = CustomStickerStore.getInstance(appContext)
     val customStickers: StateFlow<List<CustomStickerItem>> = customStickerStore.stickers
 
-    val archivedCount: StateFlow<Int> = dao.observeArchivedCount()
+    val archivedCount: StateFlow<Int> = activeDaoFlow
+        .flatMapLatest { it.observeArchivedCount() }
         .stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
     val hiddenLockedChatsCount: StateFlow<Int> = combine(
@@ -317,7 +354,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    val statuses: StateFlow<List<StatusEntity>> = dao.observeStatuses()
+    val statuses: StateFlow<List<StatusEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeStatuses() }
         .map { list ->
             val cutoff = System.currentTimeMillis() - 86_400_000L
             list.filter { it.timestamp >= cutoff }
@@ -342,22 +380,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    val viewOnceVault: StateFlow<List<MessageEntity>> = dao.observeViewOnceVault()
+    val viewOnceVault: StateFlow<List<MessageEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeViewOnceVault() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val deletedMessagesHistory: StateFlow<List<MessageEntity>> = dao.observeDeletedMessages()
+    val deletedMessagesHistory: StateFlow<List<MessageEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeDeletedMessages() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val editedMessagesHistory: StateFlow<List<MessageEntity>> = dao.observeEditedMessages()
+    val editedMessagesHistory: StateFlow<List<MessageEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeEditedMessages() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allMessageEdits: StateFlow<List<MessageEditEntity>> = dao.observeAllMessageEdits()
+    val allMessageEdits: StateFlow<List<MessageEditEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeAllMessageEdits() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val presenceLogs: StateFlow<List<PresenceLogEntity>> = dao.observeAllPresenceLogs()
+    val presenceLogs: StateFlow<List<PresenceLogEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeAllPresenceLogs() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val profileHistory: StateFlow<List<ProfileHistoryEntity>> = dao.observeAllProfileHistory()
+    val profileHistory: StateFlow<List<ProfileHistoryEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeAllProfileHistory() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun selectFilter(chip: HomeFilterChip) {
@@ -420,36 +464,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun observeChat(chatJid: String): Flow<ChatEntity?> = dao.observeChat(chatJid)
+    fun observeChat(chatJid: String): Flow<ChatEntity?> =
+        activeDaoFlow.flatMapLatest { it.observeChat(chatJid) }
 
     fun observeRecentMessages(chatJid: String, limit: Int = 20): Flow<List<MessageEntity>> =
-        dao.observeRecentMessages(chatJid, limit)
+        activeDaoFlow.flatMapLatest { it.observeRecentMessages(chatJid, limit) }
 
-    fun observeMyReaction(messageId: String): Flow<String?> = dao.observeMyReaction(messageId)
+    fun observeMyReaction(messageId: String): Flow<String?> =
+        activeDaoFlow.flatMapLatest { it.observeMyReaction(messageId) }
 
     fun observeChatGalleryMedia(chatJid: String): Flow<List<MessageEntity>> =
-        dao.observeChatGalleryMedia(chatJid)
+        activeDaoFlow.flatMapLatest { it.observeChatGalleryMedia(chatJid) }
 
     fun observeChatMediaWallItems(chatJid: String): Flow<List<MessageEntity>> =
-        dao.observeChatMediaWallItems(chatJid)
+        activeDaoFlow.flatMapLatest { it.observeChatMediaWallItems(chatJid) }
 
     fun observeChatDocuments(chatJid: String): Flow<List<MessageEntity>> =
-        dao.observeChatDocumentMessages(chatJid)
+        activeDaoFlow.flatMapLatest { it.observeChatDocumentMessages(chatJid) }
 
     fun observeChatLinkMessages(chatJid: String): Flow<List<MessageEntity>> =
-        dao.observeChatLinkMessages(chatJid)
+        activeDaoFlow.flatMapLatest { it.observeChatLinkMessages(chatJid) }
 
-    fun observeContact(jid: String): Flow<ContactEntity?> = dao.observeContact(jid)
+    fun observeContact(jid: String): Flow<ContactEntity?> =
+        activeDaoFlow.flatMapLatest { it.observeContact(jid) }
 
     fun observeEffectivePrivacy(chatJid: String): Flow<EffectiveChatPrivacy> =
-        StealthMatrixManager.observeEffectivePrivacy(dao, chatJid)
+        activeDaoFlow.flatMapLatest { StealthMatrixManager.observeEffectivePrivacy(it, chatJid) }
 
     fun canInitiateOutbound(chatJid: String): Flow<Boolean> {
         val ownJid = bridgeStatus.value.ownJid
         return if (chatJid.endsWith("@g.us") || StealthMatrixManager.isSelfChatJid(chatJid, ownJid)) {
             MutableStateFlow(true)
         } else {
-            dao.observeRecentMessages(chatJid, 1).map { it.isNotEmpty() }
+            activeDaoFlow.flatMapLatest { d ->
+                d.observeRecentMessages(chatJid, 1).map { it.isNotEmpty() }
+            }
         }
     }
 
@@ -460,7 +509,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pagedMessages(chatJid: String): Flow<PagingData<MessageEntity>> = synchronized(pagerFlowCache) {
-        pagerFlowCache.getOrPut(chatJid) {
+        val cacheKey = "${AccountManager.activeAccountId.value}::${AccountManager.accountGeneration.value}::$chatJid"
+        pagerFlowCache.getOrPut(cacheKey) {
             Pager(
                 config = PagingConfig(
                     pageSize = 60,
@@ -468,7 +518,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     prefetchDistance = 20,
                     enablePlaceholders = false
                 ),
-                pagingSourceFactory = { dao.pagingMessages(chatJid) }
+                pagingSourceFactory = { WaUiDatabase.getInstance(appContext).waDao().pagingMessages(chatJid) }
             ).flow.cachedIn(viewModelScope)
         }
     }
@@ -486,10 +536,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     fun observeEdits(messageId: String): Flow<List<MessageEditEntity>> =
-        dao.observeMessageEdits(messageId)
+        activeDaoFlow.flatMapLatest { it.observeMessageEdits(messageId) }
 
     fun observeGroupReceipts(messageId: String): Flow<List<GroupReceiptEntity>> =
-        dao.observeGroupReceipts(messageId)
+        activeDaoFlow.flatMapLatest { it.observeGroupReceipts(messageId) }
 
     fun toggleGhostPresence() {
         val next = !stealthConfig.value.ghostPresence
@@ -961,7 +1011,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun observePinnedMessages(chatJid: String): Flow<List<MessageEntity>> =
-        dao.observePinnedMessages(chatJid)
+        activeDaoFlow.flatMapLatest { it.observePinnedMessages(chatJid) }
+
+    fun switchAccount(accountId: String) {
+        if (_isSwitchingAccount.value) return
+        if (_isRecordingVoice.value) {
+            cancelVoiceRecording()
+        }
+        viewModelScope.launch {
+            _isSwitchingAccount.value = true
+            try {
+                WaRealtimeService.switchActiveAccount(appContext, accountId)
+                    .onSuccess {
+                        val acc = AccountManager.getActiveAccount()
+                        showToast("Switched to ${acc.displayTitle}")
+                    }
+                    .onFailure { err ->
+                        showToast(err.message ?: "Unable to switch accounts")
+                    }
+            } finally {
+                _isSwitchingAccount.value = false
+            }
+        }
+    }
+
+    fun addAndSwitchAccount(label: String) {
+        if (_isSwitchingAccount.value) return
+        val created = AccountManager.createAccount(appContext, label)
+        switchAccount(created.id)
+    }
+
+    fun renameAccount(accountId: String, newLabel: String) {
+        AccountManager.renameAccount(appContext, accountId, newLabel)
+    }
+
+    fun removeInactiveAccount(accountId: String) {
+        val removed = AccountManager.removeInactiveAccount(appContext, accountId)
+        if (removed) {
+            showToast("Account removed")
+        } else {
+            showToast("Switch to another account first")
+        }
+    }
 
     fun pinMessage(chatJid: String, target: MessageEntity, durationSec: Long) {
         viewModelScope.launch {

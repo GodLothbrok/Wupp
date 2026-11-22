@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.text.format.DateFormat
 import com.wa.beastclient.data.db.PrivacyRuleEntity
 import com.wa.beastclient.data.db.WaDao
+import com.wa.beastclient.domain.accounts.AccountManager
 import com.wa.beastclient.ui.theme.LocaleHelper
 import com.wa.beastclient.ui.theme.WuppAccentColor
 import com.wa.beastclient.ui.theme.WuppClockFormat
@@ -268,13 +269,31 @@ object StealthMatrixManager {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
-            appContextRef = context.applicationContext
-            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val now = System.currentTimeMillis()
-            if (!prefs.contains(KEY_PRIMARY_HEARTBEAT_MS)) {
-                prefs.edit().putLong(KEY_PRIMARY_HEARTBEAT_MS, now).apply()
-            }
-            _config.value = GlobalStealthConfig(
+            reloadLocked(context)
+            initialized = true
+        }
+    }
+
+    fun reloadForActiveAccount(context: Context) {
+        synchronized(this) {
+            reloadLocked(context)
+            initialized = true
+        }
+    }
+
+    private fun reloadLocked(context: Context) {
+        AccountManager.init(context)
+        appContextRef = context.applicationContext
+        prefs = AccountManager.getScopedPreferences(context, PREFS_NAME)
+        val now = System.currentTimeMillis()
+        if (!prefs.contains(KEY_PRIMARY_HEARTBEAT_MS)) {
+            prefs.edit().putLong(KEY_PRIMARY_HEARTBEAT_MS, now).apply()
+        }
+        _config.value = readConfigFromPrefs(prefs, now)
+    }
+
+    private fun readConfigFromPrefs(prefs: SharedPreferences, now: Long): GlobalStealthConfig =
+        GlobalStealthConfig(
                 ghostPresence = prefs.getBoolean(KEY_GHOST_PRESENCE, true),
                 hideReadReceipts = prefs.getBoolean(KEY_HIDE_READ, false),
                 hidePlayedReceipts = prefs.getBoolean(KEY_HIDE_PLAYED, true),
@@ -340,10 +359,7 @@ object StealthMatrixManager {
                 customIncomingBubbleArgb = prefs.getLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, 0L),
                 vaultLockEnabled = prefs.getBoolean(KEY_VAULT_LOCK_ENABLED, false),
                 autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false)
-            )
-            initialized = true
-        }
-    }
+        )
 
     fun updateConfig(transform: (GlobalStealthConfig) -> GlobalStealthConfig) {
         val updated = transform(_config.value)
