@@ -1,15 +1,20 @@
 package com.wa.beastclient.ui.theme
 
 import android.app.Activity
+import android.content.Context
 import android.content.res.AssetManager
 import android.graphics.Typeface
+import android.os.Build
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -18,6 +23,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -32,14 +39,39 @@ enum class WuppThemeMode(
     val tagline: String
 ) {
     LIGHT("light", "Light", "Crisp daylight white & emerald"),
-    DARK("dark", "Dark", "Classic WhatsApp slate charcoal"),
+    DARK("dark", "Dark", "Classic slate charcoal"),
     AMOLED("amoled", "AMOLED", "True #000000 OLED pitch black"),
-    AURORA("aurora", "Velvet Aurora", "Midnight indigo & glowing mint");
+    AURORA("aurora", "Velvet Aurora", "Midnight indigo & glowing mint"),
+    SYNTHWAVE("synthwave", "Synthwave", "Retro neon sunset & magenta"),
+    SAKURA("sakura", "Sakura", "Soft cherry blossom daylight"),
+    NOIR_GOLD("noir_gold", "Noir & Gold", "Obsidian black & warm 24k gold"),
+    PAPER_INK("paper_ink", "Paper & Ink", "Warm editorial cream & forest"),
+    MATCHA("matcha", "Matcha", "Botanical sage green daylight"),
+    GLACIER("glacier", "Glacier", "Arctic frost slate & ice cyan");
 
     companion object {
         fun fromStorageKey(key: String?, legacyDarkFallback: Boolean): WuppThemeMode {
             entries.firstOrNull { it.storageKey.equals(key, ignoreCase = true) }?.let { return it }
             return if (legacyDarkFallback) DARK else LIGHT
+        }
+    }
+}
+
+enum class WuppFontStyle(
+    val storageKey: String,
+    val label: String,
+    val subtitle: String
+) {
+    ROBO_CLEAN("roboto", "Clean Sans", "Balanced modern typeface"),
+    SYSTEM("system", "Device System", "Follow your Android phone font"),
+    SERIF_EDITORIAL("serif", "Editorial Serif", "Crisp literary serif"),
+    MONO_TECH("mono", "Tech Mono", "Fixed-width developer style"),
+    CUSTOM("custom", "Imported Font", "Your own .ttf or .otf file");
+
+    companion object {
+        fun fromStorageKey(key: String?, legacyUseSystemFont: Boolean = false): WuppFontStyle {
+            entries.firstOrNull { it.storageKey.equals(key, ignoreCase = true) }?.let { return it }
+            return if (legacyUseSystemFont) SYSTEM else ROBO_CLEAN
         }
     }
 }
@@ -88,6 +120,55 @@ internal fun blendRgb(base: Color, tint: Color, ratio: Float): Color {
         green = base.green * inv + tint.green * t,
         blue = base.blue * inv + tint.blue * t,
         alpha = 1f
+    )
+}
+
+/** Picks dark or light ink automatically so FAB/badge icons always contrast sharply on dynamic colors. */
+fun Color.contrastingContentColor(): Color =
+    if (luminance() > 0.45f) Color(0xFF0B141A) else Color.White
+
+/** Returns Android 12+ wallpaper-derived Material You palette when supported by this OS version. */
+fun resolvePlatformDynamicColorScheme(context: Context, isDark: Boolean): ColorScheme? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+    return if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+}
+
+/** Maps a Material 3 [ColorScheme] (including Material You wallpaper palettes) across backgrounds, buttons, bubbles, and pills. */
+internal fun applyDynamicColorSchemeToWaColors(
+    base: WaColors,
+    scheme: ColorScheme
+): WaColors {
+    val richButtonAccent = if (base.isDark) {
+        val raw = blendRgb(scheme.primary, scheme.onPrimary, 0.38f)
+        if (raw.luminance() > 0.30f) blendRgb(raw, scheme.onPrimary, 0.25f) else raw
+    } else {
+        scheme.primary
+    }
+    return base.copy(
+        chatCanvas = if (base.isDark) {
+            blendRgb(scheme.surfaceContainerLowest, scheme.primaryContainer, 0.08f)
+        } else {
+            blendRgb(scheme.surfaceContainerLow, scheme.primaryContainer, 0.20f)
+        },
+        appSurface = scheme.background,
+        elevatedBar = scheme.surfaceContainerHigh,
+        outgoingBubble = if (base.isDark) {
+            blendRgb(scheme.primaryContainer, scheme.surfaceContainerLow, 0.12f)
+        } else {
+            blendRgb(scheme.primaryContainer, Color.White, 0.08f)
+        },
+        incomingBubble = if (base.isDark) scheme.surfaceContainer else scheme.surface,
+        accentGreen = richButtonAccent,
+        brightGreen = scheme.primary,
+        blueTick = scheme.tertiary,
+        textPrimary = scheme.onSurface,
+        textSecondary = scheme.onSurfaceVariant,
+        pillActiveBg = scheme.primaryContainer,
+        pillActiveText = scheme.onPrimaryContainer,
+        pillInactiveBg = scheme.surfaceContainer,
+        antiDeleteRed = scheme.error,
+        divider = scheme.outlineVariant,
+        doodleColor = scheme.onSurface
     )
 }
 
@@ -217,37 +298,229 @@ val WaAuroraColors = WaColors(
     doodleTintAlpha = 0.075f
 )
 
+val WaSynthwaveColors = WaColors(
+    themeMode = WuppThemeMode.SYNTHWAVE,
+    isDark = true,
+    chatCanvas = Color(0xFF130924),
+    appSurface = Color(0xFF160B29),
+    elevatedBar = Color(0xFF21123B),
+    outgoingBubble = Color(0xFF831843),
+    incomingBubble = Color(0xFF281747),
+    accentGreen = Color(0xFFF43F5E),
+    brightGreen = Color(0xFFFB7185),
+    blueTick = Color(0xFF38BDF8),
+    textPrimary = Color(0xFFFDF2F8),
+    textSecondary = Color(0xFFC4B5FD),
+    pillActiveBg = Color(0xFF4C0519),
+    pillActiveText = Color(0xFFFDA4AF),
+    pillInactiveBg = Color(0xFF281747),
+    antiDeleteRed = Color(0xFFFF4D6D),
+    warningAmber = Color(0xFFFBBF24),
+    quotedBg = Color(0x38000000),
+    divider = Color(0xFF3B1D63),
+    mediaScrim = Color(0x73080212),
+    doodleColor = Color(0xFFF472B6),
+    doodleTintAlpha = 0.08f
+)
+
+val WaSakuraColors = WaColors(
+    themeMode = WuppThemeMode.SAKURA,
+    isDark = false,
+    chatCanvas = Color(0xFFFFF5F7),
+    appSurface = Color(0xFFFFFBFC),
+    elevatedBar = Color(0xFFFDECEF),
+    outgoingBubble = Color(0xFFFCDCE3),
+    incomingBubble = Color(0xFFFFFFFF),
+    accentGreen = Color(0xFFBE185D),
+    brightGreen = Color(0xFFEC4899),
+    blueTick = Color(0xFF0284C7),
+    textPrimary = Color(0xFF311022),
+    textSecondary = Color(0xFF83556B),
+    pillActiveBg = Color(0xFFFCE7F3),
+    pillActiveText = Color(0xFF9D174D),
+    pillInactiveBg = Color(0xFFF9E6EC),
+    antiDeleteRed = Color(0xFFDC2626),
+    warningAmber = Color(0xFFD97706),
+    quotedBg = Color(0x129D174D),
+    divider = Color(0xFFF4D7E0),
+    mediaScrim = Color(0x66000000),
+    doodleColor = Color(0xFFBE185D),
+    doodleTintAlpha = 0.08f
+)
+
+val WaNoirGoldColors = WaColors(
+    themeMode = WuppThemeMode.NOIR_GOLD,
+    isDark = true,
+    chatCanvas = Color(0xFF0B0A08),
+    appSurface = Color(0xFF0F0D0A),
+    elevatedBar = Color(0xFF1C1812),
+    outgoingBubble = Color(0xFF423212),
+    incomingBubble = Color(0xFF1F1B14),
+    accentGreen = Color(0xFFD9A441),
+    brightGreen = Color(0xFFFBBF24),
+    blueTick = Color(0xFFFCD34D),
+    textPrimary = Color(0xFFFAF5EA),
+    textSecondary = Color(0xFFB4A488),
+    pillActiveBg = Color(0xFF2D230E),
+    pillActiveText = Color(0xFFFDE68A),
+    pillInactiveBg = Color(0xFF1E1A13),
+    antiDeleteRed = Color(0xFFF87171),
+    warningAmber = Color(0xFFF59E0B),
+    quotedBg = Color(0x38000000),
+    divider = Color(0xFF2B2418),
+    mediaScrim = Color(0x80000000),
+    doodleColor = Color(0xFFFBBF24),
+    doodleTintAlpha = 0.06f
+)
+
+val WaPaperInkColors = WaColors(
+    themeMode = WuppThemeMode.PAPER_INK,
+    isDark = false,
+    chatCanvas = Color(0xFFF4EFE6),
+    appSurface = Color(0xFFFAF7F2),
+    elevatedBar = Color(0xFFECE4D8),
+    outgoingBubble = Color(0xFFE0EAD7),
+    incomingBubble = Color(0xFFFFFFFF),
+    accentGreen = Color(0xFF2D5A27),
+    brightGreen = Color(0xFF3E7B34),
+    blueTick = Color(0xFF2563EB),
+    textPrimary = Color(0xFF1F1B16),
+    textSecondary = Color(0xFF6B6256),
+    pillActiveBg = Color(0xFFDCE7D4),
+    pillActiveText = Color(0xFF1E4619),
+    pillInactiveBg = Color(0xFFEBE4D7),
+    antiDeleteRed = Color(0xFFB91C1C),
+    warningAmber = Color(0xFFB45309),
+    quotedBg = Color(0x14000000),
+    divider = Color(0xFFDFD5C5),
+    mediaScrim = Color(0x66000000),
+    doodleColor = Color(0xFF7D705F),
+    doodleTintAlpha = 0.14f
+)
+
+val WaMatchaColors = WaColors(
+    themeMode = WuppThemeMode.MATCHA,
+    isDark = false,
+    chatCanvas = Color(0xFFEAF2EA),
+    appSurface = Color(0xFFF6FAF6),
+    elevatedBar = Color(0xFFE1ECE1),
+    outgoingBubble = Color(0xFFCDE7CC),
+    incomingBubble = Color(0xFFFFFFFF),
+    accentGreen = Color(0xFF2E7D32),
+    brightGreen = Color(0xFF43A047),
+    blueTick = Color(0xFF0288D1),
+    textPrimary = Color(0xFF112313),
+    textSecondary = Color(0xFF556E57),
+    pillActiveBg = Color(0xFFD2E9D1),
+    pillActiveText = Color(0xFF1B5E20),
+    pillInactiveBg = Color(0xFFE0ECE0),
+    antiDeleteRed = Color(0xFFD32F2F),
+    warningAmber = Color(0xFFEF6C00),
+    quotedBg = Color(0x141B5E20),
+    divider = Color(0xFFD0DFD0),
+    mediaScrim = Color(0x66000000),
+    doodleColor = Color(0xFF4D724F),
+    doodleTintAlpha = 0.14f
+)
+
+val WaGlacierColors = WaColors(
+    themeMode = WuppThemeMode.GLACIER,
+    isDark = true,
+    chatCanvas = Color(0xFF09131C),
+    appSurface = Color(0xFF0B1620),
+    elevatedBar = Color(0xFF122333),
+    outgoingBubble = Color(0xFF0E4D64),
+    incomingBubble = Color(0xFF152738),
+    accentGreen = Color(0xFF06B6D4),
+    brightGreen = Color(0xFF22D3EE),
+    blueTick = Color(0xFF67E8F9),
+    textPrimary = Color(0xFFECF8FF),
+    textSecondary = Color(0xFF8AA8BE),
+    pillActiveBg = Color(0xFF083344),
+    pillActiveText = Color(0xFF67E8F9),
+    pillInactiveBg = Color(0xFF152738),
+    antiDeleteRed = Color(0xFFFB7185),
+    warningAmber = Color(0xFFFBBF24),
+    quotedBg = Color(0x38000000),
+    divider = Color(0xFF1C3347),
+    mediaScrim = Color(0x73020A12),
+    doodleColor = Color(0xFF67E8F9),
+    doodleTintAlpha = 0.07f
+)
+
 fun colorsForTheme(
     mode: WuppThemeMode,
-    accent: WuppAccentColor = WuppAccentColor.DEFAULT
+    accent: WuppAccentColor = WuppAccentColor.DEFAULT,
+    pureBlackOled: Boolean = false,
+    customOutgoingBubbleArgb: Long = 0L,
+    customIncomingBubbleArgb: Long = 0L,
+    dynamicScheme: ColorScheme? = null
 ): WaColors {
     val base = when (mode) {
         WuppThemeMode.LIGHT -> WaLightColors
         WuppThemeMode.DARK -> WaDarkColors
         WuppThemeMode.AMOLED -> WaAmoledColors
         WuppThemeMode.AURORA -> WaAuroraColors
+        WuppThemeMode.SYNTHWAVE -> WaSynthwaveColors
+        WuppThemeMode.SAKURA -> WaSakuraColors
+        WuppThemeMode.NOIR_GOLD -> WaNoirGoldColors
+        WuppThemeMode.PAPER_INK -> WaPaperInkColors
+        WuppThemeMode.MATCHA -> WaMatchaColors
+        WuppThemeMode.GLACIER -> WaGlacierColors
     }
-    if (accent == WuppAccentColor.DEFAULT) return base
-    val accentColor = Color(accent.accentArgb)
-    val brightColor = Color(accent.brightArgb)
-    val outgoing = if (base.isDark) {
-        blendRgb(base.appSurface, accentColor, 0.36f)
-    } else {
-        blendRgb(Color.White, brightColor, 0.22f)
+    var resolved = when {
+        dynamicScheme != null -> applyDynamicColorSchemeToWaColors(base, dynamicScheme)
+        accent == WuppAccentColor.DEFAULT -> base
+        else -> {
+            val accentColor = Color(accent.accentArgb)
+            val brightColor = Color(accent.brightArgb)
+            val outgoing = if (base.isDark) {
+                blendRgb(base.appSurface, accentColor, 0.36f)
+            } else {
+                blendRgb(Color.White, brightColor, 0.22f)
+            }
+            val pillBg = if (base.isDark) {
+                blendRgb(base.appSurface, accentColor, 0.24f)
+            } else {
+                blendRgb(Color.White, brightColor, 0.20f)
+            }
+            val pillText = if (base.isDark) brightColor else accentColor
+            base.copy(
+                accentGreen = accentColor,
+                brightGreen = brightColor,
+                outgoingBubble = outgoing,
+                pillActiveBg = pillBg,
+                pillActiveText = pillText
+            )
+        }
     }
-    val pillBg = if (base.isDark) {
-        blendRgb(base.appSurface, accentColor, 0.24f)
-    } else {
-        blendRgb(Color.White, brightColor, 0.20f)
+
+    if (pureBlackOled) {
+        // Pure Black OLED forces true #000000 canvases/bars and crisp high-contrast dark surfaces
+        resolved = resolved.copy(
+            isDark = true,
+            chatCanvas = Color.Black,
+            appSurface = Color.Black,
+            elevatedBar = Color(0xFF07090B),
+            incomingBubble = if (resolved.isDark) Color(0xFF101317) else Color(0xFF12161A),
+            outgoingBubble = if (resolved.isDark) resolved.outgoingBubble else blendRgb(Color.Black, resolved.accentGreen, 0.38f),
+            textPrimary = Color(0xFFF5F7F9),
+            textSecondary = Color(0xFF8C98A4),
+            pillActiveBg = blendRgb(Color.Black, resolved.accentGreen, 0.22f),
+            pillActiveText = resolved.brightGreen,
+            pillInactiveBg = Color(0xFF12161B),
+            divider = Color(0xFF161B20),
+            doodleTintAlpha = 0.045f
+        )
     }
-    val pillText = if (base.isDark) brightColor else accentColor
-    return base.copy(
-        accentGreen = accentColor,
-        brightGreen = brightColor,
-        outgoingBubble = outgoing,
-        pillActiveBg = pillBg,
-        pillActiveText = pillText
-    )
+
+    if (customOutgoingBubbleArgb != 0L) {
+        resolved = resolved.copy(outgoingBubble = Color(customOutgoingBubbleArgb))
+    }
+    if (customIncomingBubbleArgb != 0L) {
+        resolved = resolved.copy(incomingBubble = Color(customIncomingBubbleArgb))
+    }
+    return resolved
 }
 
 val LocalWaColors = staticCompositionLocalOf { WaDarkColors }
@@ -256,13 +529,21 @@ val LocalWuppShowSeconds = staticCompositionLocalOf { false }
 val LocalWuppUse24Hour = staticCompositionLocalOf { false }
 val LocalWuppChatFontScale = staticCompositionLocalOf { 1.0f }
 val LocalWuppClassicUi = staticCompositionLocalOf { false }
+val LocalWuppBubbleRadiusDp = staticCompositionLocalOf { 16 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WhatsAppTheme(
     themeMode: WuppThemeMode = WuppThemeMode.DARK,
     accentColor: WuppAccentColor = WuppAccentColor.DEFAULT,
+    pureBlackOled: Boolean = false,
+    dynamicColors: Boolean = false,
     useSystemFont: Boolean = false,
+    fontStyle: WuppFontStyle = if (useSystemFont) WuppFontStyle.SYSTEM else WuppFontStyle.ROBO_CLEAN,
+    customFontPath: String = "",
+    bubbleCornerRadiusDp: Int = 16,
+    customOutgoingBubbleArgb: Long = 0L,
+    customIncomingBubbleArgb: Long = 0L,
     showSecondsInTimestamps: Boolean = false,
     use24HourFormat: Boolean = false,
     chatFontScale: Float = 1.0f,
@@ -270,7 +551,19 @@ fun WhatsAppTheme(
     assetManager: AssetManager,
     content: @Composable () -> Unit
 ) {
-    val waColors = colorsForTheme(themeMode, accentColor)
+    val context = LocalContext.current
+    val baseIsDark = pureBlackOled || colorsForTheme(themeMode).isDark
+    val dynamicScheme = remember(dynamicColors, baseIsDark, context) {
+        if (dynamicColors) resolvePlatformDynamicColorScheme(context, baseIsDark) else null
+    }
+    val waColors = colorsForTheme(
+        mode = themeMode,
+        accent = accentColor,
+        pureBlackOled = pureBlackOled,
+        customOutgoingBubbleArgb = customOutgoingBubbleArgb,
+        customIncomingBubbleArgb = customIncomingBubbleArgb,
+        dynamicScheme = dynamicScheme
+    )
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -281,11 +574,25 @@ fun WhatsAppTheme(
         }
     }
 
-    val sansFamily: FontFamily = remember(assetManager, useSystemFont) {
-        if (useSystemFont) {
-            FontFamily.Default
-        } else {
-            runCatching {
+    val effectiveFontStyle = if (useSystemFont && fontStyle == WuppFontStyle.ROBO_CLEAN) {
+        WuppFontStyle.SYSTEM
+    } else {
+        fontStyle
+    }
+    val sansFamily: FontFamily = remember(assetManager, effectiveFontStyle, customFontPath) {
+        when (effectiveFontStyle) {
+            WuppFontStyle.SYSTEM -> FontFamily.Default
+            WuppFontStyle.SERIF_EDITORIAL -> FontFamily.Serif
+            WuppFontStyle.MONO_TECH -> FontFamily.Monospace
+            WuppFontStyle.CUSTOM -> {
+                val f = customFontPath.takeIf { it.isNotBlank() }?.let { java.io.File(it) }
+                if (f != null && f.exists() && f.length() > 0L) {
+                    runCatching { FontFamily(Typeface.createFromFile(f)) }.getOrNull() ?: FontFamily.SansSerif
+                } else {
+                    FontFamily.SansSerif
+                }
+            }
+            WuppFontStyle.ROBO_CLEAN -> runCatching {
                 FontFamily(Typeface.createFromAsset(assetManager, "fonts/Roboto-Medium.ttf"))
             }.getOrDefault(FontFamily.SansSerif)
         }
@@ -358,10 +665,34 @@ fun WhatsAppTheme(
         )
     }
 
-    val m3Scheme = if (waColors.isDark) {
-        darkColorScheme(
+    val m3Scheme = when {
+        dynamicScheme != null -> dynamicScheme.copy(
             primary = waColors.accentGreen,
-            onPrimary = if (waColors.themeMode == WuppThemeMode.AURORA) Color(0xFF06131F) else Color.White,
+            onPrimary = waColors.accentGreen.contrastingContentColor(),
+            primaryContainer = waColors.pillActiveBg,
+            onPrimaryContainer = waColors.pillActiveText,
+            secondary = waColors.brightGreen,
+            onSecondary = waColors.brightGreen.contrastingContentColor(),
+            secondaryContainer = waColors.elevatedBar,
+            onSecondaryContainer = waColors.textPrimary,
+            tertiary = waColors.blueTick,
+            background = waColors.appSurface,
+            surface = waColors.appSurface,
+            surfaceVariant = waColors.elevatedBar,
+            surfaceContainerLow = waColors.appSurface,
+            surfaceContainer = waColors.pillInactiveBg,
+            surfaceContainerHigh = waColors.elevatedBar,
+            surfaceContainerHighest = waColors.pillInactiveBg,
+            outline = waColors.divider,
+            outlineVariant = waColors.divider.copy(alpha = 0.7f),
+            onBackground = waColors.textPrimary,
+            onSurface = waColors.textPrimary,
+            onSurfaceVariant = waColors.textSecondary,
+            error = waColors.antiDeleteRed
+        )
+        waColors.isDark -> darkColorScheme(
+            primary = waColors.accentGreen,
+            onPrimary = if (waColors.themeMode in setOf(WuppThemeMode.AURORA, WuppThemeMode.NOIR_GOLD, WuppThemeMode.GLACIER)) Color(0xFF06131F) else Color.White,
             primaryContainer = waColors.pillActiveBg,
             onPrimaryContainer = waColors.pillActiveText,
             secondary = waColors.brightGreen,
@@ -383,8 +714,7 @@ fun WhatsAppTheme(
             onSurfaceVariant = waColors.textSecondary,
             error = waColors.antiDeleteRed
         )
-    } else {
-        lightColorScheme(
+        else -> lightColorScheme(
             primary = waColors.accentGreen,
             onPrimary = Color.White,
             primaryContainer = waColors.pillActiveBg,
@@ -416,7 +746,8 @@ fun WhatsAppTheme(
         LocalWuppShowSeconds provides showSecondsInTimestamps,
         LocalWuppUse24Hour provides use24HourFormat,
         LocalWuppChatFontScale provides chatFontScale.coerceIn(0.85f, 1.25f),
-        LocalWuppClassicUi provides classicUi
+        LocalWuppClassicUi provides classicUi,
+        LocalWuppBubbleRadiusDp provides bubbleCornerRadiusDp.coerceIn(4, 24)
     ) {
         MaterialExpressiveTheme(
             colorScheme = m3Scheme,

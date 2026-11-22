@@ -19,13 +19,21 @@ Whenever analyzing, proposing, or implementing any feature, bug fix, or protocol
 2. **State the risk verdict and direction clearly:** Start with a concise risk call in simple words—whether the change **increases**, **decreases**, or **keeps the same** flag risk (and why), while staying realistic (never claim `"0% risk"` or `"100% safe"` for an unofficial client like `whatsapp-rust` / `whatsmeow`).
 3. **Explain server traffic vs. phone-only work concisely:** Briefly note what talks to WhatsApp servers vs. what stays on the phone—covering key safeguards (cooldowns, batching, caching) and any leftover risk in short, plain everyday English instead of long technical lists of requests.
 
-## Hard Rule: Always Explain Changes & Flag Risk in Simple Words
+## Hard Rule: Always Report Realistic DMCA & Takedown Risk
 
-Whenever telling the user what changed or explaining `WhatsApp Flag Risk`:
+Whenever analyzing, proposing, adding, or changing any asset, library, UI screen, feature, protocol code, or documentation in Wupp:
+
+1. **Always include an explicit `DMCA / Takedown Risk` section alongside `WhatsApp Flag Risk`**—never wait for the user to ask `"dmca?"`.
+2. **State the risk verdict and direction clearly:** Start with a concise risk call in simple words—whether the change **increases**, **decreases**, or **keeps the same** DMCA/copyright/trademark takedown risk (and why), never claiming `"0% risk"` for a third-party WhatsApp companion client.
+3. **Check assets, naming, and third-party code cleanly:** Confirm that no proprietary audio, fonts, icons/trademarks (e.g. speech-bubble tails or `"WhatsApp"`/`"Cuppy"` branding), or unlicensed binaries are introduced, and explain any leftover protocol/trademark risk in plain everyday English.
+
+## Hard Rule: Always Explain Changes & Risks in Simple Words
+
+Whenever telling the user what changed or explaining `WhatsApp Flag Risk` and `DMCA / Takedown Risk`:
 
 1. **Use plain, everyday English:** Keep sentences short and clear so anyone can read them quickly without decoding heavy technical talk.
 2. **Include key technical details simply:** Still cover the important technical facts—such as which parts of the app changed, cooldowns/timings, caching rules, and how server requests behave—explained in clear everyday language instead of cryptic variable names or raw file-line dumps (unless raw symbols are asked for).
-3. **Keep both sections easy to scan:** Summarize what changed in a few clear bullets, followed by a simple, honest `WhatsApp Flag Risk` breakdown.
+3. **Keep both sections easy to scan:** Summarize what changed in a few clear bullets, followed by concise, honest `WhatsApp Flag Risk` and `DMCA / Takedown Risk` breakdowns.
 
 ## Hard Rule: Always Write Concise, Simple Changelogs
 

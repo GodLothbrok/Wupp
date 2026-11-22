@@ -10,6 +10,7 @@ import com.wa.beastclient.data.db.WaDao
 import com.wa.beastclient.ui.theme.LocaleHelper
 import com.wa.beastclient.ui.theme.WuppAccentColor
 import com.wa.beastclient.ui.theme.WuppClockFormat
+import com.wa.beastclient.ui.theme.WuppFontStyle
 import com.wa.beastclient.ui.theme.WuppThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,38 @@ enum class CallBackendMode(val storageKey: String, val title: String, val subtit
     companion object {
         fun fromStorageKey(raw: String?): CallBackendMode =
             entries.firstOrNull { it.storageKey.equals(raw, ignoreCase = true) } ?: ALWAYS_READY
+    }
+}
+
+enum class AntiCallMode(
+    val storageKey: String,
+    val title: String,
+    val subtitle: String,
+    val badgeLabel: String
+) {
+    OFF("OFF", "Anti-Call Off", "Receive incoming WhatsApp calls normally", ""),
+    SILENCE_ALL(
+        "SILENCE_ALL",
+        "Silence All Calls",
+        "Suppress ringtone and popup in Wupp without sending a decline to the caller",
+        "SILENCE"
+    ),
+    REJECT_ALL(
+        "REJECT_ALL",
+        "Auto-Decline All Calls",
+        "Automatically decline every incoming WhatsApp call",
+        "DECLINE ALL"
+    ),
+    REJECT_UNSAVED(
+        "REJECT_UNSAVED",
+        "Auto-Decline Unknown Callers",
+        "Automatically decline calls from unsaved numbers; saved contacts ring normally",
+        "UNKNOWN ONLY"
+    );
+
+    companion object {
+        fun fromStorageKey(raw: String?): AntiCallMode =
+            entries.firstOrNull { it.storageKey.equals(raw, ignoreCase = true) } ?: OFF
     }
 }
 
@@ -70,6 +103,7 @@ data class GlobalStealthConfig(
     val offlineMode: Boolean = false,
     val hideStealthStatusBadges: Boolean = false,
     val separateGroupsAndChats: Boolean = false,
+    val separateChannelsTab: Boolean = false,
     val hideChannels: Boolean = false,
     val enterIsSend: Boolean = false,
     val chatFontScale: Float = 1.0f,
@@ -96,7 +130,17 @@ data class GlobalStealthConfig(
     val primaryLastSeenEpochMs: Long = System.currentTimeMillis(),
     val callBackendMode: CallBackendMode = CallBackendMode.ALWAYS_READY,
     val suppressIncomingRingWhenOfficialInstalled: Boolean = false,
-    val officialCallMuteConfirmed: Boolean = false
+    val officialCallMuteConfirmed: Boolean = false,
+    val antiCallMode: AntiCallMode = AntiCallMode.OFF,
+    val pureBlackOled: Boolean = false,
+    val dynamicMaterialYou: Boolean = false,
+    val fontStyle: WuppFontStyle = WuppFontStyle.ROBO_CLEAN,
+    val customFontPath: String = "",
+    val bubbleCornerRadiusDp: Int = 16,
+    val customOutgoingBubbleArgb: Long = 0L,
+    val customIncomingBubbleArgb: Long = 0L,
+    val vaultLockEnabled: Boolean = false,
+    val autoRecordCalls: Boolean = false
 )
 
 data class EffectiveChatPrivacy(
@@ -157,6 +201,7 @@ object StealthMatrixManager {
     private const val KEY_OFFLINE_MODE = "offline_mode"
     private const val KEY_HIDE_STEALTH_BADGES = "hide_stealth_status_badges"
     private const val KEY_SEPARATE_GROUPS_CHATS = "separate_groups_chats"
+    private const val KEY_SEPARATE_CHANNELS_TAB = "separate_channels_tab"
     private const val KEY_HIDE_CHANNELS = "hide_channels"
     private const val KEY_ENTER_IS_SEND = "enter_is_send"
     private const val KEY_CHAT_FONT_SCALE = "chat_font_scale"
@@ -179,6 +224,16 @@ object StealthMatrixManager {
     private const val KEY_CALL_BACKEND_MODE = "call_backend_mode"
     private const val KEY_SUPPRESS_RING_WITH_OFFICIAL = "suppress_ring_with_official"
     private const val KEY_OFFICIAL_CALL_MUTE_CONFIRMED = "official_call_mute_confirmed"
+    private const val KEY_ANTI_CALL_MODE = "anti_call_mode"
+    private const val KEY_PURE_BLACK_OLED = "pure_black_oled"
+    private const val KEY_DYNAMIC_MATERIAL_YOU = "dynamic_material_you"
+    private const val KEY_FONT_STYLE = "font_style"
+    private const val KEY_CUSTOM_FONT_PATH = "custom_font_path"
+    private const val KEY_BUBBLE_CORNER_RADIUS_DP = "bubble_corner_radius_dp"
+    private const val KEY_CUSTOM_OUTGOING_BUBBLE_ARGB = "custom_outgoing_bubble_argb"
+    private const val KEY_CUSTOM_INCOMING_BUBBLE_ARGB = "custom_incoming_bubble_argb"
+    private const val KEY_VAULT_LOCK_ENABLED = "vault_lock_enabled"
+    private const val KEY_AUTO_RECORD_CALLS = "auto_record_calls"
 
     private const val FOURTEEN_DAYS_MS = 14L * 24L * 60L * 60L * 1000L
     private const val WARNING_THRESHOLD_DAYS = 10
@@ -244,6 +299,7 @@ object StealthMatrixManager {
                 offlineMode = prefs.getBoolean(KEY_OFFLINE_MODE, false),
                 hideStealthStatusBadges = prefs.getBoolean(KEY_HIDE_STEALTH_BADGES, false),
                 separateGroupsAndChats = prefs.getBoolean(KEY_SEPARATE_GROUPS_CHATS, false),
+                separateChannelsTab = prefs.getBoolean(KEY_SEPARATE_CHANNELS_TAB, false),
                 hideChannels = prefs.getBoolean(KEY_HIDE_CHANNELS, false),
                 enterIsSend = prefs.getBoolean(KEY_ENTER_IS_SEND, false),
                 chatFontScale = prefs.getFloat(KEY_CHAT_FONT_SCALE, 1.0f).coerceIn(0.85f, 1.25f),
@@ -270,7 +326,20 @@ object StealthMatrixManager {
                 primaryLastSeenEpochMs = prefs.getLong(KEY_PRIMARY_HEARTBEAT_MS, now),
                 callBackendMode = CallBackendMode.fromStorageKey(prefs.getString(KEY_CALL_BACKEND_MODE, null)),
                 suppressIncomingRingWhenOfficialInstalled = prefs.getBoolean(KEY_SUPPRESS_RING_WITH_OFFICIAL, false),
-                officialCallMuteConfirmed = prefs.getBoolean(KEY_OFFICIAL_CALL_MUTE_CONFIRMED, false)
+                officialCallMuteConfirmed = prefs.getBoolean(KEY_OFFICIAL_CALL_MUTE_CONFIRMED, false),
+                antiCallMode = AntiCallMode.fromStorageKey(prefs.getString(KEY_ANTI_CALL_MODE, null)),
+                pureBlackOled = prefs.getBoolean(KEY_PURE_BLACK_OLED, false),
+                dynamicMaterialYou = prefs.getBoolean(KEY_DYNAMIC_MATERIAL_YOU, false),
+                fontStyle = WuppFontStyle.fromStorageKey(
+                    prefs.getString(KEY_FONT_STYLE, null),
+                    prefs.getBoolean(KEY_USE_SYSTEM_FONT, false)
+                ),
+                customFontPath = prefs.getString(KEY_CUSTOM_FONT_PATH, "") ?: "",
+                bubbleCornerRadiusDp = prefs.getInt(KEY_BUBBLE_CORNER_RADIUS_DP, 16).coerceIn(4, 24),
+                customOutgoingBubbleArgb = prefs.getLong(KEY_CUSTOM_OUTGOING_BUBBLE_ARGB, 0L),
+                customIncomingBubbleArgb = prefs.getLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, 0L),
+                vaultLockEnabled = prefs.getBoolean(KEY_VAULT_LOCK_ENABLED, false),
+                autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false)
             )
             initialized = true
         }
@@ -303,6 +372,7 @@ object StealthMatrixManager {
                 .putBoolean(KEY_OFFLINE_MODE, updated.offlineMode)
                 .putBoolean(KEY_HIDE_STEALTH_BADGES, updated.hideStealthStatusBadges)
                 .putBoolean(KEY_SEPARATE_GROUPS_CHATS, updated.separateGroupsAndChats)
+                .putBoolean(KEY_SEPARATE_CHANNELS_TAB, updated.separateChannelsTab)
                 .putBoolean(KEY_HIDE_CHANNELS, updated.hideChannels)
                 .putBoolean(KEY_ENTER_IS_SEND, updated.enterIsSend)
                 .putFloat(KEY_CHAT_FONT_SCALE, updated.chatFontScale.coerceIn(0.85f, 1.25f))
@@ -330,6 +400,16 @@ object StealthMatrixManager {
                 .putString(KEY_CALL_BACKEND_MODE, updated.callBackendMode.storageKey)
                 .putBoolean(KEY_SUPPRESS_RING_WITH_OFFICIAL, updated.suppressIncomingRingWhenOfficialInstalled)
                 .putBoolean(KEY_OFFICIAL_CALL_MUTE_CONFIRMED, updated.officialCallMuteConfirmed)
+                .putString(KEY_ANTI_CALL_MODE, updated.antiCallMode.storageKey)
+                .putBoolean(KEY_PURE_BLACK_OLED, updated.pureBlackOled)
+                .putBoolean(KEY_DYNAMIC_MATERIAL_YOU, updated.dynamicMaterialYou)
+                .putString(KEY_FONT_STYLE, updated.fontStyle.storageKey)
+                .putString(KEY_CUSTOM_FONT_PATH, updated.customFontPath)
+                .putInt(KEY_BUBBLE_CORNER_RADIUS_DP, updated.bubbleCornerRadiusDp.coerceIn(4, 24))
+                .putLong(KEY_CUSTOM_OUTGOING_BUBBLE_ARGB, updated.customOutgoingBubbleArgb)
+                .putLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, updated.customIncomingBubbleArgb)
+                .putBoolean(KEY_VAULT_LOCK_ENABLED, updated.vaultLockEnabled)
+                .putBoolean(KEY_AUTO_RECORD_CALLS, updated.autoRecordCalls)
                 .apply()
         }
     }
@@ -665,12 +745,33 @@ object StealthMatrixManager {
         )
     }
 
+    /** Normalizes the account's own JID into a direct-message chat JID (`<phone>@s.whatsapp.net`). */
+    fun canonicalSelfChatJid(ownJid: String): String {
+        val bare = ownJid.trim().substringBefore("@").substringBefore(":")
+        return if (bare.isBlank()) "" else "$bare@s.whatsapp.net"
+    }
+
+    /** Returns true when [chatJid] targets the user's own account ("Message yourself"). */
+    fun isSelfChatJid(chatJid: String, ownJid: String): Boolean {
+        if (chatJid.isBlank() || ownJid.isBlank()) return false
+        if (chatJid.endsWith("@g.us") || chatJid.endsWith("@newsletter") || chatJid == "status@broadcast" || chatJid.endsWith("@broadcast")) {
+            return false
+        }
+        val chatUser = chatJid.trim().substringBefore("@").substringBefore(":")
+        val ownUser = ownJid.trim().substringBefore("@").substringBefore(":")
+        return chatUser.isNotBlank() && chatUser == ownUser
+    }
+
     /**
      * Error 463 Ban Guard: Blocks sending an initial companion message to an unsaved/unknown
      * 1-on-1 contact that has 0 prior messages in local Room history.
      */
-    suspend fun canInitiateOutboundMessage(dao: WaDao, chatJid: String): Boolean {
-        if (chatJid.endsWith("@g.us") || chatJid == "status@broadcast" || chatJid.endsWith("@newsletter")) {
+    suspend fun canInitiateOutboundMessage(dao: WaDao, chatJid: String, ownJid: String = ""): Boolean {
+        if (chatJid.endsWith("@g.us") ||
+            chatJid == "status@broadcast" ||
+            chatJid.endsWith("@newsletter") ||
+            isSelfChatJid(chatJid, ownJid)
+        ) {
             return true
         }
         return dao.countMessagesInChat(chatJid) > 0

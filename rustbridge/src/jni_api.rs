@@ -479,6 +479,20 @@ pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeResolveP
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeResolveLocalDmAliasesJson<'a>(
+    mut env: JNIEnv<'a>,
+    _cls: JClass<'a>,
+    jids_csv: JString<'a>,
+) -> jstring {
+    let csv = jstr(&mut env, &jids_csv);
+    let out = match BridgeRuntime::get() {
+        Some(rt) => rt.rt.block_on(contacts_groups::resolve_local_dm_aliases_json(&rt, &csv)),
+        None => "{}".to_string(),
+    };
+    new_jstr(&mut env, &out)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeGetGroupParticipantsJson<'a>(
     mut env: JNIEnv<'a>,
     _cls: JClass<'a>,

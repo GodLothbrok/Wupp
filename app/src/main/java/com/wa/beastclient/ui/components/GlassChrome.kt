@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -72,6 +73,7 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
+import com.wa.beastclient.ui.theme.contrastingContentColor
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -264,9 +266,11 @@ fun WuppGlassNavBar(
     classicMode: Boolean = false,
     separateGroupsAndChats: Boolean = false,
     unreadGroupsCount: Int = 0,
+    separateChannelsTab: Boolean = false,
     chatsLabel: String = "Chats",
     groupsLabel: String = "Groups",
     updatesLabel: String = "Updates",
+    channelsLabel: String = "Channels",
     communitiesLabel: String = "Communities",
     callsLabel: String = "Calls",
     settingsLabel: String = "Settings",
@@ -275,11 +279,13 @@ fun WuppGlassNavBar(
     val colors = LocalWaColors.current
     val tabs = remember(
         separateGroupsAndChats,
+        separateChannelsTab,
         unreadChatsCount,
         unreadGroupsCount,
         chatsLabel,
         groupsLabel,
         updatesLabel,
+        channelsLabel,
         communitiesLabel,
         callsLabel,
         settingsLabel
@@ -290,6 +296,9 @@ fun WuppGlassNavBar(
                 add(GlassNavTab(4, groupsLabel, imageVector = Icons.Rounded.Groups, badgeCount = unreadGroupsCount))
             }
             add(GlassNavTab(1, updatesLabel, drawableRes = R.drawable.vec_ic_status))
+            if (separateChannelsTab) {
+                add(GlassNavTab(6, channelsLabel, imageVector = Icons.Rounded.Campaign))
+            }
             add(GlassNavTab(2, communitiesLabel, drawableRes = R.drawable.vec_ic_avatar_community))
             add(GlassNavTab(5, callsLabel, imageVector = Icons.Rounded.Call))
             add(GlassNavTab(3, settingsLabel, imageVector = Icons.Rounded.Shield))
@@ -297,8 +306,19 @@ fun WuppGlassNavBar(
     }
     val fiveTabs = tabs.size >= 5
     val sixTabs = tabs.size >= 6
-    val labelFontSize = if (sixTabs) 8.8.sp else if (fiveTabs) 9.5.sp else 10.5.sp
-    val classicLabelFontSize = if (sixTabs) 8.8.sp else if (fiveTabs) 9.5.sp else 11.sp
+    val sevenTabs = tabs.size >= 7
+    val labelFontSize = when {
+        sevenTabs -> 7.8.sp
+        sixTabs -> 8.8.sp
+        fiveTabs -> 9.5.sp
+        else -> 10.5.sp
+    }
+    val classicLabelFontSize = when {
+        sevenTabs -> 7.8.sp
+        sixTabs -> 8.8.sp
+        fiveTabs -> 9.5.sp
+        else -> 11.sp
+    }
 
     if (classicMode) {
         androidx.compose.material3.Surface(
@@ -312,7 +332,7 @@ fun WuppGlassNavBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(64.dp)
-                        .padding(horizontal = if (sixTabs) 1.dp else if (fiveTabs) 2.dp else 6.dp),
+                        .padding(horizontal = if (sevenTabs) 0.dp else if (sixTabs) 1.dp else if (fiveTabs) 2.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     tabs.forEach { tab ->
@@ -358,7 +378,7 @@ fun WuppGlassNavBar(
                                     ) {
                                         Text(
                                             text = if (tab.badgeCount > 99) "99+" else tab.badgeCount.toString(),
-                                            color = if (colors.isDark) Color(0xFF0B141A) else Color.White,
+                                            color = colors.brightGreen.contrastingContentColor(),
                                             fontSize = 9.5.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -492,7 +512,7 @@ fun WuppGlassNavBar(
                 )
             )
             .navigationBarsPadding()
-            .padding(horizontal = if (sixTabs) 6.dp else if (fiveTabs) 10.dp else 14.dp, vertical = 10.dp)
+            .padding(horizontal = if (sevenTabs) 4.dp else if (sixTabs) 6.dp else if (fiveTabs) 10.dp else 14.dp, vertical = 10.dp)
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -657,7 +677,7 @@ fun WuppGlassNavBar(
                                 ) {
                                     Text(
                                         text = if (tab.badgeCount > 99) "99+" else tab.badgeCount.toString(),
-                                        color = Color(0xFF072B17),
+                                        color = colors.brightGreen.contrastingContentColor(),
                                         fontSize = 9.5.sp,
                                         lineHeight = 10.sp,
                                         fontWeight = FontWeight.ExtraBold

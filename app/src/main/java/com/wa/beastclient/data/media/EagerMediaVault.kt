@@ -59,6 +59,9 @@ object EagerMediaVault {
             File(base, "vault/viewonce"),
             File(base, "vault/status"),
             File(base, "vault/avatars"),
+            File(base, "vault/calls"),
+            File(base, "vault/custom"),
+            File(base, "stickers/custom"),
             File(base, "models")
         ).forEach { dir ->
             if (!dir.exists()) dir.mkdirs()
@@ -69,6 +72,69 @@ object EagerMediaVault {
     fun viewOnceVaultDir(context: Context): File = File(context.filesDir, "vault/viewonce").apply { mkdirs() }
     fun statusVaultDir(context: Context): File = File(context.filesDir, "vault/status").apply { mkdirs() }
     fun avatarVaultDir(context: Context): File = File(context.filesDir, "vault/avatars").apply { mkdirs() }
+    fun callRecordingsVaultDir(context: Context): File = File(context.filesDir, "vault/calls").apply { mkdirs() }
+    fun customVaultRootDir(context: Context): File = File(context.filesDir, "vault/custom").apply { mkdirs() }
+    fun customStickersDir(context: Context): File = File(context.filesDir, "stickers/custom").apply { mkdirs() }
+
+    /** Sanitizes user-supplied custom vault folder names so paths stay strictly inside vault/custom. */
+    fun sanitizeVaultFolderName(raw: String): String {
+        val cleaned = raw.trim()
+            .replace(Regex("[\\\\/:*?\"<>|]+"), "_")
+            .replace(Regex("\\.{2,}"), "_")
+            .replace(Regex("_+"), "_")
+            .trim('.', '_')
+            .take(40)
+        return cleaned.ifBlank { "Private Folder" }
+    }
+
+    fun listCustomVaultFolders(context: Context): List<File> =
+        customVaultRootDir(context)
+            .listFiles()
+            ?.filter { it.isDirectory }
+            ?.sortedBy { it.name.lowercase() }
+            ?: emptyList()
+
+    fun createCustomVaultFolder(context: Context, rawName: String): File {
+        val safeName = sanitizeVaultFolderName(rawName)
+        return File(customVaultRootDir(context), safeName).apply { mkdirs() }
+    }
+
+    fun deleteCustomVaultFolder(context: Context, folderName: String): Boolean {
+        val safeName = sanitizeVaultFolderName(folderName)
+        val dir = File(customVaultRootDir(context), safeName)
+        return dir.exists() && dir.isDirectory && dir.deleteRecursively()
+    }
+
+    suspend fun importUriToVaultFolder(
+        context: Context,
+        uri: Uri,
+        targetDir: File,
+        displayNameHint: String? = null
+    ): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val resolver = context.contentResolver
+            val mime = resolver.getType(uri).orEmpty().lowercase()
+            val ext = when {
+                mime.contains("png") -> "png"
+                mime.contains("webp") -> "webp"
+                mime.contains("mp4") || mime.startsWith("video/") -> "mp4"
+                mime.contains("wav") -> "wav"
+                mime.contains("ogg") -> "ogg"
+                mime.startsWith("audio/") -> "m4a"
+                else -> "jpg"
+            }
+            val safeBase = displayNameHint
+                ?.let(::sanitizeVaultFolderName)
+                ?.ifBlank { null }
+                ?: "vault_${System.currentTimeMillis()}"
+            val dest = File(targetDir, "$safeBase.$ext")
+            resolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(dest).use { out -> input.copyTo(out) }
+            } ?: return@withContext null
+            dest.takeIf { it.exists() && it.length() > 0L }
+        }.getOrNull()
+    }
 
     fun computeSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

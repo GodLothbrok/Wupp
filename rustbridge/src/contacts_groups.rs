@@ -14,7 +14,7 @@ use whatsapp_rust::wacore_binary::{Jid, JidExt};
 
 use crate::jid_helpers::{canonical_jid_str, parse_jid_flexible, phone_digits_from_jid, split_csv};
 use crate::meta_db::{
-    avatar_file_path, clear_avatar_miss, get_contact_meta, mark_avatar_miss,
+    avatar_file_path, clear_avatar_miss, get_contact_meta, list_contact_lid_pn_pairs, mark_avatar_miss,
     mark_newsletter_synced, should_skip_avatar_fetch, should_sync_newsletter, upsert_contact_meta,
 };
 use crate::messaging::normalize_message;
@@ -845,6 +845,100 @@ pub async fn resolve_participant_names_json(runtime: &BridgeRuntime, jids_csv: &
     }
 
     Value::Object(map).to_string()
+}
+
+/// Resolves a DM JID into `(canonical_pn_or_original, alt_jid)` using strictly local SQLite state
+/// (explicit hints -> `whatsapp-rust` `get_lid_pn_entry` -> `wa_contacts`) with zero network calls.
+pub async fn resolve_dm_chat_pair_local(
+    runtime: &BridgeRuntime,
+    raw_chat: &str,
+    alt_hints: &[&str],
+) -> (String, String) {
+    let clean_chat = canonical_jid_str(raw_chat);
+    if clean_chat.is_empty()
+        || clean_chat.ends_with("@g.us")
+        || clean_chat.ends_with("@newsletter")
+        || clean_chat.ends_with("@broadcast")
+        || clean_chat == "status@broadcast"
+    {
+        return (clean_chat, String::new());
+    }
+
+    let is_lid = clean_chat.ends_with("@lid");
+    let is_pn = clean_chat.ends_with("@s.whatsapp.net");
+    if !is_lid && !is_pn {
+        return (clean_chat, String::new());
+    }
+
+    let want_suffix = if is_lid { "@s.whatsapp.net" } else { "@lid" };
+    let mut alt = alt_hints
+        .iter()
+        .map(|h| canonical_jid_str(h))
+        .find(|h| !h.is_empty() && h.ends_with(want_suffix))
+        .unwrap_or_default();
+
+    if alt.is_empty() {
+        if let Some(client) = runtime.client_arc() {
+            if let Ok(parsed) = parse_jid_flexible(&clean_chat) {
+                if let Ok(Some(entry)) = client.get_lid_pn_entry(&parsed).await {
+                    if is_lid && !entry.phone_number.is_empty() {
+                        alt = format!("{}@s.whatsapp.net", entry.phone_number);
+                    } else if is_pn && !entry.lid.is_empty() {
+                        alt = format!("{}@lid", entry.lid);
+                    }
+                }
+            }
+        }
+    }
+
+    if alt.is_empty() {
+        if let Some(shared) = runtime.shared_db_arc() {
+            if let Some(row) = get_contact_meta(&shared, &clean_chat).await {
+                if is_lid && row.jid.ends_with("@s.whatsapp.net") {
+                    alt = row.jid;
+                } else if is_pn && row.lid.ends_with("@lid") {
+                    alt = row.lid;
+                }
+            }
+        }
+    }
+
+    if is_lid && alt.ends_with("@s.whatsapp.net") {
+        if let Some(shared) = runtime.shared_db_arc() {
+            let _ = upsert_contact_meta(&shared, &alt, &clean_chat, "", "", "").await;
+        }
+        return (alt, clean_chat);
+    }
+
+    if is_pn && alt.ends_with("@lid") {
+        if let Some(shared) = runtime.shared_db_arc() {
+            let _ = upsert_contact_meta(&shared, &clean_chat, &alt, "", "", "").await;
+        }
+    }
+
+    (clean_chat, alt)
+}
+
+/// Returns local `{ "<pn>@s.whatsapp.net": "<id>@lid", ... }` pairs from cached SQLite tables for
+/// given `jids_csv` (and all stored `wa_contacts` LID↔PN rows) with zero network requests.
+pub async fn resolve_local_dm_aliases_json(runtime: &BridgeRuntime, jids_csv: &str) -> String {
+    let mut pairs = serde_json::Map::new();
+    if let Some(shared) = runtime.shared_db_arc() {
+        for (pn, lid) in list_contact_lid_pn_pairs(&shared).await {
+            pairs.insert(lid, json!(pn));
+        }
+    }
+    for raw in split_csv(jids_csv) {
+        let key = canonical_jid_str(&raw);
+        if key.is_empty() || key.ends_with("@g.us") || key.ends_with("@newsletter") {
+            continue;
+        }
+        let (canonical, alt) = resolve_dm_chat_pair_local(runtime, &key, &[]).await;
+        if canonical.ends_with("@s.whatsapp.net") && alt.ends_with("@lid") {
+            pairs.insert(alt, json!(canonical));
+        }
+    }
+    Value::Object(pairs).to_string()
 }
 
 pub async fn get_group_participants_json(runtime: &BridgeRuntime, group_jid_str: &str) -> String {

@@ -29,6 +29,8 @@ import com.wa.beastclient.data.db.StatusEntity
 import com.wa.beastclient.data.db.WaUiDatabase
 import com.wa.beastclient.data.media.BuiltinSticker
 import com.wa.beastclient.data.media.CuppyPackManager
+import com.wa.beastclient.data.media.CustomStickerItem
+import com.wa.beastclient.data.media.CustomStickerStore
 import com.wa.beastclient.data.media.EagerMediaVault
 import com.wa.beastclient.data.media.OpusOggVoiceRecorder
 import com.wa.beastclient.data.media.OutboundQualityMode
@@ -249,6 +251,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         emit(CuppyPackManager.getCuppyStickers(appContext))
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    private val customStickerStore = CustomStickerStore.getInstance(appContext)
+    val customStickers: StateFlow<List<CustomStickerItem>> = customStickerStore.stickers
+
     val archivedCount: StateFlow<Int> = dao.observeArchivedCount()
         .stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
@@ -340,6 +345,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val viewOnceVault: StateFlow<List<MessageEntity>> = dao.observeViewOnceVault()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val deletedMessagesHistory: StateFlow<List<MessageEntity>> = dao.observeDeletedMessages()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val editedMessagesHistory: StateFlow<List<MessageEntity>> = dao.observeEditedMessages()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allMessageEdits: StateFlow<List<MessageEditEntity>> = dao.observeAllMessageEdits()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val presenceLogs: StateFlow<List<PresenceLogEntity>> = dao.observeAllPresenceLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -416,13 +430,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun observeChatGalleryMedia(chatJid: String): Flow<List<MessageEntity>> =
         dao.observeChatGalleryMedia(chatJid)
 
+    fun observeChatMediaWallItems(chatJid: String): Flow<List<MessageEntity>> =
+        dao.observeChatMediaWallItems(chatJid)
+
+    fun observeChatDocuments(chatJid: String): Flow<List<MessageEntity>> =
+        dao.observeChatDocumentMessages(chatJid)
+
+    fun observeChatLinkMessages(chatJid: String): Flow<List<MessageEntity>> =
+        dao.observeChatLinkMessages(chatJid)
+
     fun observeContact(jid: String): Flow<ContactEntity?> = dao.observeContact(jid)
 
     fun observeEffectivePrivacy(chatJid: String): Flow<EffectiveChatPrivacy> =
         StealthMatrixManager.observeEffectivePrivacy(dao, chatJid)
 
     fun canInitiateOutbound(chatJid: String): Flow<Boolean> {
-        return if (chatJid.endsWith("@g.us")) {
+        val ownJid = bridgeStatus.value.ownJid
+        return if (chatJid.endsWith("@g.us") || StealthMatrixManager.isSelfChatJid(chatJid, ownJid)) {
             MutableStateFlow(true)
         } else {
             dao.observeRecentMessages(chatJid, 1).map { it.isNotEmpty() }
@@ -481,7 +505,102 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setUseSystemFont(enabled: Boolean) {
-        StealthMatrixManager.updateConfig { it.copy(useSystemFont = enabled) }
+        StealthMatrixManager.updateConfig {
+            it.copy(
+                useSystemFont = enabled,
+                fontStyle = if (enabled) com.wa.beastclient.ui.theme.WuppFontStyle.SYSTEM else com.wa.beastclient.ui.theme.WuppFontStyle.ROBO_CLEAN
+            )
+        }
+    }
+
+    fun setPureBlackOled(enabled: Boolean) {
+        StealthMatrixManager.updateConfig { it.copy(pureBlackOled = enabled) }
+    }
+
+    fun setDynamicMaterialYou(enabled: Boolean) {
+        StealthMatrixManager.updateConfig { it.copy(dynamicMaterialYou = enabled) }
+    }
+
+    fun setAntiCallMode(mode: com.wa.beastclient.domain.stealth.AntiCallMode) {
+        StealthMatrixManager.updateConfig { it.copy(antiCallMode = mode) }
+    }
+
+    fun setFontStyle(style: com.wa.beastclient.ui.theme.WuppFontStyle) {
+        StealthMatrixManager.updateConfig {
+            it.copy(
+                fontStyle = style,
+                useSystemFont = style == com.wa.beastclient.ui.theme.WuppFontStyle.SYSTEM
+            )
+        }
+    }
+
+    fun importCustomFontFromUri(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val fontsDir = File(appContext.filesDir, "fonts").apply { mkdirs() }
+            val dest = File(fontsDir, "custom_user_font_${System.currentTimeMillis()}.ttf")
+            val ok = runCatching {
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { out -> input.copyTo(out) }
+                }
+                dest.exists() && dest.length() > 100L &&
+                    android.graphics.Typeface.createFromFile(dest) != null
+            }.getOrDefault(false)
+            if (ok) {
+                fontsDir.listFiles()?.forEach { old ->
+                    if (old.absolutePath != dest.absolutePath) old.delete()
+                }
+                StealthMatrixManager.updateConfig {
+                    it.copy(
+                        fontStyle = com.wa.beastclient.ui.theme.WuppFontStyle.CUSTOM,
+                        customFontPath = dest.absolutePath,
+                        useSystemFont = false
+                    )
+                }
+                showToast("Custom font applied")
+            } else {
+                dest.delete()
+                showToast("Unsupported font file (use .ttf or .otf)")
+            }
+        }
+    }
+
+    fun setBubbleCornerRadiusDp(radiusDp: Int) {
+        StealthMatrixManager.updateConfig { it.copy(bubbleCornerRadiusDp = radiusDp.coerceIn(4, 24)) }
+    }
+
+    fun setCustomBubbleColors(outgoingArgb: Long, incomingArgb: Long) {
+        StealthMatrixManager.updateConfig {
+            it.copy(
+                customOutgoingBubbleArgb = outgoingArgb,
+                customIncomingBubbleArgb = incomingArgb
+            )
+        }
+    }
+
+    fun setVaultLockEnabled(enabled: Boolean) {
+        StealthMatrixManager.updateConfig { it.copy(vaultLockEnabled = enabled) }
+    }
+
+    fun setAutoRecordCalls(enabled: Boolean) {
+        StealthMatrixManager.updateConfig { it.copy(autoRecordCalls = enabled) }
+    }
+
+    fun saveCustomSticker(bitmap: android.graphics.Bitmap, label: String): CustomStickerItem? {
+        val result = customStickerStore.saveStickerBitmap(bitmap, label)
+        result.onSuccess { showToast("Saved sticker to My Stickers") }
+            .onFailure { showToast("Failed to save sticker: ${it.message}") }
+        return result.getOrNull()
+    }
+
+    fun saveCustomStickerAndSend(chatJid: String, bitmap: android.graphics.Bitmap, label: String) {
+        val saved = saveCustomSticker(bitmap, label) ?: return
+        sendSticker(chatJid, File(saved.filePath))
+    }
+
+    fun deleteCustomSticker(id: String) {
+        if (customStickerStore.deleteSticker(id)) {
+            showToast("Sticker deleted from My Stickers")
+        }
     }
 
     fun setQuickReactionEmojis(emojis: List<String>) {

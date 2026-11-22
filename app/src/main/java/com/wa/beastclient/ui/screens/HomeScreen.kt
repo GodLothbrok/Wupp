@@ -69,6 +69,7 @@ import androidx.compose.material.icons.automirrored.rounded.CallReceived
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.BugReport
@@ -88,9 +89,11 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Flight
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.KeyboardReturn
@@ -141,6 +144,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -202,6 +207,7 @@ import com.wa.beastclient.data.db.StatusEntity
 import com.wa.beastclient.domain.contacts.DeviceContactFallbackResolver
 import com.wa.beastclient.domain.security.AppLockManager
 import com.wa.beastclient.domain.security.AppLockMode
+import com.wa.beastclient.domain.stealth.AntiCallMode
 import com.wa.beastclient.domain.stealth.AutoDownloadNetwork
 import com.wa.beastclient.domain.stealth.CallBackendMode
 import com.wa.beastclient.domain.stealth.GlobalStealthConfig
@@ -241,8 +247,12 @@ import com.wa.beastclient.ui.components.GitHubFeedbackType
 import com.wa.beastclient.ui.MainViewModel
 import com.wa.beastclient.ui.components.ChatPeekPopupOverlay
 import com.wa.beastclient.ui.components.DeliveryTickIcon
+import com.wa.beastclient.ui.components.MediaVaultSheet
+import com.wa.beastclient.ui.components.MessageHistorySheet
+import com.wa.beastclient.ui.components.PerChatQuickControlsSheet
 import com.wa.beastclient.ui.components.QuickContactDialog
 import com.wa.beastclient.ui.components.ReactionEmojiCustomizerDialog
+import com.wa.beastclient.ui.components.StickerStudioDialog
 import com.wa.beastclient.ui.components.ThemePickerDialog
 import com.wa.beastclient.ui.components.ThemeSelectorGrid
 import com.wa.beastclient.ui.components.WallpaperPickerDialog
@@ -261,6 +271,7 @@ import com.wa.beastclient.ui.theme.LocalWaMonoFamily
 import com.wa.beastclient.ui.theme.LocalWuppShowSeconds
 import com.wa.beastclient.ui.theme.LocalWuppUse24Hour
 import com.wa.beastclient.ui.theme.LocaleHelper
+import com.wa.beastclient.ui.theme.contrastingContentColor
 import com.wa.beastclient.ui.theme.WuppClockFormat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -278,8 +289,34 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** Returns the bottom-bar tab IDs in swipeable left-to-right order. */
-internal fun resolveHomeTabOrder(separateGroupsAndChats: Boolean): List<Int> =
-    if (separateGroupsAndChats) listOf(0, 4, 1, 2, 5, 3) else listOf(0, 1, 2, 5, 3)
+internal fun resolveHomeTabOrder(
+    separateGroupsAndChats: Boolean,
+    separateChannelsTab: Boolean = false
+): List<Int> = buildList {
+    add(0)
+    if (separateGroupsAndChats) add(4)
+    add(1)
+    if (separateChannelsTab) add(6)
+    add(2)
+    add(5)
+    add(3)
+}
+
+internal fun filterChannelsByQuery(
+    channels: List<ChatEntity>,
+    searchQuery: String
+): List<ChatEntity> {
+    val q = searchQuery.trim().lowercase()
+    return if (q.isEmpty()) {
+        channels
+    } else {
+        channels.filter {
+            it.name.lowercase().contains(q) ||
+                it.lastMessagePreview.lowercase().contains(q) ||
+                it.aboutText.lowercase().contains(q)
+        }
+    }
+}
 
 internal fun resolvePagerIndexForTab(tabOrder: List<Int>, tabId: Int): Int =
     tabOrder.indexOf(tabId).let { if (it >= 0) it else 0 }
@@ -298,6 +335,7 @@ fun HomeScreen(
     chatsListState: LazyListState = rememberLazyListState(),
     groupsListState: LazyListState = rememberLazyListState(),
     updatesListState: LazyListState = rememberLazyListState(),
+    channelsListState: LazyListState = rememberLazyListState(),
     communitiesListState: LazyListState = rememberLazyListState(),
     callsListState: LazyListState = rememberLazyListState(),
     toolsListState: LazyListState = rememberLazyListState()
@@ -328,6 +366,10 @@ fun HomeScreen(
     val downloadingMediaIds by viewModel.downloadingMediaIds.collectAsState()
     val failedMediaIds by viewModel.failedMediaIds.collectAsState()
     val voVault by viewModel.viewOnceVault.collectAsState()
+    val deletedHistory by viewModel.deletedMessagesHistory.collectAsState()
+    val editedHistory by viewModel.editedMessagesHistory.collectAsState()
+    val allEditsHistory by viewModel.allMessageEdits.collectAsState()
+    val customStickers by viewModel.customStickers.collectAsState()
     val presenceLogs by viewModel.presenceLogs.collectAsState()
     val profileHistory by viewModel.profileHistory.collectAsState()
     val bulkResult by viewModel.bulkVerifyOutput.collectAsState()
@@ -354,9 +396,16 @@ fun HomeScreen(
         }
     }
 
+    val showChannelsTab = stealth.separateChannelsTab && !stealth.hideChannels
+
     LaunchedEffect(stealth.separateGroupsAndChats, currentTab) {
         if (!stealth.separateGroupsAndChats && currentTab == 4) {
             onSelectTab(0)
+        }
+    }
+    LaunchedEffect(showChannelsTab, currentTab) {
+        if (!showChannelsTab && currentTab == 6) {
+            onSelectTab(1)
         }
     }
 
@@ -374,6 +423,12 @@ fun HomeScreen(
     var activeVaultViewer by remember { mutableStateOf<MessageEntity?>(null) }
     var activeFeedbackType by remember { mutableStateOf<GitHubFeedbackType?>(null) }
     var showThemePickerDialog by remember { mutableStateOf(false) }
+    var showMediaVaultSheet by remember { mutableStateOf(false) }
+    var showMessageHistorySheet by remember { mutableStateOf(false) }
+    var messageHistoryChatFilter by remember { mutableStateOf<String?>(null) }
+    var showStickerStudioDialog by remember { mutableStateOf(false) }
+    var quickControlsChatTarget by remember { mutableStateOf<ChatEntity?>(null) }
+    var quickControlsWallpaperChat by remember { mutableStateOf<ChatEntity?>(null) }
     var showLockedChatsPinPrompt by remember { mutableStateOf(false) }
     var selectedChatJids by remember { mutableStateOf(setOf<String>()) }
     var selectionOverflowExpanded by remember { mutableStateOf(false) }
@@ -791,6 +846,7 @@ fun HomeScreen(
                                 text = when (currentTab) {
                                     4 -> stringResource(R.string.nav_groups)
                                     1 -> stringResource(R.string.nav_updates)
+                                    6 -> stringResource(R.string.nav_channels)
                                     2 -> stringResource(R.string.nav_communities)
                                     5 -> stringResource(R.string.nav_calls)
                                     else -> stringResource(R.string.nav_settings)
@@ -811,7 +867,7 @@ fun HomeScreen(
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
-                        } else if (currentTab == 1 || currentTab == 2 || currentTab == 5) {
+                        } else if (currentTab == 1 || currentTab == 6 || currentTab == 2 || currentTab == 5) {
                             IconButton(onClick = {
                                 searchExpanded = !searchExpanded
                                 if (!searchExpanded) viewModel.updateHomeSearch("")
@@ -900,6 +956,31 @@ fun HomeScreen(
                                     showThemePickerDialog = true
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Message history") },
+                                leadingIcon = { Icon(Icons.Rounded.History, null) },
+                                onClick = {
+                                    overflowExpanded = false
+                                    messageHistoryChatFilter = null
+                                    showMessageHistorySheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Media vault") },
+                                leadingIcon = { Icon(Icons.Rounded.Shield, null) },
+                                onClick = {
+                                    overflowExpanded = false
+                                    showMediaVaultSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Sticker studio") },
+                                leadingIcon = { Icon(Icons.Rounded.AutoFixHigh, null) },
+                                onClick = {
+                                    overflowExpanded = false
+                                    showStickerStudioDialog = true
+                                }
+                            )
                         }
                     }
                 )
@@ -936,9 +1017,11 @@ fun HomeScreen(
                 classicMode = stealth.classicWhatsAppLook,
                 separateGroupsAndChats = stealth.separateGroupsAndChats,
                 unreadGroupsCount = unreadGroupsCount,
+                separateChannelsTab = showChannelsTab,
                 chatsLabel = stringResource(R.string.nav_chats),
                 groupsLabel = stringResource(R.string.nav_groups),
                 updatesLabel = stringResource(R.string.nav_updates),
+                channelsLabel = stringResource(R.string.nav_channels),
                 communitiesLabel = stringResource(R.string.nav_communities),
                 callsLabel = stringResource(R.string.nav_calls),
                 settingsLabel = stringResource(R.string.nav_settings)
@@ -950,7 +1033,7 @@ fun HomeScreen(
                     FloatingActionButton(
                         onClick = { showQuickContactPicker = true },
                         containerColor = colors.brightGreen,
-                        contentColor = Color(0xFF0B141A),
+                        contentColor = colors.brightGreen.contrastingContentColor(),
                         shape = RoundedCornerShape(18.dp),
                         elevation = FloatingActionButtonDefaults.elevation(
                             defaultElevation = 4.dp,
@@ -1028,8 +1111,11 @@ fun HomeScreen(
                 .then(if (!stealth.classicWhatsAppLook) Modifier.wuppBackdropSource(backdropState) else Modifier)
                 .background(colors.appSurface)
         ) {
-            val tabOrder = remember(stealth.separateGroupsAndChats) {
-                resolveHomeTabOrder(stealth.separateGroupsAndChats)
+            val tabOrder = remember(stealth.separateGroupsAndChats, showChannelsTab) {
+                resolveHomeTabOrder(
+                    separateGroupsAndChats = stealth.separateGroupsAndChats,
+                    separateChannelsTab = showChannelsTab
+                )
             }
             val pagerState = rememberPagerState(
                 initialPage = resolvePagerIndexForTab(tabOrder, currentTab),
@@ -1152,10 +1238,18 @@ fun HomeScreen(
                         listState = updatesListState,
                         bottomPadding = contentBottomPad,
                         verticalStatusLayout = stealth.statusVerticalLayout,
-                        hideChannels = stealth.hideChannels,
+                        hideChannels = stealth.hideChannels || showChannelsTab,
                         showSeconds = showSeconds,
                         onOpenStatus = { activeStatusViewer = it },
                         onAddStatus = { mode -> statusComposerInitialMode = mode },
+                        onOpenChannel = { onOpenChat(it) }
+                    )
+
+                    6 -> ChannelsTabContent(
+                        channels = channels,
+                        searchQuery = searchQuery,
+                        listState = channelsListState,
+                        bottomPadding = contentBottomPad,
                         onOpenChannel = { onOpenChat(it) }
                     )
 
@@ -1185,6 +1279,14 @@ fun HomeScreen(
                         viewModel = viewModel,
                         listState = toolsListState,
                         bottomPadding = contentBottomPad,
+                        savedHistoryCount = (deletedHistory.asSequence().map { it.id } + editedHistory.asSequence().map { it.id }).toSet().size,
+                        customStickerCount = customStickers.size,
+                        onOpenMessageHistory = {
+                            messageHistoryChatFilter = null
+                            showMessageHistorySheet = true
+                        },
+                        onOpenMediaVault = { showMediaVaultSheet = true },
+                        onOpenStickerStudio = { showStickerStudioDialog = true },
                         onOpenFeedback = { activeFeedbackType = it }
                     )
                 }
@@ -1222,6 +1324,7 @@ fun HomeScreen(
                 onToggleFavorite = { viewModel.toggleFavoriteChat(activePeek) },
                 onToggleArchive = { viewModel.archiveChats(listOf(activePeek.jid), !activePeek.isArchived) },
                 onSelectChat = { selectedChatJids = setOf(activePeek.jid) },
+                onQuickControls = { quickControlsChatTarget = activePeek },
                 onDeleteChat = { pendingDeleteJids = listOf(activePeek.jid) }
             )
         }
@@ -1335,6 +1438,7 @@ fun HomeScreen(
 
     if (showQuickContactPicker) {
         NewChatPickerDialog(
+            ownJid = bridgeStatus.ownJid,
             chats = allChats,
             contacts = allContacts,
             onDismiss = { showQuickContactPicker = false },
@@ -1355,7 +1459,125 @@ fun HomeScreen(
             onSelectTheme = { viewModel.setThemeMode(it) },
             onDismiss = { showThemePickerDialog = false },
             selectedAccent = stealth.accentColor,
-            onSelectAccent = { viewModel.setAccentColor(it) }
+            onSelectAccent = { viewModel.setAccentColor(it) },
+            pureBlackOled = stealth.pureBlackOled,
+            onTogglePureBlackOled = { viewModel.setPureBlackOled(it) },
+            dynamicMaterialYou = stealth.dynamicMaterialYou,
+            onToggleDynamicMaterialYou = { viewModel.setDynamicMaterialYou(it) },
+            bubbleCornerRadiusDp = stealth.bubbleCornerRadiusDp,
+            onBubbleCornerRadiusChange = { viewModel.setBubbleCornerRadiusDp(it) },
+            customOutgoingBubbleArgb = stealth.customOutgoingBubbleArgb,
+            customIncomingBubbleArgb = stealth.customIncomingBubbleArgb,
+            onCustomBubbleColorsChange = { outArgb, inArgb -> viewModel.setCustomBubbleColors(outArgb, inArgb) },
+            selectedFontStyle = stealth.fontStyle,
+            hasImportedFont = stealth.customFontPath.isNotBlank(),
+            onSelectFontStyle = { viewModel.setFontStyle(it) },
+            onImportCustomFontUri = { viewModel.importCustomFontFromUri(it) }
+        )
+    }
+
+    if (showMessageHistorySheet) {
+        MessageHistorySheet(
+            deletedMessages = deletedHistory,
+            editedMessages = editedHistory,
+            allEdits = allEditsHistory,
+            chats = allChats,
+            initialChatJid = messageHistoryChatFilter,
+            onJumpToChat = { targetJid -> onOpenChat(targetJid) },
+            onDismiss = {
+                showMessageHistorySheet = false
+                messageHistoryChatFilter = null
+            }
+        )
+    }
+
+    if (showMediaVaultSheet) {
+        MediaVaultSheet(
+            viewOnceMessages = voVault,
+            statuses = statuses,
+            vaultLockEnabled = stealth.vaultLockEnabled,
+            appLockConfig = appLockConfig,
+            onToggleVaultLock = { viewModel.setVaultLockEnabled(it) },
+            onExportFileToGallery = { file, name, mime ->
+                viewModel.exportMediaToGallery(file.absolutePath, name, mime)
+            },
+            onDismiss = { showMediaVaultSheet = false }
+        )
+    }
+
+    if (showStickerStudioDialog) {
+        StickerStudioDialog(
+            canSendNow = false,
+            onSaveToPack = { bmp, label -> viewModel.saveCustomSticker(bmp, label) },
+            onDismiss = { showStickerStudioDialog = false }
+        )
+    }
+
+    quickControlsChatTarget?.let { target ->
+        val liveTarget = remember(target.jid, allChats) { allChats.firstOrNull { it.jid == target.jid } ?: target }
+        val effectivePrivacy by remember(liveTarget.jid) {
+            viewModel.observeEffectivePrivacy(liveTarget.jid)
+        }.collectAsState(initial = null)
+        val chatSavedCount = remember(deletedHistory, editedHistory, liveTarget.jid) {
+            (deletedHistory.asSequence().filter { it.chatJid == liveTarget.jid }.map { it.id } +
+                editedHistory.asSequence().filter { it.chatJid == liveTarget.jid }.map { it.id }).toSet().size
+        }
+        PerChatQuickControlsSheet(
+            chat = liveTarget,
+            chatJid = liveTarget.jid,
+            effectivePrivacy = effectivePrivacy,
+            stealthConfig = stealth,
+            savedHistoryCount = chatSavedCount,
+            onSavePrivacyOverride = { r, p, t -> viewModel.saveChatPrivacyOverride(liveTarget.jid, r, p, t) },
+            onClearPrivacyOverride = { viewModel.clearChatPrivacyOverride(liveTarget.jid) },
+            onSetGalleryVisibility = { viewModel.setChatMediaVisibility(liveTarget.jid, it) },
+            onTogglePin = { viewModel.togglePinChat(liveTarget) },
+            onToggleMute = { viewModel.muteChats(listOf(liveTarget.jid), !liveTarget.isMuted) },
+            onToggleFavorite = { viewModel.toggleFavoriteChat(liveTarget) },
+            onToggleLock = { viewModel.setChatLock(liveTarget.jid, !liveTarget.isLocked) },
+            onOpenWallpaper = { quickControlsWallpaperChat = liveTarget },
+            onOpenChatHistory = {
+                messageHistoryChatFilter = liveTarget.jid
+                showMessageHistorySheet = true
+            },
+            onDismiss = { quickControlsChatTarget = null }
+        )
+    }
+
+    quickControlsWallpaperChat?.let { target ->
+        val effectiveWp = remember(target.jid, stealth) {
+            StealthMatrixManager.resolveChatWallpaper(target.jid, cfg = stealth)
+        }
+        val hasWpOverride = remember(target.jid, stealth) {
+            StealthMatrixManager.hasChatWallpaperOverride(target.jid, cfg = stealth)
+        }
+        WallpaperPickerDialog(
+            currentUri = stealth.chatWallpaperUri,
+            currentDim = stealth.chatWallpaperDim,
+            showDoodleOnPresets = stealth.chatWallpaperShowDoodle,
+            currentScale = stealth.chatWallpaperScale,
+            currentOffsetX = stealth.chatWallpaperOffsetX,
+            currentOffsetY = stealth.chatWallpaperOffsetY,
+            onSelectUri = { viewModel.setChatWallpaper(it) },
+            onPickCustomImage = { viewModel.importChatWallpaperFromUri(it) },
+            onDimChange = { viewModel.setChatWallpaperDim(it) },
+            onToggleDoodle = { viewModel.setChatWallpaperShowDoodle(it) },
+            onPositionChange = { s, ox, oy -> viewModel.setChatWallpaperPosition(s, ox, oy) },
+            onDismiss = { quickControlsWallpaperChat = null },
+            chatTitle = target.name.ifBlank { target.jid.substringBefore("@") },
+            hasChatOverride = hasWpOverride,
+            chatUri = effectiveWp.uri,
+            chatDim = effectiveWp.dim,
+            chatShowDoodle = effectiveWp.showDoodle,
+            chatScale = effectiveWp.scale,
+            chatOffsetX = effectiveWp.offsetXFraction,
+            chatOffsetY = effectiveWp.offsetYFraction,
+            onSelectChatUri = { viewModel.setPerChatWallpaper(target.jid, it) },
+            onPickChatCustomImage = { viewModel.importPerChatWallpaperFromUri(target.jid, it) },
+            onChatDimChange = { viewModel.setPerChatWallpaperDim(target.jid, it) },
+            onToggleChatDoodle = { viewModel.setPerChatWallpaperShowDoodle(target.jid, it) },
+            onChatPositionChange = { s, ox, oy -> viewModel.setPerChatWallpaperPosition(target.jid, s, ox, oy) },
+            onResetChatToGlobal = { viewModel.clearPerChatWallpaper(target.jid) }
         )
     }
 
@@ -2910,6 +3132,57 @@ private fun ChatListRow(
 }
 
 @Composable
+private fun ChannelsTabContent(
+    channels: List<ChatEntity>,
+    searchQuery: String,
+    listState: LazyListState,
+    bottomPadding: Dp = 96.dp,
+    onOpenChannel: (String) -> Unit
+) {
+    val colors = LocalWaColors.current
+    val filteredChannels = remember(channels, searchQuery) {
+        filterChannelsByQuery(channels, searchQuery)
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 8.dp, bottom = bottomPadding + 16.dp)
+    ) {
+        item(key = "channels_tab_header") {
+            Text(
+                text = stringResource(R.string.nav_channels),
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = colors.textPrimary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+            )
+        }
+        if (filteredChannels.isEmpty()) {
+            item(key = "channels_tab_empty") {
+                Text(
+                    text = if (searchQuery.isBlank()) {
+                        "Subscribed channels will appear here once synced."
+                    } else {
+                        "No channels matching \"${searchQuery.trim()}\"."
+                    },
+                    color = colors.textSecondary,
+                    fontSize = 13.5.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                )
+            }
+        } else {
+            items(filteredChannels, key = { "channel_tab_${it.jid}" }) { ch ->
+                ChannelListRow(
+                    channel = ch,
+                    onClick = { onOpenChannel(ch.jid) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun UpdatesStatusTab(
     statuses: List<StatusEntity>,
     channels: List<ChatEntity>,
@@ -2946,13 +3219,7 @@ private fun UpdatesStatusTab(
         }
     }
     val filteredChannels = remember(channels, searchQuery) {
-        val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) channels
-        else channels.filter {
-            it.name.lowercase().contains(q) ||
-                it.lastMessagePreview.lowercase().contains(q) ||
-                it.aboutText.lowercase().contains(q)
-        }
+        filterChannelsByQuery(channels, searchQuery)
     }
 
     LazyColumn(
@@ -4099,6 +4366,11 @@ private fun ToolsVaultTab(
     viewModel: MainViewModel,
     listState: LazyListState,
     bottomPadding: Dp = 96.dp,
+    savedHistoryCount: Int = 0,
+    customStickerCount: Int = 0,
+    onOpenMessageHistory: () -> Unit = {},
+    onOpenMediaVault: () -> Unit = {},
+    onOpenStickerStudio: () -> Unit = {},
     onOpenFeedback: (GitHubFeedbackType) -> Unit
 ) {
     val context = LocalContext.current
@@ -4125,6 +4397,7 @@ private fun ToolsVaultTab(
     var showClockFormatDialog by remember { mutableStateOf(false) }
     var showHideNotifGuide by remember { mutableStateOf(false) }
     var showCallingSetupDialog by remember { mutableStateOf(false) }
+    var showAntiCallDialog by remember { mutableStateOf(false) }
     var isSyncNotifHidden by remember {
         mutableStateOf(WaRealtimeService.isRealtimeStatusNotificationHidden(context))
     }
@@ -4327,7 +4600,7 @@ private fun ToolsVaultTab(
                     title = "Let Official WhatsApp Ring Instead",
                     subtitle = "Silence Wupp's incoming ringtone and popup when Official WhatsApp is installed on this phone",
                     checked = stealth.suppressIncomingRingWhenOfficialInstalled,
-                    position = ExpressiveSegmentPosition.BOTTOM,
+                    position = ExpressiveSegmentPosition.MIDDLE,
                     onCheckedChange = { enabled ->
                         viewModel.updateGlobalStealth { c ->
                             c.copy(
@@ -4339,6 +4612,51 @@ private fun ToolsVaultTab(
                             com.wa.beastclient.domain.stealth.StealthMatrixManager.config.value
                         )
                     }
+                )
+                ExpressiveSegmentedActionRow(
+                    icon = Icons.Rounded.Block,
+                    title = "Anti-Call Protection",
+                    subtitle = stealth.antiCallMode.subtitle,
+                    badgeText = stealth.antiCallMode.badgeLabel.ifBlank { null },
+                    position = ExpressiveSegmentPosition.MIDDLE,
+                    onClick = { showAntiCallDialog = true }
+                )
+                ExpressiveSegmentedSwitchRow(
+                    icon = Icons.Rounded.FiberManualRecord,
+                    title = "Auto-Record In-App Calls",
+                    subtitle = "Automatically save dual-sided call audio locally into your Media Vault",
+                    checked = stealth.autoRecordCalls,
+                    position = ExpressiveSegmentPosition.BOTTOM,
+                    onCheckedChange = { viewModel.setAutoRecordCalls(it) }
+                )
+            }
+        }
+
+        item(key = "patch_section_vaults_studios") {
+            ExpressiveSegmentedGroup(title = "Vaults & Studio") {
+                ExpressiveSegmentedActionRow(
+                    icon = Icons.Rounded.History,
+                    title = "Deleted & Edited Message History",
+                    subtitle = "Search recovered deleted messages and full multi-revision edit timelines",
+                    badgeText = if (savedHistoryCount > 0) "$savedHistoryCount" else null,
+                    position = ExpressiveSegmentPosition.TOP,
+                    onClick = onOpenMessageHistory
+                )
+                ExpressiveSegmentedActionRow(
+                    icon = Icons.Rounded.Shield,
+                    title = "Media Vault & Call Recordings",
+                    subtitle = "Organized private folders for View Once, Statuses, Call Recordings & custom files",
+                    badgeText = if (stealth.vaultLockEnabled) "LOCKED" else "OPEN",
+                    position = ExpressiveSegmentPosition.MIDDLE,
+                    onClick = onOpenMediaVault
+                )
+                ExpressiveSegmentedActionRow(
+                    icon = Icons.Rounded.AutoFixHigh,
+                    title = "Sticker Studio",
+                    subtitle = "Turn photos, text, or drawings into crisp transparent WebP stickers",
+                    badgeText = if (customStickerCount > 0) "$customStickerCount" else null,
+                    position = ExpressiveSegmentPosition.BOTTOM,
+                    onClick = onOpenStickerStudio
                 )
             }
         }
@@ -4522,7 +4840,12 @@ private fun ToolsVaultTab(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "${stealth.themeMode.label} — ${stealth.themeMode.tagline}",
+                                    text = buildString {
+                                        append(stealth.themeMode.label)
+                                        append(" — ")
+                                        append(stealth.themeMode.tagline)
+                                        if (stealth.dynamicMaterialYou) append(" · Material You")
+                                    },
                                     color = colors.textSecondary,
                                     fontSize = 12.5.sp
                                 )
@@ -4532,7 +4855,20 @@ private fun ToolsVaultTab(
                             selectedTheme = stealth.themeMode,
                             onSelectTheme = { viewModel.setThemeMode(it) },
                             selectedAccent = stealth.accentColor,
-                            onSelectAccent = { viewModel.setAccentColor(it) }
+                            onSelectAccent = { viewModel.setAccentColor(it) },
+                            pureBlackOled = stealth.pureBlackOled,
+                            onTogglePureBlackOled = { viewModel.setPureBlackOled(it) },
+                            dynamicMaterialYou = stealth.dynamicMaterialYou,
+                            onToggleDynamicMaterialYou = { viewModel.setDynamicMaterialYou(it) },
+                            bubbleCornerRadiusDp = stealth.bubbleCornerRadiusDp,
+                            onBubbleCornerRadiusChange = { viewModel.setBubbleCornerRadiusDp(it) },
+                            customOutgoingBubbleArgb = stealth.customOutgoingBubbleArgb,
+                            customIncomingBubbleArgb = stealth.customIncomingBubbleArgb,
+                            onCustomBubbleColorsChange = { outArgb, inArgb -> viewModel.setCustomBubbleColors(outArgb, inArgb) },
+                            selectedFontStyle = stealth.fontStyle,
+                            hasImportedFont = stealth.customFontPath.isNotBlank(),
+                            onSelectFontStyle = { viewModel.setFontStyle(it) },
+                            onImportCustomFontUri = { viewModel.importCustomFontFromUri(it) }
                         )
                     }
                 }
@@ -4677,6 +5013,21 @@ private fun ToolsVaultTab(
                     position = ExpressiveSegmentPosition.MIDDLE,
                     onCheckedChange = {
                         viewModel.updateGlobalStealth { c -> c.copy(separateGroupsAndChats = it) }
+                    }
+                )
+                ExpressiveSegmentedSwitchRow(
+                    icon = Icons.Rounded.Campaign,
+                    title = stringResource(R.string.settings_look_separate_channels_title),
+                    subtitle = stringResource(R.string.settings_look_separate_channels_subtitle),
+                    checked = stealth.separateChannelsTab,
+                    position = ExpressiveSegmentPosition.MIDDLE,
+                    onCheckedChange = { enabled ->
+                        viewModel.updateGlobalStealth { c ->
+                            c.copy(
+                                separateChannelsTab = enabled,
+                                hideChannels = if (enabled) false else c.hideChannels
+                            )
+                        }
                     }
                 )
                 ExpressiveSegmentedActionRow(
@@ -4952,6 +5303,68 @@ private fun ToolsVaultTab(
         )
     }
 
+    if (showAntiCallDialog) {
+        val colors = LocalWaColors.current
+        AlertDialog(
+            onDismissRequest = { showAntiCallDialog = false },
+            containerColor = colors.elevatedBar,
+            title = {
+                Text(
+                    text = "Anti-Call Protection",
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AntiCallMode.entries.forEach { mode ->
+                        val selected = stealth.antiCallMode == mode
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    viewModel.setAntiCallMode(mode)
+                                    showAntiCallDialog = false
+                                }
+                                .padding(horizontal = 6.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = {
+                                    viewModel.setAntiCallMode(mode)
+                                    showAntiCallDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = colors.brightGreen)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = mode.title,
+                                    color = colors.textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = mode.subtitle,
+                                    color = colors.textSecondary,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAntiCallDialog = false }) {
+                    Text("Close", color = colors.brightGreen)
+                }
+            }
+        )
+    }
+
     if (showCompanionScopeDialog) {
         CompanionScopeInfoDialog(onDismiss = { showCompanionScopeDialog = false })
     }
@@ -5163,6 +5576,7 @@ private fun ToolsVaultTab(
 
 @Composable
 private fun NewChatPickerDialog(
+    ownJid: String = "",
     chats: List<ChatEntity>,
     contacts: List<ContactEntity>,
     onDismiss: () -> Unit,
@@ -5171,10 +5585,33 @@ private fun NewChatPickerDialog(
 ) {
     val colors = LocalWaColors.current
     var query by remember { mutableStateOf("") }
-    val mergedContacts = remember(chats, contacts) {
+    val selfChatJid = remember(ownJid) { StealthMatrixManager.canonicalSelfChatJid(ownJid) }
+    val selfChatEntry = remember(selfChatJid, ownJid, chats, contacts) {
+        if (selfChatJid.isBlank()) null
+        else {
+            val existingChat = chats.firstOrNull { StealthMatrixManager.isSelfChatJid(it.jid, ownJid) }
+            val existingContact = contacts.firstOrNull { StealthMatrixManager.isSelfChatJid(it.jid, ownJid) }
+            val resolvedName = existingChat?.name?.takeIf { it.isNotBlank() }
+                ?: existingContact?.name?.takeIf { it.isNotBlank() }
+                ?: "+${selfChatJid.substringBefore("@")}"
+            val formattedTitle = if (resolvedName.contains("(You)", ignoreCase = true)) {
+                resolvedName
+            } else {
+                "$resolvedName (You)"
+            }
+            ChatEntity(
+                jid = existingChat?.jid?.takeIf { it.isNotBlank() } ?: selfChatJid,
+                name = formattedTitle,
+                avatarPath = existingChat?.avatarPath?.takeIf { it.isNotBlank() } ?: existingContact?.avatarPath,
+                aboutText = "Message yourself"
+            )
+        }
+    }
+    val mergedContacts = remember(chats, contacts, ownJid) {
         val byJid = LinkedHashMap<String, ChatEntity>(contacts.size + chats.size)
         for (c in contacts) {
             if (c.jid.endsWith("@g.us") || c.jid.endsWith("@newsletter") || c.jid == "status@broadcast" || c.jid.endsWith("@broadcast")) continue
+            if (StealthMatrixManager.isSelfChatJid(c.jid, ownJid)) continue
             byJid[c.jid] = ChatEntity(
                 jid = c.jid,
                 name = c.name,
@@ -5185,6 +5622,7 @@ private fun NewChatPickerDialog(
         }
         for (ch in chats) {
             if (ch.isGroup || ch.isCommunityParent || ch.jid.endsWith("@newsletter") || ch.jid == "status@broadcast" || ch.jid.endsWith("@broadcast")) continue
+            if (StealthMatrixManager.isSelfChatJid(ch.jid, ownJid)) continue
             val existing = byJid[ch.jid]
             if (existing == null) {
                 byJid[ch.jid] = ch
@@ -5234,8 +5672,55 @@ private fun NewChatPickerDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                val showSelfEntry = remember(selfChatEntry, query) {
+                    val entry = selfChatEntry ?: return@remember false
+                    val q = query.trim().lowercase()
+                    q.isEmpty() ||
+                        "message yourself".contains(q) ||
+                        "you".contains(q) ||
+                        entry.name.lowercase().contains(q) ||
+                        entry.jid.lowercase().contains(q)
+                }
                 LazyColumn(modifier = Modifier.height(260.dp)) {
-                    if (digitsQuery.length >= 6 && filtered.none { it.jid.substringBefore("@") == digitsQuery }) {
+                    if (showSelfEntry && selfChatEntry != null) {
+                        item(key = "self_${selfChatEntry.jid}") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelectChat(selfChatEntry.jid) }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                WhatsAppAvatar(
+                                    jid = selfChatEntry.jid,
+                                    avatarPath = selfChatEntry.avatarPath,
+                                    isGroup = false,
+                                    size = 36.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = selfChatEntry.name,
+                                        color = colors.accentGreen,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = selfChatEntry.aboutText,
+                                        color = colors.textSecondary,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (digitsQuery.length >= 6 &&
+                        !StealthMatrixManager.isSelfChatJid("$digitsQuery@s.whatsapp.net", ownJid) &&
+                        filtered.none { it.jid.substringBefore("@") == digitsQuery }
+                    ) {
                         val directJid = "$digitsQuery@s.whatsapp.net"
                         item(key = "direct_$directJid") {
                             Row(

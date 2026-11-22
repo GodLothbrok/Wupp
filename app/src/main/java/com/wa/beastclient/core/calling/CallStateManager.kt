@@ -10,6 +10,7 @@ import android.view.Surface
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.wa.beastclient.core.service.WaRealtimeService
+import com.wa.beastclient.data.media.EagerMediaVault
 import com.wa.beastclient.domain.stealth.CallBackendMode
 import com.wa.beastclient.domain.stealth.GlobalStealthConfig
 import com.wa.beastclient.domain.stealth.StealthMatrixManager
@@ -184,11 +185,43 @@ object CallStateManager {
         peerAvatarPath: String?,
         isVideo: Boolean,
         isGroup: Boolean = false,
-        @Suppress("UNUSED_PARAMETER") isNotice: Boolean = false
+        @Suppress("UNUSED_PARAMETER") isNotice: Boolean = false,
+        isSavedContact: Boolean = false
     ) {
         val ctx = appContext ?: return
         init(ctx)
         if (callId.isBlank()) return
+
+        val cfg = StealthMatrixManager.config.value
+        val primaryPeer = callerJid.ifBlank { fromJid }
+        when (resolveIncomingAntiCallAction(cfg.antiCallMode, isSavedContact)) {
+            IncomingCallPolicyAction.SILENCE -> return
+            IncomingCallPolicyAction.REJECT -> {
+                if (loggedCallIds.size > 512) loggedCallIds.clear()
+                if (loggedCallIds.add(callId)) {
+                    WaRealtimeService.recordLocalCallLog(
+                        context = ctx,
+                        callId = callId,
+                        peerJid = primaryPeer,
+                        isFromMe = false,
+                        isVideo = isVideo,
+                        isGroup = isGroup || primaryPeer.endsWith("@g.us"),
+                        timestampMs = System.currentTimeMillis(),
+                        durationSec = 0,
+                        subtitleOverride = "Blocked by Anti-Call"
+                    )
+                }
+                ioScope.launch {
+                    runCatching {
+                        Whatsbridge.rejectCall(fromJid.ifBlank { primaryPeer }, callId)
+                    }.onFailure { err ->
+                        Log.w(TAG, "Anti-Call reject failed: ${err.message}", err)
+                    }
+                }
+                return
+            }
+            IncomingCallPolicyAction.ALLOW -> Unit
+        }
 
         val cur = _uiState.value
         if (cur.phase != CallPhase.IDLE && cur.phase != CallPhase.FAILED) {
@@ -196,9 +229,7 @@ object CallStateManager {
         }
 
         failedDismissJob?.cancel()
-        val cfg = StealthMatrixManager.config.value
         val canAnswerInApp = !cfg.offlineMode && cfg.callBackendMode != CallBackendMode.OFF
-        val primaryPeer = callerJid.ifBlank { fromJid }
         val digits = extractDialablePhoneDigits(primaryPeer, callerAltJid)
         val label = peerName.ifBlank {
             digits.takeIf { it.isNotEmpty() }?.let { "+$it" }
@@ -468,6 +499,50 @@ object CallStateManager {
         }
     }
 
+    fun toggleCallRecording() {
+        val cur = _uiState.value
+        val ctx = appContext ?: return
+        val pipeline = audioPipeline ?: return
+        if (cur.phase != CallPhase.ACTIVE && !cur.isRecording) return
+
+        if (cur.isRecording) {
+            val saved = runCatching { pipeline.stopRecording() }.getOrNull()
+            _uiState.update {
+                it.copy(
+                    isRecording = false,
+                    recordingStartedEpochMs = 0L,
+                    recordingDurationSec = 0,
+                    lastRecordingPath = saved?.absolutePath ?: it.lastRecordingPath
+                )
+            }
+            mainScope.launch {
+                val msg = if (saved != null) "Call recording saved to Media Vault" else "Call recording stopped"
+                Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            val dir = EagerMediaVault.callRecordingsVaultDir(ctx)
+            val safePeer = cur.peerName
+                .ifBlank { cur.peerPhoneDigits }
+                .ifBlank { cur.peerJid.substringBefore("@") }
+                .let { EagerMediaVault.sanitizeVaultFolderName(it) }
+                .take(24)
+            val outFile = java.io.File(dir, "call_${safePeer}_${System.currentTimeMillis()}.wav")
+            if (pipeline.startRecording(outFile)) {
+                val now = System.currentTimeMillis()
+                _uiState.update {
+                    it.copy(
+                        isRecording = true,
+                        recordingStartedEpochMs = now,
+                        recordingDurationSec = 0
+                    )
+                }
+                mainScope.launch {
+                    Toast.makeText(ctx, "Recording call locally…", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     fun toggleCamera() {
         val cur = _uiState.value
         if (!cur.isInProgress) return
@@ -611,6 +686,9 @@ object CallStateManager {
         audioController?.startInCallAudio(isVideo = videoMode)
         if (effectiveId.isNotBlank()) {
             ensureMediaPipelinesStarted(effectiveId, startVideo = videoMode)
+            if (StealthMatrixManager.config.value.autoRecordCalls && !_uiState.value.isRecording) {
+                toggleCallRecording()
+            }
         }
         appContext?.let { CallForegroundService.sync(it, _uiState.value) }
 
@@ -619,10 +697,20 @@ object CallStateManager {
                 while (isActive) {
                     val snap = _uiState.value
                     if (snap.phase != CallPhase.ACTIVE) break
-                    val elapsedSec = ((System.currentTimeMillis() - snap.connectedAtEpochMs) / 1000L)
+                    val now = System.currentTimeMillis()
+                    val elapsedSec = ((now - snap.connectedAtEpochMs) / 1000L)
                         .toInt()
                         .coerceAtLeast(0)
-                    _uiState.update { it.copy(durationSec = elapsedSec, statusText = formatCallTimer(elapsedSec)) }
+                    val recSec = if (snap.isRecording && snap.recordingStartedEpochMs > 0L) {
+                        ((now - snap.recordingStartedEpochMs) / 1000L).toInt().coerceAtLeast(0)
+                    } else 0
+                    _uiState.update {
+                        it.copy(
+                            durationSec = elapsedSec,
+                            statusText = formatCallTimer(elapsedSec),
+                            recordingDurationSec = recSec
+                        )
+                    }
                     appContext?.let { CallForegroundService.sync(it, _uiState.value) }
                     delay(1000L)
                 }

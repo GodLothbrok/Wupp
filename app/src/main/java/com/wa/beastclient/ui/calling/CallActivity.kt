@@ -50,9 +50,11 @@ import androidx.compose.material.icons.rounded.BluetoothAudio
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.HeadsetMic
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.PhoneInTalk
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VideocamOff
@@ -90,6 +92,7 @@ import com.wa.beastclient.core.calling.CallAudioRoute
 import com.wa.beastclient.core.calling.CallPhase
 import com.wa.beastclient.core.calling.CallStateManager
 import com.wa.beastclient.core.calling.CallUiState
+import com.wa.beastclient.core.calling.formatCallTimer
 import com.wa.beastclient.domain.stealth.StealthMatrixManager
 import com.wa.beastclient.ui.screens.WhatsAppAvatar
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
@@ -221,7 +224,14 @@ class CallActivity : ComponentActivity() {
             WhatsAppTheme(
                 themeMode = stealth.themeMode,
                 accentColor = stealth.accentColor,
+                pureBlackOled = stealth.pureBlackOled,
+                dynamicColors = stealth.dynamicMaterialYou,
                 useSystemFont = stealth.useSystemFont,
+                fontStyle = stealth.fontStyle,
+                customFontPath = stealth.customFontPath,
+                bubbleCornerRadiusDp = stealth.bubbleCornerRadiusDp,
+                customOutgoingBubbleArgb = stealth.customOutgoingBubbleArgb,
+                customIncomingBubbleArgb = stealth.customIncomingBubbleArgb,
                 showSecondsInTimestamps = stealth.showSecondsInTimestamps,
                 use24HourFormat = StealthMatrixManager.is24HourEnabled(this, stealth.clockFormat),
                 chatFontScale = stealth.chatFontScale,
@@ -235,6 +245,7 @@ class CallActivity : ComponentActivity() {
                     onAnswer = { audioOnly -> requestPermsAndAnswer(audioOnly, callState.isVideo && !audioOnly) },
                     onDeclineOrEnd = { CallStateManager.declineOrEndCall() },
                     onToggleMute = { CallStateManager.toggleMute() },
+                    onToggleRecording = { CallStateManager.toggleCallRecording() },
                     onToggleCamera = {
                         if (!callState.isVideo) {
                             requestCameraThenUpgrade()
@@ -283,6 +294,7 @@ private fun CallScreenContent(
     onAnswer: (audioOnly: Boolean) -> Unit,
     onDeclineOrEnd: () -> Unit,
     onToggleMute: () -> Unit,
+    onToggleRecording: () -> Unit,
     onToggleCamera: () -> Unit,
     onFlipCamera: () -> Unit,
     onSelectAudioRoute: (CallAudioRoute) -> Unit,
@@ -462,6 +474,31 @@ private fun CallScreenContent(
                                 color = Color(0xCCDAE5EA),
                                 fontSize = 11.5.sp
                             )
+                            if (state.isRecording) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xCCE53935))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.FiberManualRecord,
+                                        contentDescription = "Recording",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = "REC ${formatCallTimer(state.recordingDurationSec)}",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontFamily = mono,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                             if (showVideoFeed) {
                                 Text(
                                     text = "${state.peerName} · ${state.statusText}",
@@ -666,6 +703,15 @@ private fun CallScreenContent(
                                         active = state.isMuted,
                                         onClick = onToggleMute
                                     )
+
+                                    if (state.phase == CallPhase.ACTIVE) {
+                                        CallPillToggle(
+                                            icon = if (state.isRecording) Icons.Rounded.StopCircle else Icons.Rounded.FiberManualRecord,
+                                            label = if (state.isRecording) "Stop Rec" else "Record",
+                                            active = state.isRecording,
+                                            onClick = onToggleRecording
+                                        )
+                                    }
 
                                     IconButton(
                                         onClick = onDeclineOrEnd,

@@ -15,7 +15,7 @@ use whatsapp_rust::wacore::types::message_ref::{MessageId, MessageRef};
 use whatsapp_rust::wacore_binary::JidExt;
 use whatsapp_rust::waproto::whatsapp as wa;
 
-use crate::contacts_groups::download_cdn_bytes;
+use crate::contacts_groups::{download_cdn_bytes, resolve_dm_chat_pair_local};
 use crate::jid_helpers::{canonical_jid_str, parse_jid_flexible, split_csv};
 use crate::meta_db::{
     find_existing_media_file, get_contact_meta, get_media_meta, mark_newsletter_synced,
@@ -40,8 +40,8 @@ pub async fn normalize_message(
     from_history: bool,
 ) -> NormalizedItem {
     let base = raw_msg.get_base_message();
-    let chat_jid = canonical_jid_str(&info.source.chat.to_string());
-    let alt_chat_jid = info
+    let raw_chat_jid = canonical_jid_str(&info.source.chat.to_string());
+    let rec_alt_hint = info
         .source
         .recipient_alt
         .as_ref()
@@ -53,6 +53,15 @@ pub async fn normalize_message(
         .as_ref()
         .map(|j| canonical_jid_str(&j.to_string()))
         .unwrap_or_default();
+    let (chat_jid, alt_chat_jid) = if info.source.is_group
+        || info.source.chat.is_group()
+        || info.is_status_stanza
+        || info.source.chat.is_status_broadcast()
+    {
+        (raw_chat_jid, rec_alt_hint)
+    } else {
+        resolve_dm_chat_pair_local(runtime, &raw_chat_jid, &[&rec_alt_hint, &alt_sender_jid]).await
+    };
     let raw_sender = canonical_jid_str(&info.source.sender.to_string());
     let sender_jid = if (info.source.is_group || info.source.chat.is_group())
         && (raw_sender == chat_jid || info.source.sender.is_group())

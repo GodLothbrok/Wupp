@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.3.7-pre.1] - 2026-11-22
+
+### ✨ Features
+- 🎨 Added a Material You Dynamic Colors toggle plus 6 new themes, Pure Black OLED mode, custom fonts, and bubble style options (#70).
+- 📢 Added an optional Separate Channels Tab and a pinned Message Yourself entry in New Chat (#69).
+- 🛡️ Added Anti-Call Protection modes to silence or auto-decline all or unknown callers (#73).
+- 🖼️ Upgraded the Chat Info screen with a full Media, Docs, and Links wall with video thumbnails and tap-to-download (#76).
+- ✨ Added Sticker Studio for creating custom transparent stickers with background cutout, text, and drawing tools.
+- 🎙️ Added in-app call recording and organized locked folders inside the Media Vault.
+- 🕘 Added a searchable Deleted and Edited Message History viewer and a Per-Chat Quick Controls sheet.
+
+### 🛠️ Fixes
+- 👥 Fixed duplicate 1-on-1 chats appearing for the same contact and merged existing split threads automatically (#116).
+- 🔔 Fixed incoming messages being marked as read while Wupp is in the background or locked (#117).
+- ⌨️ Removed the extra blank space below the chat input bar (#69).
+- ⚡ Added a 4-second post-connect settle delay before background contact and avatar syncing starts.
+
 ## [0.3.6] - 2026-11-22
 
 ### ✨ Features

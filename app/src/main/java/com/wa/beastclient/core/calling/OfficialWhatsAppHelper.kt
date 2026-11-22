@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.wa.beastclient.domain.stealth.AntiCallMode
 
 internal object OfficialWhatsAppHelper {
     private val OFFICIAL_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
@@ -41,6 +42,24 @@ internal object OfficialWhatsAppHelper {
             true
         }.getOrDefault(false)
     }
+}
+
+internal enum class IncomingCallPolicyAction {
+    ALLOW,
+    SILENCE,
+    REJECT
+}
+
+/** Resolves whether an incoming call rings normally, stays silenced locally, or is auto-declined. */
+internal fun resolveIncomingAntiCallAction(
+    antiCallMode: AntiCallMode,
+    isSavedContact: Boolean
+): IncomingCallPolicyAction = when (antiCallMode) {
+    AntiCallMode.OFF -> IncomingCallPolicyAction.ALLOW
+    AntiCallMode.SILENCE_ALL -> IncomingCallPolicyAction.SILENCE
+    AntiCallMode.REJECT_ALL -> IncomingCallPolicyAction.REJECT
+    AntiCallMode.REJECT_UNSAVED ->
+        if (isSavedContact) IncomingCallPolicyAction.ALLOW else IncomingCallPolicyAction.REJECT
 }
 
 /**

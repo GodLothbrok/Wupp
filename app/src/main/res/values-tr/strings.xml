@@ -17,6 +17,7 @@
     <string name="nav_chats">Sohbetler</string>
     <string name="nav_groups">Gruplar</string>
     <string name="nav_updates">Güncellemeler</string>
+    <string name="nav_channels">Kanallar</string>
     <string name="nav_communities">Topluluklar</string>
     <string name="nav_calls">Aramalar</string>
     <string name="nav_settings">Ayarlar</string>
@@ -164,6 +165,8 @@
     <string name="settings_look_hide_badges_subtitle">Stok görünüm için Ana Ekrandaki Hayalet / Çevrimiçi rozetlerini gizler</string>
     <string name="settings_look_separate_groups_title">Sohbet ve Grupları Ayır</string>
     <string name="settings_look_separate_groups_subtitle">Grupları Sohbetler ile karıştırmak yerine Ana Ekranda ayrı Gruplar sekmesi gösterir</string>
+    <string name="settings_look_separate_channels_title">Ayrı Kanallar Sekmesi</string>
+    <string name="settings_look_separate_channels_subtitle">Takip edilen Kanalları Güncellemeler sekmesinden ayrı bir sekmeye taşır</string>
     <string name="settings_look_hide_channels_title">Kanalları Gizle</string>
     <string name="settings_look_hide_channels_subtitle">Güncellemeler sekmesinde Kanallar bölümünü gizler</string>
 

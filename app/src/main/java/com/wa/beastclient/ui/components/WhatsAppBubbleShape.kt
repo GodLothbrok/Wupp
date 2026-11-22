@@ -18,7 +18,8 @@ import androidx.compose.ui.unit.dp
  */
 class WhatsAppBubbleShape(
     private val isFromMe: Boolean,
-    private val showTail: Boolean
+    private val showTail: Boolean,
+    private val cornerRadiusDp: Int = 16
 ) : Shape {
     override fun createOutline(
         size: Size,
@@ -26,7 +27,7 @@ class WhatsAppBubbleShape(
         density: Density
     ): Outline {
         val maxR = minOf(size.width, size.height) / 2f
-        val r = minOf(with(density) { 16.dp.toPx() }, maxR)
+        val r = minOf(with(density) { cornerRadiusDp.coerceIn(4, 24).dp.toPx() }, maxR)
         if (!showTail) {
             return Outline.Rounded(
                 RoundRect(
@@ -75,3 +76,6 @@ class WhatsAppBubbleShape(
 }
 
 val WhatsAppClusterInnerShape = RoundedCornerShape(16.dp)
+
+fun whatsAppClusterInnerShape(cornerRadiusDp: Int): RoundedCornerShape =
+    RoundedCornerShape(cornerRadiusDp.coerceIn(4, 24).dp)

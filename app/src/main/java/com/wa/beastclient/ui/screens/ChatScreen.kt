@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,7 +54,9 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
@@ -160,6 +163,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -197,6 +203,7 @@ import com.wa.beastclient.domain.stealth.StealthMatrixManager
 import com.wa.beastclient.ui.MainViewModel
 import com.wa.beastclient.ui.QuotedSenderMeta
 import com.wa.beastclient.ui.ResolvedParticipantUi
+import com.wa.beastclient.ui.theme.contrastingContentColor
 import com.wa.beastclient.ui.calling.ActiveCallFloatingBar
 import com.wa.beastclient.ui.calling.CallingSetupDialog
 import com.wa.beastclient.ui.components.AnimatedStickerImage
@@ -209,18 +216,21 @@ import com.wa.beastclient.ui.components.ForwardMessageDialog
 import com.wa.beastclient.ui.components.FullScreenMediaViewer
 import com.wa.beastclient.ui.components.InAppPdfViewerDialog
 import com.wa.beastclient.ui.components.InlineTimestampMessage
+import com.wa.beastclient.ui.components.MessageHistorySheet
 import com.wa.beastclient.ui.components.MessageMetaCluster
 import com.wa.beastclient.ui.components.OutboundMediaPreviewDialog
+import com.wa.beastclient.ui.components.PerChatQuickControlsSheet
 import com.wa.beastclient.ui.components.PinDurationDialog
 import com.wa.beastclient.ui.components.PinnedMessageBanner
 import com.wa.beastclient.ui.components.ProfilePhotoLightbox
 import com.wa.beastclient.ui.components.StagedOutboundMedia
+import com.wa.beastclient.ui.components.StickerStudioDialog
 import com.wa.beastclient.ui.components.SwipeToReplyBox
 import com.wa.beastclient.ui.components.VoiceNoteBubble
 import com.wa.beastclient.ui.components.WallpaperPickerDialog
 import com.wa.beastclient.ui.components.WhatsAppBubbleShape
-import com.wa.beastclient.ui.components.WhatsAppClusterInnerShape
 import com.wa.beastclient.ui.components.WuppGlassContainer
+import com.wa.beastclient.ui.components.whatsAppClusterInnerShape
 import com.wa.beastclient.ui.components.buildDocumentExportFileName
 import com.wa.beastclient.ui.components.deleteBeforeSelection
 import com.wa.beastclient.ui.components.expressivePressScale
@@ -234,6 +244,7 @@ import com.wa.beastclient.ui.components.resolveDocumentDisplayName
 import com.wa.beastclient.ui.components.resolveDocumentMimeType
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
+import com.wa.beastclient.ui.theme.LocalWuppBubbleRadiusDp
 import com.wa.beastclient.ui.theme.LocalWuppShowSeconds
 import com.wa.beastclient.ui.theme.LocalWuppUse24Hour
 import kotlinx.coroutines.Dispatchers
@@ -268,9 +279,32 @@ fun ChatScreen(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
-    DisposableEffect(chatJid) {
-        viewModel.setActiveChat(chatJid)
-        onDispose { viewModel.setActiveChat(null) }
+    val isAppLocked by viewModel.isAppLocked.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(chatJid, lifecycleOwner, isAppLocked) {
+        fun syncActiveVisibility() {
+            val isResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            if (isResumed && !isAppLocked) {
+                viewModel.setActiveChat(chatJid)
+            } else {
+                viewModel.setActiveChat(null)
+            }
+        }
+        syncActiveVisibility()
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> if (!isAppLocked) viewModel.setActiveChat(chatJid)
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> viewModel.setActiveChat(null)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.setActiveChat(null)
+        }
     }
 
     val chat by remember(chatJid) { viewModel.observeChat(chatJid) }.collectAsState(initial = null)
@@ -568,6 +602,10 @@ fun ChatScreen(
     val favoriteStickers by viewModel.favoriteStickers.collectAsState()
     val favoriteStickerKeys by viewModel.favoriteStickerKeys.collectAsState()
     val cuppyStickers by viewModel.cuppyStickers.collectAsState()
+    val customStickers by viewModel.customStickers.collectAsState()
+    val deletedHistory by viewModel.deletedMessagesHistory.collectAsState()
+    val editedHistory by viewModel.editedMessagesHistory.collectAsState()
+    val allEditsHistory by viewModel.allMessageEdits.collectAsState()
     var isDockExpanded by rememberSaveable(chatJid) { mutableStateOf(false) }
 
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -668,6 +706,8 @@ fun ChatScreen(
     var showSelectionOverflow by remember { mutableStateOf(false) }
 
     var showGhostOverrideSheet by remember { mutableStateOf(false) }
+    var showStickerStudioDialog by remember { mutableStateOf(false) }
+    var showChatHistorySheet by remember { mutableStateOf(false) }
     var editHistoryTarget by remember { mutableStateOf<MessageEntity?>(null) }
     var groupReceiptsTarget by remember { mutableStateOf<MessageEntity?>(null) }
     var actionMenuTarget by remember { mutableStateOf<MessageEntity?>(null) }
@@ -764,6 +804,7 @@ fun ChatScreen(
 
     Scaffold(
         containerColor = colors.chatCanvas,
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
         topBar = {
             val topMotion = MaterialTheme.motionScheme
             Column {
@@ -1060,9 +1101,16 @@ fun ChatScreen(
                                     .weight(1f, fill = false)
                                     .clickable { onOpenContactInfo(chatJid) }
                             ) {
+                                val isSelfChat = remember(chatJid, bridgeStatus.ownJid) {
+                                    StealthMatrixManager.isSelfChatJid(chatJid, bridgeStatus.ownJid)
+                                }
+                                val displayChatTitle = remember(chat?.name, chatJid, isSelfChat) {
+                                    val base = chat?.name?.ifBlank { chatJid.substringBefore("@") }
+                                        ?: chatJid.substringBefore("@")
+                                    if (isSelfChat && !base.contains("(You)", ignoreCase = true)) "$base (You)" else base
+                                }
                                 Text(
-                                    text = chat?.name?.ifBlank { chatJid.substringBefore("@") }
-                                        ?: chatJid.substringBefore("@"),
+                                    text = displayChatTitle,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
@@ -1152,6 +1200,13 @@ fun ChatScreen(
                             Icon(Icons.Rounded.MoreVert, "More", tint = colors.textPrimary)
                         }
                         DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Quick controls & privacy") },
+                                onClick = {
+                                    showOverflow = false
+                                    showGhostOverrideSheet = true
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("View contact info") },
                                 onClick = {
@@ -1313,10 +1368,13 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .imePadding()
-                .navigationBarsPadding()
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding()
+                    .navigationBarsPadding()
+            ) {
                 ActiveCallFloatingBar()
                 // Error 463 Ban Guard Banner on unsaved first-contact chats (not channels or admin-only groups)
                 if (!isChannel && !isGroupAnnounceLocked && !canSendOutbound) {
@@ -2222,13 +2280,14 @@ fun ChatScreen(
                             },
                             label = "morph_fab"
                         ) { mode ->
+                            val fabContentTint = if (!canSendOutbound || isRecordingVoice) Color.White else colors.brightGreen.contrastingContentColor()
                             when (mode) {
-                                2 -> Icon(Icons.Rounded.Stop, "Stop & Send Audio", tint = Color.White)
-                                1 -> Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = Color.White)
+                                2 -> Icon(Icons.Rounded.Stop, "Stop & Send Audio", tint = fabContentTint)
+                                1 -> Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = fabContentTint)
                                 else -> Icon(
                                     painter = painterResource(R.drawable.msg_status_mic),
                                     contentDescription = "Record Voice Note",
-                                    tint = Color.White,
+                                    tint = fabContentTint,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -2282,6 +2341,7 @@ fun ChatScreen(
                                 favoriteStickers = favoriteStickers,
                                 favoriteStickerKeys = favoriteStickerKeys,
                                 cuppyStickers = cuppyStickers,
+                                customStickers = customStickers,
                                 onStickerSelected = { stickerMsg ->
                                     val path = stickerMsg.localMediaPath
                                     if (!path.isNullOrBlank()) {
@@ -2298,13 +2358,22 @@ fun ChatScreen(
                                         viewModel.sendSticker(chatJid, builtinSticker.file)
                                     }
                                 },
+                                onSendCustomSticker = { customSticker ->
+                                    val file = File(customSticker.filePath)
+                                    if (file.exists() && file.length() > 0L) {
+                                        runWithOutboundGuard {
+                                            viewModel.sendSticker(chatJid, file)
+                                        }
+                                    }
+                                },
+                                onDeleteCustomSticker = { customSticker ->
+                                    viewModel.deleteCustomSticker(customSticker.id)
+                                },
                                 onToggleFavorite = { stickerMsg ->
                                     viewModel.toggleFavoriteSticker(stickerMsg)
                                 },
                                 onCreateSticker = {
-                                    pickStickerVisualLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
+                                    showStickerStudioDialog = true
                                 }
                             )
                         }
@@ -2315,81 +2384,60 @@ fun ChatScreen(
         }
     }
 
-    // Per-Chat Ghost Override Sheet
+    // Per-Chat Quick Controls & Privacy Sheet
     if (showGhostOverrideSheet) {
-        val currentPrivacy = effectivePrivacy
-        var sendRead by remember(currentPrivacy) { mutableStateOf(currentPrivacy?.sendReadReceipts ?: false) }
-        var sendPlayed by remember(currentPrivacy) { mutableStateOf(currentPrivacy?.sendPlayedReceipts ?: false) }
-        var sendTyping by remember(currentPrivacy) { mutableStateOf(currentPrivacy?.sendChatPresence ?: false) }
-
-        ModalBottomSheet(
-            onDismissRequest = { showGhostOverrideSheet = false },
-            containerColor = colors.elevatedBar
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Per-Chat Ghost Matrix (${chat?.name ?: chatJid})",
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary,
-                    fontSize = 16.sp
-                )
-                Text(
-                    text = "Override global stealth policies exclusively for this thread:",
-                    color = colors.textSecondary,
-                    fontSize = 12.5.sp
-                )
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Send Read Receipts (Blue Ticks)", color = colors.textPrimary)
-                    Switch(checked = sendRead, onCheckedChange = { sendRead = it })
-                }
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Send Audio Played Receipts", color = colors.textPrimary)
-                    Switch(checked = sendPlayed, onCheckedChange = { sendPlayed = it })
-                }
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Send Live Typing & Recording", color = colors.textPrimary)
-                    Switch(checked = sendTyping, onCheckedChange = { sendTyping = it })
-                }
-                HorizontalDivider(color = colors.divider)
-                ChatMediaVisibilitySelector(
-                    selectedOverride = StealthMatrixManager.getChatGalleryOverride(chatJid, stealthConfig),
-                    globalDefaultVisible = stealthConfig.mediaVisibilityInGallery,
-                    onSelectOverride = { overrideVisible ->
-                        viewModel.setChatMediaVisibility(chatJid, overrideVisible)
-                    }
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.clearChatPrivacyOverride(chatJid)
-                            viewModel.setChatMediaVisibility(chatJid, null)
-                            showGhostOverrideSheet = false
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Use Global Default")
-                    }
-                    Button(
-                        onClick = {
-                            viewModel.saveChatPrivacyOverride(chatJid, sendRead, sendPlayed, sendTyping)
-                            showGhostOverrideSheet = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentGreen),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Save Override", color = Color.White)
-                    }
-                }
-            }
+        val chatSavedCount = remember(deletedHistory, editedHistory, chatJid) {
+            (deletedHistory.asSequence().filter { it.chatJid == chatJid }.map { it.id } +
+                editedHistory.asSequence().filter { it.chatJid == chatJid }.map { it.id }).toSet().size
         }
+        PerChatQuickControlsSheet(
+            chat = chat,
+            chatJid = chatJid,
+            effectivePrivacy = effectivePrivacy,
+            stealthConfig = stealthConfig,
+            savedHistoryCount = chatSavedCount,
+            onSavePrivacyOverride = { sendRead, sendPlayed, sendTyping ->
+                viewModel.saveChatPrivacyOverride(chatJid, sendRead, sendPlayed, sendTyping)
+            },
+            onClearPrivacyOverride = { viewModel.clearChatPrivacyOverride(chatJid) },
+            onSetGalleryVisibility = { overrideVisible ->
+                viewModel.setChatMediaVisibility(chatJid, overrideVisible)
+            },
+            onTogglePin = { chat?.let { viewModel.togglePinChat(it) } },
+            onToggleMute = { chat?.let { viewModel.muteChats(listOf(it.jid), !it.isMuted) } },
+            onToggleFavorite = { chat?.let { viewModel.toggleFavoriteChat(it) } },
+            onToggleLock = { chat?.let { viewModel.setChatLock(it.jid, !it.isLocked) } },
+            onOpenWallpaper = { showWallpaperDialog = true },
+            onOpenChatHistory = { showChatHistorySheet = true },
+            onDismiss = { showGhostOverrideSheet = false }
+        )
+    }
+
+    if (showStickerStudioDialog) {
+        StickerStudioDialog(
+            canSendNow = canSendOutbound,
+            onSaveToPack = { bmp, label -> viewModel.saveCustomSticker(bmp, label) },
+            onSaveAndSend = { bmp, label ->
+                runWithOutboundGuard {
+                    viewModel.saveCustomStickerAndSend(chatJid, bmp, label)
+                }
+            },
+            onDismiss = { showStickerStudioDialog = false }
+        )
+    }
+
+    if (showChatHistorySheet) {
+        MessageHistorySheet(
+            deletedMessages = deletedHistory,
+            editedMessages = editedHistory,
+            allEdits = allEditsHistory,
+            chats = allChats,
+            initialChatJid = chatJid,
+            onJumpToChat = { targetJid ->
+                if (targetJid != chatJid) onOpenContactInfo(targetJid)
+            },
+            onDismiss = { showChatHistorySheet = false }
+        )
     }
 
     if (showWallpaperDialog) {
@@ -2990,8 +3038,8 @@ private fun MessageBubbleRow(
     val shape = when {
         isSticker -> RoundedCornerShape(0.dp)
         isChannel -> RoundedCornerShape(12.dp)
-        showTail -> WhatsAppBubbleShape(effectiveOutgoing, true)
-        else -> WhatsAppClusterInnerShape
+        showTail -> WhatsAppBubbleShape(effectiveOutgoing, true, LocalWuppBubbleRadiusDp.current)
+        else -> whatsAppClusterInnerShape(LocalWuppBubbleRadiusDp.current)
     }
 
     val hasVaultFile = remember(msg.localMediaPath) {

@@ -44,6 +44,7 @@ import com.wa.beastclient.data.media.OutboundQualityMode
 import com.wa.beastclient.data.media.SoundPoolManager
 import com.wa.beastclient.data.media.StickerFavoritesStore
 import com.wa.beastclient.domain.contacts.DeviceContactFallbackResolver
+import com.wa.beastclient.domain.security.AppLockManager
 import com.wa.beastclient.domain.stealth.StealthMatrixManager
 import com.wa.beastclient.ui.components.isOwnStatusSender
 import com.wa.bridge.whatsbridge.NativeBridgeCallback
@@ -130,36 +131,91 @@ class WaRealtimeService : Service() {
     @Volatile
     private var watchdogConsecutiveFailures: Int = 0
     private val typingExpiryJobs = ConcurrentHashMap<String, Job>()
+    private var postConnectSyncJob: Job? = null
     private val pendingReactions = ConcurrentHashMap<String, MutableList<JSONObject>>()
     private val pendingPins = ConcurrentHashMap<String, JSONObject>()
     private val pendingRevokes = ConcurrentHashMap<String, JSONObject>()
     private val chatAliasToCanonical = ConcurrentHashMap<String, String>()
 
     private suspend fun canonicalizeAndMergeAlias(rawJid: String, rawAltJid: String): String {
-        val jid = rawJid.trim()
-        val alt = rawAltJid.trim()
+        val jid = stripJidDevice(rawJid)
+        val alt = stripJidDevice(rawAltJid)
         if (jid.isBlank()) return jid
         if (jid.endsWith("@g.us") || jid.endsWith("@newsletter") || jid == "status@broadcast") {
             return jid
         }
         val mapped = when {
             jid.endsWith("@lid") && alt.endsWith("@s.whatsapp.net") -> {
-                chatAliasToCanonical[jid] = alt
+                rememberAndPersistAlias(applicationContext, lidJid = jid, pnJid = alt)
                 dao.mergeDuplicateChatAlias(canonicalJid = alt, duplicateJid = jid)
                 pushnameCache[jid]?.let { n -> pushnameCache.putIfAbsent(alt, n) }
                 if (activeChatJid.value == jid) activeChatJid.value = alt
                 alt
             }
             jid.endsWith("@s.whatsapp.net") && alt.endsWith("@lid") -> {
-                chatAliasToCanonical[alt] = jid
+                rememberAndPersistAlias(applicationContext, lidJid = alt, pnJid = jid)
                 dao.mergeDuplicateChatAlias(canonicalJid = jid, duplicateJid = alt)
                 pushnameCache[alt]?.let { n -> pushnameCache.putIfAbsent(jid, n) }
                 if (activeChatJid.value == alt) activeChatJid.value = jid
                 jid
             }
-            else -> chatAliasToCanonical[jid] ?: jid
+            else -> {
+                val cached = persistedLidToPn[jid] ?: chatAliasToCanonical[jid]
+                if (cached != null && cached != jid) {
+                    dao.mergeDuplicateChatAlias(canonicalJid = cached, duplicateJid = jid)
+                    if (activeChatJid.value == jid) activeChatJid.value = cached
+                    cached
+                } else {
+                    jid
+                }
+            }
         }
         return mapped
+    }
+
+    private suspend fun handleLidPnMappings(json: JSONObject) {
+        val arr = json.optJSONArray("mappings") ?: return
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val pn = stripJidDevice(item.optString("pn"))
+            val lid = stripJidDevice(item.optString("lid"))
+            if (pn.endsWith("@s.whatsapp.net") && lid.endsWith("@lid")) {
+                rememberAndPersistAlias(applicationContext, lidJid = lid, pnJid = pn)
+                dao.mergeDuplicateChatAlias(canonicalJid = pn, duplicateJid = lid)
+                if (activeChatJid.value == lid) activeChatJid.value = pn
+            }
+        }
+    }
+
+    private suspend fun healDuplicateLidChatsLocally(queryRustBridge: Boolean) {
+        loadPersistedAliases(applicationContext)
+        for ((lid, pn) in persistedLidToPn.entries.toList()) {
+            if (lid.endsWith("@lid") && pn.endsWith("@s.whatsapp.net")) {
+                dao.mergeDuplicateChatAlias(canonicalJid = pn, duplicateJid = lid)
+            }
+        }
+        if (!queryRustBridge) return
+        val lidChats = dao.getAllChatsOnce()
+            .asSequence()
+            .map { stripJidDevice(it.jid) }
+            .filter { it.endsWith("@lid") }
+            .distinct()
+            .toList()
+        if (lidChats.isEmpty()) return
+        val rawAliases = runCatching {
+            Whatsbridge.resolveLocalDmAliasesJson(lidChats.joinToString(","))
+        }.getOrDefault("{}")
+        val obj = runCatching { JSONObject(rawAliases) }.getOrNull() ?: return
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val lid = stripJidDevice(keys.next())
+            val pn = stripJidDevice(obj.optString(lid))
+            if (lid.endsWith("@lid") && pn.endsWith("@s.whatsapp.net")) {
+                rememberAndPersistAlias(applicationContext, lidJid = lid, pnJid = pn)
+                dao.mergeDuplicateChatAlias(canonicalJid = pn, duplicateJid = lid)
+                if (activeChatJid.value == lid) activeChatJid.value = pn
+            }
+        }
     }
 
     private fun stripJidDevice(rawJid: String): String {
@@ -267,6 +323,7 @@ class WaRealtimeService : Service() {
                 dao.clearGroupJidSendersOnMessages()
                 dao.clearGroupJidChatSenderPreviews()
                 healGroupLastSenderNames()
+                healDuplicateLidChatsLocally(queryRustBridge = false)
                 dao.getChatsWithReactionPreview().forEach { chat ->
                     val latest = dao.getLatestMessageForChat(chat.jid) ?: return@forEach
                     val realPreview = WaDao.previewTextFor(latest)
@@ -717,12 +774,20 @@ class WaRealtimeService : Service() {
                     runCatching {
                         Whatsbridge.setGhostPresence(StealthMatrixManager.config.value.ghostPresence)
                     }
-                    serviceScope.launch {
+                    postConnectSyncJob?.cancel()
+                    postConnectSyncJob = serviceScope.launch {
+                        // Heal any existing split @lid/@pn chats immediately from local SQLite (0 network traffic),
+                        // then wait 4s for WhatsApp's offline stanza queue to drain before starting contact/avatar fetches.
+                        healDuplicateLidChatsLocally(queryRustBridge = true)
+                        delay(4_000L)
+                        if (shouldSkipBackgroundReconnect()) return@launch
+                        if (!runCatching { Whatsbridge.isConnected() }.getOrDefault(false)) return@launch
                         triggerContactsAndAvatarsSync("")
                         scheduleMissingAvatarSync()
                     }
                 }
             }
+            "LID_PN_MAPPINGS" -> handleLidPnMappings(json)
             "HISTORY_SYNC_BATCH" -> handleHistorySyncBatch(json)
             "CONTACTS_SYNC_BATCH" -> handleContactsSyncBatch(json)
             "GROUPS_SYNC_BATCH" -> handleGroupsSyncBatch(json)
@@ -1218,7 +1283,7 @@ class WaRealtimeService : Service() {
                 msg = msg.copy(senderName = "")
             }
         }
-        val isActiveChat = activeChatJid.value == msg.chatJid
+        val isActiveChat = isChatActivelyVisible(msg.chatJid)
         val shouldAutoRead = !isSync && isActiveChat && !msg.isFromMe &&
             StealthMatrixManager.getEffectivePrivacy(dao, msg.chatJid).sendReadReceipts
         if (shouldAutoRead) {
@@ -1584,7 +1649,7 @@ class WaRealtimeService : Service() {
             message = msg,
             chatNameHint = msg.senderName,
             isGroup = msg.chatJid.endsWith("@g.us"),
-            incrementUnread = existing == null && activeChatJid.value != msg.chatJid
+            incrementUnread = existing == null && !isChatActivelyVisible(msg.chatJid)
         )
     }
 
@@ -1714,8 +1779,9 @@ class WaRealtimeService : Service() {
     }
 
     private suspend fun handleReceipt(json: JSONObject) {
-        val chatJid = json.optString("chatJid")
+        val rawChat = json.optString("chatJid")
         val altChatJid = json.optString("altChatJid")
+        val chatJid = canonicalizeAndMergeAlias(rawChat, altChatJid).ifBlank { rawChat }
         val senderJid = json.optString("senderJid")
         val receiptType = json.optString("receiptType", "DELIVERED")
         val timestamp = json.optLong("timestamp", System.currentTimeMillis())
@@ -2116,6 +2182,10 @@ class WaRealtimeService : Service() {
             callerChat?.name?.takeIf { it.isNotBlank() }
         ).firstOrNull().orEmpty()
         val avatarPath = peerChat?.avatarPath ?: callerChat?.avatarPath
+        val isSavedContact = listOf(callerJid, rawAltJid, chatJid)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .any { jid -> dao.getContact(jid)?.isSaved == true }
 
         CallStateManager.onGoIncomingCall(
             callId = callId,
@@ -2126,7 +2196,8 @@ class WaRealtimeService : Service() {
             peerAvatarPath = avatarPath,
             isVideo = isVideo,
             isGroup = isGroup,
-            isNotice = isNotice
+            isNotice = isNotice,
+            isSavedContact = isSavedContact
         )
     }
 
@@ -2210,6 +2281,100 @@ class WaRealtimeService : Service() {
         const val ACTION_DISCONNECT = "com.wupp.app.action.DISCONNECT"
         const val OFFLINE_OUTBOUND_ERROR = "Wupp is in Offline mode — tap Offline to go Live"
         const val MAX_FORWARD_RECIPIENTS = 5
+        private const val ALIAS_PREFS_NAME = "wupp_jid_aliases"
+        internal val persistedLidToPn = ConcurrentHashMap<String, String>()
+        @Volatile
+        private var aliasesLoaded = false
+
+        internal fun shouldAutoMarkChatRead(
+            activeChatJid: String?,
+            targetChatJid: String,
+            isUiForeground: Boolean,
+            isAppLocked: Boolean
+        ): Boolean =
+            isUiForeground &&
+                !isAppLocked &&
+                !activeChatJid.isNullOrBlank() &&
+                activeChatJid == targetChatJid
+
+        fun isChatActivelyVisible(chatJid: String): Boolean =
+            shouldAutoMarkChatRead(
+                activeChatJid = activeChatJid.value,
+                targetChatJid = chatJid,
+                isUiForeground = isUiForeground,
+                isAppLocked = AppLockManager.isLocked.value
+            )
+
+        internal fun resolveCanonicalDmJid(
+            rawJid: String,
+            rawAltJid: String,
+            cachedAliases: Map<String, String>
+        ): String {
+            val jid = rawJid.trim()
+            val alt = rawAltJid.trim()
+            if (jid.isBlank() || jid.endsWith("@g.us") || jid.endsWith("@newsletter") || jid == "status@broadcast") {
+                return jid
+            }
+            return when {
+                jid.endsWith("@lid") && alt.endsWith("@s.whatsapp.net") -> alt
+                jid.endsWith("@s.whatsapp.net") && alt.endsWith("@lid") -> jid
+                else -> cachedAliases[jid] ?: jid
+            }
+        }
+
+        private fun loadPersistedAliases(context: Context) {
+            if (aliasesLoaded) return
+            synchronized(persistedLidToPn) {
+                if (aliasesLoaded) return
+                val prefs = context.applicationContext.getSharedPreferences(ALIAS_PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.all.forEach { (lid, pnAny) ->
+                    val pn = (pnAny as? String).orEmpty().trim()
+                    if (lid.endsWith("@lid") && pn.endsWith("@s.whatsapp.net")) {
+                        persistedLidToPn[lid] = pn
+                    }
+                }
+                aliasesLoaded = true
+            }
+        }
+
+        private fun rememberAndPersistAlias(context: Context, lidJid: String, pnJid: String) {
+            val cleanLid = lidJid.trim()
+            val cleanPn = pnJid.trim()
+            if (!cleanLid.endsWith("@lid") || !cleanPn.endsWith("@s.whatsapp.net")) return
+            val existing = persistedLidToPn.put(cleanLid, cleanPn)
+            instance?.chatAliasToCanonical?.set(cleanLid, cleanPn)
+            if (existing != cleanPn) {
+                context.applicationContext
+                    .getSharedPreferences(ALIAS_PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(cleanLid, cleanPn)
+                    .apply()
+            }
+        }
+
+        internal suspend fun resolveCanonicalOutboundChatJid(
+            context: Context,
+            dao: WaDao,
+            rawChatJid: String
+        ): String {
+            loadPersistedAliases(context)
+            val clean = rawChatJid.trim()
+            if (clean.isBlank() || !clean.endsWith("@lid")) return clean
+            persistedLidToPn[clean]?.let { pn ->
+                dao.mergeDuplicateChatAlias(canonicalJid = pn, duplicateJid = clean)
+                return pn
+            }
+            val aliasJson = runCatching { Whatsbridge.resolveLocalDmAliasesJson(clean) }.getOrNull()
+            val resolvedPn = aliasJson?.let { raw ->
+                runCatching { JSONObject(raw).optString(clean).trim() }.getOrNull()
+            }.orEmpty()
+            if (resolvedPn.endsWith("@s.whatsapp.net")) {
+                rememberAndPersistAlias(context, lidJid = clean, pnJid = resolvedPn)
+                dao.mergeDuplicateChatAlias(canonicalJid = resolvedPn, duplicateJid = clean)
+                return resolvedPn
+            }
+            return clean
+        }
 
         private suspend fun persistCallMessage(
             dao: WaDao,
@@ -3006,16 +3171,17 @@ class WaRealtimeService : Service() {
             runCatching {
                 ensureOnlineForOutbound()
                 val dao = WaUiDatabase.getInstance(context).waDao()
-                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, chatJid)) {
-                    error("ERROR_463_GUARD: First message to unsaved contact blocked to prevent companion Error 463 ban. Start chat on primary phone first.")
+                val effectiveChatJid = resolveCanonicalOutboundChatJid(context, dao, chatJid)
+                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, effectiveChatJid, _bridgeStatus.value.ownJid)) {
+                    error("ERROR_463_GUARD: First message to unsaved contact blocked to protect companion Error 463 ban. Start chat on primary phone first.")
                 }
 
-                val privacy = StealthMatrixManager.getEffectivePrivacy(dao, chatJid)
+                val privacy = StealthMatrixManager.getEffectivePrivacy(dao, effectiveChatJid)
                 var mentionsCsv = ""
-                if (ghostMentionEveryone && chatJid.endsWith("@g.us")) {
+                if (ghostMentionEveryone && effectiveChatJid.endsWith("@g.us")) {
                     val ownUser = _bridgeStatus.value.ownJid.substringBefore("@").substringBefore(":")
                     mentionsCsv = runCatching {
-                        val raw = Whatsbridge.getGroupParticipantsJson(chatJid)
+                        val raw = Whatsbridge.getGroupParticipantsJson(effectiveChatJid)
                         val arr = JSONArray(raw)
                         buildList {
                             for (i in 0 until arr.length()) {
@@ -3032,7 +3198,7 @@ class WaRealtimeService : Service() {
                 val ownJid = _bridgeStatus.value.ownJid.ifBlank { "me@s.whatsapp.net" }
                 val stanzaId = if (runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) {
                     Whatsbridge.sendTextMessage(
-                        chatJid,
+                        effectiveChatJid,
                         text,
                         quoted?.id ?: "",
                         quoted?.senderJid ?: "",
@@ -3046,7 +3212,7 @@ class WaRealtimeService : Service() {
 
                 val entity = MessageEntity(
                     id = stanzaId,
-                    chatJid = chatJid,
+                    chatJid = effectiveChatJid,
                     senderJid = ownJid,
                     senderName = "You",
                     isFromMe = true,
@@ -3062,7 +3228,7 @@ class WaRealtimeService : Service() {
                 dao.upsertIncomingMessageAndRefreshChat(
                     message = entity,
                     chatNameHint = "",
-                    isGroup = chatJid.endsWith("@g.us"),
+                    isGroup = effectiveChatJid.endsWith("@g.us"),
                     incrementUnread = false
                 )
                 SoundPoolManager.playSend()
@@ -3301,7 +3467,8 @@ class WaRealtimeService : Service() {
             runCatching {
                 ensureOnlineForOutbound()
                 val dao = WaUiDatabase.getInstance(context).waDao()
-                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, chatJid)) {
+                val effectiveChatJid = resolveCanonicalOutboundChatJid(context, dao, chatJid)
+                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, effectiveChatJid, _bridgeStatus.value.ownJid)) {
                     error("ERROR_463_GUARD: First message to unsaved contact blocked to protect account reputation.")
                 }
 
@@ -3340,7 +3507,7 @@ class WaRealtimeService : Service() {
 
                 val stanzaId = if (runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) {
                     Whatsbridge.sendMediaMessage(
-                        chatJid,
+                        effectiveChatJid,
                         prepared.file.absolutePath,
                         resolvedOutMime,
                         caption,
@@ -3355,7 +3522,7 @@ class WaRealtimeService : Service() {
 
                 val entity = MessageEntity(
                     id = stanzaId,
-                    chatJid = chatJid,
+                    chatJid = effectiveChatJid,
                     senderJid = _bridgeStatus.value.ownJid.ifBlank { "me@s.whatsapp.net" },
                     senderName = "You",
                     isFromMe = true,
@@ -3375,7 +3542,7 @@ class WaRealtimeService : Service() {
                 dao.upsertIncomingMessageAndRefreshChat(
                     message = entity,
                     chatNameHint = "",
-                    isGroup = chatJid.endsWith("@g.us"),
+                    isGroup = effectiveChatJid.endsWith("@g.us"),
                     incrementUnread = false
                 )
                 if (isVoiceNote) {

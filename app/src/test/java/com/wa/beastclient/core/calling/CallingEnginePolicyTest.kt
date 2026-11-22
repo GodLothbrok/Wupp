@@ -165,6 +165,30 @@ class CallingEnginePolicyTest {
     }
 
     @Test
+    fun resolveIncomingAntiCallActionHonorsAllModesForSavedAndUnknownCallers() {
+        assertEquals(
+            IncomingCallPolicyAction.ALLOW,
+            resolveIncomingAntiCallAction(com.wa.beastclient.domain.stealth.AntiCallMode.OFF, isSavedContact = false)
+        )
+        assertEquals(
+            IncomingCallPolicyAction.SILENCE,
+            resolveIncomingAntiCallAction(com.wa.beastclient.domain.stealth.AntiCallMode.SILENCE_ALL, isSavedContact = true)
+        )
+        assertEquals(
+            IncomingCallPolicyAction.REJECT,
+            resolveIncomingAntiCallAction(com.wa.beastclient.domain.stealth.AntiCallMode.REJECT_ALL, isSavedContact = true)
+        )
+        assertEquals(
+            IncomingCallPolicyAction.REJECT,
+            resolveIncomingAntiCallAction(com.wa.beastclient.domain.stealth.AntiCallMode.REJECT_UNSAVED, isSavedContact = false)
+        )
+        assertEquals(
+            IncomingCallPolicyAction.ALLOW,
+            resolveIncomingAntiCallAction(com.wa.beastclient.domain.stealth.AntiCallMode.REJECT_UNSAVED, isSavedContact = true)
+        )
+    }
+
+    @Test
     fun shouldPromptOfficialCallCoexistenceRequiresInstalledOfficialAndUnresolvedChoice() {
         assertTrue(
             shouldPromptOfficialCallCoexistence(

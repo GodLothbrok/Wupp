@@ -102,6 +102,8 @@ import com.wa.beastclient.R
 import com.wa.beastclient.data.db.MessageEntity
 import com.wa.beastclient.data.media.BuiltinSticker
 import com.wa.beastclient.data.media.CuppyPackManager
+import com.wa.beastclient.data.media.CustomStickerItem
+import com.wa.beastclient.data.media.CustomStickerStore
 import com.wa.beastclient.ui.theme.WaColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -190,8 +192,11 @@ fun ChatEmojiPickerDock(
     favoriteStickers: List<MessageEntity> = emptyList(),
     favoriteStickerKeys: Set<String> = emptySet(),
     cuppyStickers: List<BuiltinSticker> = emptyList(),
+    customStickers: List<CustomStickerItem> = emptyList(),
     onStickerSelected: (MessageEntity) -> Unit = {},
     onSendBuiltinSticker: (BuiltinSticker) -> Unit = {},
+    onSendCustomSticker: (CustomStickerItem) -> Unit = {},
+    onDeleteCustomSticker: (CustomStickerItem) -> Unit = {},
     onToggleFavorite: (MessageEntity) -> Unit = {},
     onCreateSticker: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -205,6 +210,8 @@ fun ChatEmojiPickerDock(
     val latestOnBackspace by rememberUpdatedState(onBackspace)
     val latestOnStickerSelected by rememberUpdatedState(onStickerSelected)
     val latestOnSendBuiltin by rememberUpdatedState(onSendBuiltinSticker)
+    val latestOnSendCustom by rememberUpdatedState(onSendCustomSticker)
+    val latestOnDeleteCustom by rememberUpdatedState(onDeleteCustomSticker)
     val latestOnToggleFav by rememberUpdatedState(onToggleFavorite)
     val latestOnCreateSticker by rememberUpdatedState(onCreateSticker)
 
@@ -685,6 +692,33 @@ fun ChatEmojiPickerDock(
                                     )
                                 }
 
+                                // 1b. "My Stickers" from Sticker Studio
+                                if (customStickers.isNotEmpty()) {
+                                    val filteredCustom = if (searchQuery.isBlank()) customStickers else {
+                                        customStickers.filter { it.label.contains(searchQuery, ignoreCase = true) }
+                                    }
+                                    if (filteredCustom.isNotEmpty()) {
+                                        item(span = { GridItemSpan(5) }) {
+                                            Text(
+                                                text = CustomStickerStore.PACK_NAME,
+                                                color = colors.accentGreen,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+                                            )
+                                        }
+                                        items(filteredCustom, key = { it.id }) { custom ->
+                                            StickerPickerGridItem(
+                                                filePath = custom.filePath,
+                                                colors = colors,
+                                                isFavorite = false,
+                                                onClick = { latestOnSendCustom(custom) },
+                                                onLongClick = { contextStickerItem = custom }
+                                            )
+                                        }
+                                    }
+                                }
+
                                 // 2. Recent Stickers
                                 items(filteredRecent, key = { it.id }) { stickerMsg ->
                                     val isFav = favoriteStickerKeys.contains(stickerMsg.mediaSha256) ||
@@ -963,6 +997,55 @@ fun ChatEmojiPickerDock(
                             Text(
                                 text = stringResource(R.string.chat_sticker_send),
                                 color = colors.textPrimary,
+                                fontSize = 15.sp
+                            )
+                        }
+                    } else if (item is CustomStickerItem) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    latestOnSendCustom(item)
+                                    contextStickerItem = null
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Send,
+                                contentDescription = null,
+                                tint = greenAccent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = stringResource(R.string.chat_sticker_send),
+                                color = colors.textPrimary,
+                                fontSize = 15.sp
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    latestOnDeleteCustom(item)
+                                    contextStickerItem = null
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = null,
+                                tint = colors.antiDeleteRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(
+                                text = "Delete custom sticker",
+                                color = colors.antiDeleteRed,
                                 fontSize = 15.sp
                             )
                         }

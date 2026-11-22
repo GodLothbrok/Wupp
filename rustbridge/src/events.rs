@@ -9,9 +9,9 @@ use whatsapp_rust::wacore::types::presence::{ChatActivity, PresenceStatus, Recei
 use whatsapp_rust::wacore_binary::{Jid, JidExt};
 use whatsapp_rust::waproto::whatsapp as wa;
 
-use crate::contacts_groups::fetch_and_cache_avatar_if_needed;
+use crate::contacts_groups::{fetch_and_cache_avatar_if_needed, resolve_dm_chat_pair_local};
 use crate::jid_helpers::canonical_jid_str;
-use crate::meta_db::{clear_avatar_miss, get_contact_meta, upsert_contact_meta};
+use crate::meta_db::{clear_avatar_miss, get_contact_meta, list_contact_lid_pn_pairs, upsert_contact_meta};
 use crate::messaging::{format_call_record_body, normalize_message, NormalizedItem};
 use crate::runtime::{now_millis, now_secs, BridgeRuntime};
 
@@ -84,6 +84,17 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
                     "isLoggedIn": logged,
                 }),
             );
+
+            if let Some(shared) = runtime.shared_db_arc() {
+                let pairs = list_contact_lid_pn_pairs(&shared).await;
+                if !pairs.is_empty() {
+                    let mappings: Vec<Value> = pairs
+                        .into_iter()
+                        .map(|(pn, lid)| json!({ "pn": pn, "lid": lid }))
+                        .collect();
+                    runtime.emit_json("LID_PN_MAPPINGS", json!({ "mappings": mappings }));
+                }
+            }
 
             if runtime.ghost_presence.load(Ordering::Relaxed) {
                 let _ = client.presence().set(PresenceStatus::Unavailable).await;
@@ -223,11 +234,29 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
             };
             let ids: Vec<String> = receipt.message_ids.iter().map(ToString::to_string).collect();
             let is_primary_active = matches!(receipt.r#type, ReceiptType::ReadSelf | ReceiptType::PlayedSelf);
+            let raw_chat = canonical_jid_str(&receipt.source.chat.to_string());
+            let alt_hint = receipt
+                .source
+                .recipient_alt
+                .as_ref()
+                .map(|j| canonical_jid_str(&j.to_string()))
+                .unwrap_or_default();
+            let sender_hint = receipt
+                .source
+                .sender_alt
+                .as_ref()
+                .map(|j| canonical_jid_str(&j.to_string()))
+                .unwrap_or_default();
+            let (chat_jid, alt_chat_jid) = if receipt.source.chat.is_group() || receipt.source.chat.is_status_broadcast() {
+                (raw_chat, alt_hint)
+            } else {
+                resolve_dm_chat_pair_local(&runtime, &raw_chat, &[&alt_hint, &sender_hint]).await
+            };
             runtime.emit_json(
                 "RECEIPT",
                 json!({
-                    "chatJid": canonical_jid_str(&receipt.source.chat.to_string()),
-                    "altChatJid": receipt.source.recipient_alt.as_ref().map(|j| canonical_jid_str(&j.to_string())).unwrap_or_default(),
+                    "chatJid": chat_jid,
+                    "altChatJid": alt_chat_jid,
                     "senderJid": canonical_jid_str(&receipt.source.sender.to_string()),
                     "receiptType": rtype,
                     "timestamp": receipt.timestamp.as_millis(),
@@ -237,11 +266,13 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
             );
         }
         Event::Presence(p) => {
+            let raw_jid = canonical_jid_str(&p.from.to_string());
+            let (jid, alt_jid) = resolve_dm_chat_pair_local(&runtime, &raw_jid, &[]).await;
             runtime.emit_json(
                 "PRESENCE",
                 json!({
-                    "jid": canonical_jid_str(&p.from.to_string()),
-                    "altJid": "",
+                    "jid": jid,
+                    "altJid": alt_jid,
                     "isOnline": p.status == PresenceStatus::Available,
                     "lastSeen": p.last_seen.map(|t| t.as_millis()).unwrap_or(0),
                     "timestamp": now_millis(),
@@ -254,11 +285,23 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
                 ChatActivity::RecordingAudio => ("composing", "audio"),
                 ChatActivity::Idle | _ => ("paused", ""),
             };
+            let raw_chat = canonical_jid_str(&cp.source.chat.to_string());
+            let alt_hint = cp
+                .source
+                .recipient_alt
+                .as_ref()
+                .map(|j| canonical_jid_str(&j.to_string()))
+                .unwrap_or_default();
+            let (chat_jid, alt_chat_jid) = if cp.source.chat.is_group() {
+                (raw_chat, alt_hint)
+            } else {
+                resolve_dm_chat_pair_local(&runtime, &raw_chat, &[&alt_hint]).await
+            };
             runtime.emit_json(
                 "CHAT_PRESENCE",
                 json!({
-                    "chatJid": canonical_jid_str(&cp.source.chat.to_string()),
-                    "altChatJid": "",
+                    "chatJid": chat_jid,
+                    "altChatJid": alt_chat_jid,
                     "senderJid": canonical_jid_str(&cp.source.sender.to_string()),
                     "state": state,
                     "media": media,
@@ -266,7 +309,8 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
             );
         }
         Event::PictureUpdate(pic) => {
-            let jid_str = canonical_jid_str(&pic.jid.to_string());
+            let raw_jid = canonical_jid_str(&pic.jid.to_string());
+            let (jid_str, alt_jid) = resolve_dm_chat_pair_local(&runtime, &raw_jid, &[]).await;
             if let Some(shared) = runtime.shared_db_arc() {
                 clear_avatar_miss(&shared, &jid_str).await;
             }
@@ -275,7 +319,7 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
                     "PROFILE_UPDATE",
                     json!({
                         "jid": jid_str,
-                        "altJid": "",
+                        "altJid": alt_jid,
                         "pictureId": "",
                         "avatarPath": "",
                         "aboutText": "",
@@ -292,11 +336,13 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
             }
         }
         Event::UserAboutUpdate(about) => {
+            let raw_jid = canonical_jid_str(&about.jid.to_string());
+            let (jid_str, alt_jid) = resolve_dm_chat_pair_local(&runtime, &raw_jid, &[]).await;
             runtime.emit_json(
                 "PROFILE_UPDATE",
                 json!({
-                    "jid": canonical_jid_str(&about.jid.to_string()),
-                    "altJid": "",
+                    "jid": jid_str,
+                    "altJid": alt_jid,
                     "avatarPath": "",
                     "aboutText": about.status,
                     "removed": false,
@@ -496,14 +542,26 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
             );
         }
         Event::UndecryptableMessage(und) => {
-            let chat_jid = canonical_jid_str(&und.info.source.chat.to_string());
-            let alt_chat_jid = und
+            let raw_chat = canonical_jid_str(&und.info.source.chat.to_string());
+            let alt_hint = und
                 .info
                 .source
                 .recipient_alt
                 .as_ref()
                 .map(|j| canonical_jid_str(&j.to_string()))
                 .unwrap_or_default();
+            let sender_hint = und
+                .info
+                .source
+                .sender_alt
+                .as_ref()
+                .map(|j| canonical_jid_str(&j.to_string()))
+                .unwrap_or_default();
+            let (chat_jid, alt_chat_jid) = if und.info.source.chat.is_group() || und.info.source.chat.is_status_broadcast() {
+                (raw_chat, alt_hint)
+            } else {
+                resolve_dm_chat_pair_local(&runtime, &raw_chat, &[&alt_hint, &sender_hint]).await
+            };
             let sender_jid = canonical_jid_str(&und.info.source.sender.to_string());
             if und.unavailable_type == UnavailableType::ViewOnce {
                 runtime.emit_json(
@@ -547,11 +605,17 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
         Event::DeleteMessageForMeUpdate(del) => {
             let target_id = del.message_id.clone();
             if !target_id.is_empty() {
+                let raw_chat = canonical_jid_str(&del.chat_jid.to_string());
+                let (chat_jid, alt_chat_jid) = if del.chat_jid.is_group() || del.chat_jid.is_status_broadcast() {
+                    (raw_chat, String::new())
+                } else {
+                    resolve_dm_chat_pair_local(&runtime, &raw_chat, &[]).await
+                };
                 runtime.emit_json(
                     "MESSAGE_REVOKE",
                     json!({
-                        "chatJid": canonical_jid_str(&del.chat_jid.to_string()),
-                        "altChatJid": "",
+                        "chatJid": chat_jid,
+                        "altChatJid": alt_chat_jid,
                         "targetMessageId": target_id,
                         "senderJid": del.participant_jid.as_ref().map(|j| canonical_jid_str(&j.to_string())).unwrap_or_default(),
                         "revokedAt": del.timestamp.as_millis(),
@@ -562,14 +626,15 @@ pub async fn handle_sdk_event(runtime: Arc<BridgeRuntime>, event: Arc<Event>, cl
             }
         }
         Event::DisappearingModeChanged(dm) => {
-            let jid_s = canonical_jid_str(&dm.from.to_string());
+            let raw_jid = canonical_jid_str(&dm.from.to_string());
+            let (jid_s, alt_jid) = resolve_dm_chat_pair_local(&runtime, &raw_jid, &[]).await;
             runtime.set_chat_ephemeral(&jid_s, dm.duration);
             runtime.emit_json(
                 "CHAT_META_UPDATE",
                 json!({
                     "kind": "EPHEMERAL",
                     "jid": jid_s,
-                    "altJid": "",
+                    "altJid": alt_jid,
                     "ephemeralSec": dm.duration,
                     "timestamp": dm.setting_timestamp.as_millis(),
                 }),

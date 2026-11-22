@@ -551,6 +551,53 @@ interface WaDao {
     )
     fun observeChatGalleryMedia(chatJid: String): Flow<List<MessageEntity>>
 
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE chat_jid = :chatJid
+          AND is_view_once = 0
+          AND is_deleted_by_sender = 0
+          AND (msg_type = 'IMAGE' OR msg_type = 'VIDEO')
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT 400
+        """
+    )
+    fun observeChatMediaWallItems(chatJid: String): Flow<List<MessageEntity>>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE chat_jid = :chatJid
+          AND is_view_once = 0
+          AND is_deleted_by_sender = 0
+          AND (
+              msg_type = 'DOCUMENT'
+              OR LOWER(mime_type) LIKE 'application/%'
+              OR (file_size > 0 AND msg_type = 'TEXT')
+          )
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT 300
+        """
+    )
+    fun observeChatDocumentMessages(chatJid: String): Flow<List<MessageEntity>>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE chat_jid = :chatJid
+          AND is_view_once = 0
+          AND is_deleted_by_sender = 0
+          AND (
+              LOWER(body) LIKE '%http://%'
+              OR LOWER(body) LIKE '%https://%'
+              OR LOWER(body) LIKE '%www.%'
+          )
+        ORDER BY timestamp DESC, rowid DESC
+        LIMIT 300
+        """
+    )
+    fun observeChatLinkMessages(chatJid: String): Flow<List<MessageEntity>>
+
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     suspend fun getMessage(messageId: String): MessageEntity?
 
@@ -790,6 +837,15 @@ interface WaDao {
     @Query("SELECT * FROM messages WHERE is_view_once = 1 ORDER BY timestamp DESC")
     fun observeViewOnceVault(): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM messages WHERE is_deleted_by_sender = 1 ORDER BY CASE WHEN deleted_at > 0 THEN deleted_at ELSE timestamp END DESC LIMIT 300")
+    fun observeDeletedMessages(): Flow<List<MessageEntity>>
+
+    @Query("SELECT * FROM messages WHERE is_edited = 1 ORDER BY CASE WHEN edited_at > 0 THEN edited_at ELSE timestamp END DESC LIMIT 300")
+    fun observeEditedMessages(): Flow<List<MessageEntity>>
+
+    @Query("SELECT * FROM message_edits ORDER BY edited_at DESC")
+    fun observeAllMessageEdits(): Flow<List<MessageEditEntity>>
+
     @Query("SELECT * FROM message_edits WHERE message_id = :messageId ORDER BY edited_at DESC")
     fun observeMessageEdits(messageId: String): Flow<List<MessageEditEntity>>
 
@@ -983,7 +1039,7 @@ interface WaDao {
             duplicate.lastMessageTimestamp,
             latestMsg?.timestamp ?: 0L
         )
-        val isOpen = com.wa.beastclient.core.service.WaRealtimeService.activeChatJid.value == canonicalJid
+        val isOpen = com.wa.beastclient.core.service.WaRealtimeService.isChatActivelyVisible(canonicalJid)
         val mergedOverride = when {
             canonical.localArchiveOverride != 0 -> canonical.localArchiveOverride
             else -> duplicate.localArchiveOverride
@@ -1034,11 +1090,13 @@ interface WaDao {
 
     @Transaction
     suspend fun insertHistorySyncBatch(chats: List<ChatEntity>, messages: List<MessageEntity>) {
-        val openChatJid = com.wa.beastclient.core.service.WaRealtimeService.activeChatJid.value
+        val isCurrentlyOpenForBatch: (String) -> Boolean = { jid ->
+            com.wa.beastclient.core.service.WaRealtimeService.isChatActivelyVisible(jid)
+        }
         val chatJidsWithMessages = messages.asSequence().map { it.chatJid }.toHashSet()
         for (chat in chats) {
             if (chat.jid == "status@broadcast" || chat.jid.endsWith("@broadcast")) continue
-            val isCurrentlyOpen = openChatJid == chat.jid
+            val isCurrentlyOpen = isCurrentlyOpenForBatch(chat.jid)
             val existing = getChat(chat.jid)
             if (existing == null) {
                 val isGroupOrChannel = chat.isGroup || chat.isCommunityParent || chat.jid.endsWith("@newsletter")

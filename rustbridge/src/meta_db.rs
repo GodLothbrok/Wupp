@@ -374,6 +374,24 @@ pub async fn get_contact_meta(shared: &SharedSqlite, jid_or_lid: &str) -> Option
         .flatten()
 }
 
+pub async fn list_contact_lid_pn_pairs(shared: &SharedSqlite) -> Vec<(String, String)> {
+    shared
+        .read(move |conn| {
+            diesel::sql_query(
+                "SELECT jid, lid, full_name, push_name, business_name
+                 FROM wa_contacts
+                 WHERE jid LIKE '%@s.whatsapp.net' AND lid LIKE '%@lid'",
+            )
+            .get_results::<ContactMetaRow>(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))
+        })
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| (row.jid, row.lid))
+        .collect()
+}
+
 pub async fn should_skip_avatar_fetch(shared: &SharedSqlite, jid: &str) -> bool {
     let jid_s = jid.to_string();
     let row = shared

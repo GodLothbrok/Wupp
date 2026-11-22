@@ -49,7 +49,11 @@ data class CallUiState(
     val connectedAtEpochMs: Long = 0L,
     val durationSec: Int = 0,
     val statusText: String = "",
-    val errorReason: String? = null
+    val errorReason: String? = null,
+    val isRecording: Boolean = false,
+    val recordingStartedEpochMs: Long = 0L,
+    val recordingDurationSec: Int = 0,
+    val lastRecordingPath: String? = null
 ) {
     val isInProgress: Boolean
         get() = phase != CallPhase.IDLE

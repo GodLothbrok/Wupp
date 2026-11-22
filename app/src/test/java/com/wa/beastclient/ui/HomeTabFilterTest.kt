@@ -65,6 +65,14 @@ class HomeTabFilterTest {
         assertEquals(4, resolveTabIdForPagerIndex(separated, 1))
         assertEquals(5, resolveTabIdForPagerIndex(separated, 4))
         assertEquals(3, resolveTabIdForPagerIndex(separated, 5))
+
+        val separatedBoth = resolveHomeTabOrder(
+            separateGroupsAndChats = true,
+            separateChannelsTab = true
+        )
+        assertEquals(listOf(0, 4, 1, 6, 2, 5, 3), separatedBoth)
+        assertEquals(3, resolvePagerIndexForTab(separatedBoth, 6))
+        assertEquals(6, resolveTabIdForPagerIndex(separatedBoth, 3))
     }
 
     @Test

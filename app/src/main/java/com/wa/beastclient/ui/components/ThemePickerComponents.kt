@@ -1,6 +1,7 @@
 package com.wa.beastclient.ui.components
 
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,19 +24,30 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Eco
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.LocalFlorist
 import androidx.compose.material.icons.rounded.NightlightRound
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -56,6 +68,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -64,8 +77,11 @@ import androidx.compose.ui.unit.sp
 import com.wa.beastclient.domain.security.AppLockManager
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.WuppAccentColor
+import com.wa.beastclient.ui.theme.WuppFontStyle
 import com.wa.beastclient.ui.theme.WuppThemeMode
 import com.wa.beastclient.ui.theme.colorsForTheme
+import com.wa.beastclient.ui.theme.contrastingContentColor
+import com.wa.beastclient.ui.theme.resolvePlatformDynamicColorScheme
 
 @Composable
 fun ThemeSelectorGrid(
@@ -73,14 +89,49 @@ fun ThemeSelectorGrid(
     onSelectTheme: (WuppThemeMode) -> Unit,
     modifier: Modifier = Modifier,
     selectedAccent: WuppAccentColor = WuppAccentColor.DEFAULT,
-    onSelectAccent: ((WuppAccentColor) -> Unit)? = null
+    onSelectAccent: ((WuppAccentColor) -> Unit)? = null,
+    pureBlackOled: Boolean = false,
+    onTogglePureBlackOled: ((Boolean) -> Unit)? = null,
+    dynamicMaterialYou: Boolean = false,
+    onToggleDynamicMaterialYou: ((Boolean) -> Unit)? = null,
+    bubbleCornerRadiusDp: Int = 16,
+    onBubbleCornerRadiusChange: ((Int) -> Unit)? = null,
+    customOutgoingBubbleArgb: Long = 0L,
+    customIncomingBubbleArgb: Long = 0L,
+    onCustomBubbleColorsChange: ((Long, Long) -> Unit)? = null,
+    selectedFontStyle: WuppFontStyle = WuppFontStyle.ROBO_CLEAN,
+    hasImportedFont: Boolean = false,
+    onSelectFontStyle: ((WuppFontStyle) -> Unit)? = null,
+    onImportCustomFontUri: ((Uri) -> Unit)? = null
 ) {
     val colors = LocalWaColors.current
-    val rows = WuppThemeMode.entries.chunked(2)
+    val fontPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            onImportCustomFontUri?.invoke(uri)
+        }
+    }
+
+    val bubbleSwatches = remember {
+        listOf(
+            0L to "Theme",
+            0xFF005C4BL to "Emerald",
+            0xFF1E3A8AL to "Indigo",
+            0xFF6B21A8L to "Plum",
+            0xFF831843L to "Rose",
+            0xFF78350FL to "Bronze",
+            0xFF15222BL to "Slate",
+            0xFF0A0A0AL to "Pitch"
+        )
+    }
+
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Horizontal scrollable or compact 2-col theme grid inside a constrained box when 10 themes exist
+        val rows = WuppThemeMode.entries.chunked(2)
         rows.forEach { rowModes ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -90,16 +141,97 @@ fun ThemeSelectorGrid(
                     ThemePreviewCard(
                         mode = mode,
                         selected = mode == selectedTheme,
+                        pureBlackOled = pureBlackOled,
+                        dynamicMaterialYou = dynamicMaterialYou,
                         onClick = { onSelectTheme(mode) },
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
+
+        if (onToggleDynamicMaterialYou != null) {
+            val dynamicSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.appSurface.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = "Material You Dynamic Colors",
+                        color = colors.textPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (dynamicSupported) {
+                            "Syncs backgrounds, buttons, bubbles & accents with phone wallpaper"
+                        } else {
+                            "Requires Android 12 or newer"
+                        },
+                        color = colors.textSecondary,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = dynamicMaterialYou && dynamicSupported,
+                    enabled = dynamicSupported,
+                    onCheckedChange = onToggleDynamicMaterialYou,
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = colors.accentGreen,
+                        checkedThumbColor = colors.accentGreen.contrastingContentColor()
+                    )
+                )
+            }
+        }
+
+        if (onTogglePureBlackOled != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.appSurface.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Pure Black OLED Mode",
+                        color = colors.textPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "True #000000 black surfaces & chrome",
+                        color = colors.textSecondary,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = pureBlackOled,
+                    onCheckedChange = onTogglePureBlackOled,
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = colors.accentGreen,
+                        checkedThumbColor = Color.White
+                    )
+                )
+            }
+        }
+
         if (onSelectAccent != null) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Accent Color · ${selectedAccent.label}",
+                    text = if (dynamicMaterialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        "Accent Color · Material You Dynamic (active)"
+                    } else {
+                        "Accent Color · ${selectedAccent.label}"
+                    },
                     color = colors.textSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
@@ -111,9 +243,19 @@ fun ThemeSelectorGrid(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val themeBase = colorsForTheme(selectedTheme, WuppAccentColor.DEFAULT)
+                    val context = LocalContext.current
+                    val themeBase = colorsForTheme(
+                        mode = selectedTheme,
+                        accent = WuppAccentColor.DEFAULT,
+                        pureBlackOled = pureBlackOled,
+                        dynamicScheme = if (dynamicMaterialYou) {
+                            resolvePlatformDynamicColorScheme(context, pureBlackOled || colorsForTheme(selectedTheme).isDark)
+                        } else {
+                            null
+                        }
+                    )
                     WuppAccentColor.entries.forEach { accent ->
-                        val isSelected = accent == selectedAccent
+                        val isSelected = accent == selectedAccent && !(dynamicMaterialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                         val swatchColor = if (accent == WuppAccentColor.DEFAULT) {
                             themeBase.brightGreen
                         } else {
@@ -129,17 +271,143 @@ fun ThemeSelectorGrid(
                                     color = if (isSelected) colors.textPrimary else colors.divider,
                                     shape = CircleShape
                                 )
-                                .clickable { onSelectAccent(accent) },
+                                .clickable {
+                                    if (dynamicMaterialYou) onToggleDynamicMaterialYou?.invoke(false)
+                                    onSelectAccent(accent)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected) {
                                 Icon(
                                     imageVector = Icons.Rounded.CheckCircle,
                                     contentDescription = accent.label,
-                                    tint = Color(0xFF0B141A),
+                                    tint = swatchColor.contrastingContentColor(),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (onCustomBubbleColorsChange != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Outgoing Bubble Tint",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val defaultPreview = colorsForTheme(selectedTheme, selectedAccent, pureBlackOled = pureBlackOled).outgoingBubble
+                    bubbleSwatches.forEach { (argb, label) ->
+                        val isSelected = customOutgoingBubbleArgb == argb
+                        val chipColor = if (argb == 0L) defaultPreview else Color(argb)
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(chipColor)
+                                .border(
+                                    width = if (isSelected) 2.5.dp else 1.dp,
+                                    color = if (isSelected) colors.brightGreen else colors.divider,
+                                    shape = CircleShape
+                                )
+                                .clickable { onCustomBubbleColorsChange(argb, customIncomingBubbleArgb) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(Icons.Rounded.CheckCircle, label, tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (onBubbleCornerRadiusChange != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Bubble Corner Roundness",
+                        color = colors.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${bubbleCornerRadiusDp}dp",
+                        color = colors.textPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Slider(
+                    value = bubbleCornerRadiusDp.toFloat(),
+                    onValueChange = { onBubbleCornerRadiusChange(it.toInt().coerceIn(4, 24)) },
+                    valueRange = 4f..24f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.accentGreen,
+                        activeTrackColor = colors.accentGreen
+                    )
+                )
+            }
+        }
+
+        if (onSelectFontStyle != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Typography · ${selectedFontStyle.label}",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    WuppFontStyle.entries.forEach { fontOpt ->
+                        if (fontOpt == WuppFontStyle.CUSTOM && !hasImportedFont && onImportCustomFontUri == null) return@forEach
+                        val isSelected = selectedFontStyle == fontOpt
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                if (fontOpt == WuppFontStyle.CUSTOM && !hasImportedFont && onImportCustomFontUri != null) {
+                                    AppLockManager.suspendNextBackgroundLock()
+                                    fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "*/*"))
+                                } else {
+                                    onSelectFontStyle(fontOpt)
+                                }
+                            },
+                            label = { Text(fontOpt.label, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.pillActiveBg,
+                                selectedLabelColor = colors.pillActiveText
+                            )
+                        )
+                    }
+                    if (onImportCustomFontUri != null) {
+                        OutlinedButton(
+                            onClick = {
+                                AppLockManager.suspendNextBackgroundLock()
+                                fontPickerLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "*/*"))
+                            },
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Rounded.TextFields, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (hasImportedFont) "Replace .ttf" else "Import .ttf/.otf", fontSize = 11.5.sp)
                         }
                     }
                 }
@@ -154,7 +422,20 @@ fun ThemePickerDialog(
     onSelectTheme: (WuppThemeMode) -> Unit,
     onDismiss: () -> Unit,
     selectedAccent: WuppAccentColor = WuppAccentColor.DEFAULT,
-    onSelectAccent: ((WuppAccentColor) -> Unit)? = null
+    onSelectAccent: ((WuppAccentColor) -> Unit)? = null,
+    pureBlackOled: Boolean = false,
+    onTogglePureBlackOled: ((Boolean) -> Unit)? = null,
+    dynamicMaterialYou: Boolean = false,
+    onToggleDynamicMaterialYou: ((Boolean) -> Unit)? = null,
+    bubbleCornerRadiusDp: Int = 16,
+    onBubbleCornerRadiusChange: ((Int) -> Unit)? = null,
+    customOutgoingBubbleArgb: Long = 0L,
+    customIncomingBubbleArgb: Long = 0L,
+    onCustomBubbleColorsChange: ((Long, Long) -> Unit)? = null,
+    selectedFontStyle: WuppFontStyle = WuppFontStyle.ROBO_CLEAN,
+    hasImportedFont: Boolean = false,
+    onSelectFontStyle: ((WuppFontStyle) -> Unit)? = null,
+    onImportCustomFontUri: ((Uri) -> Unit)? = null
 ) {
     val colors = LocalWaColors.current
     AlertDialog(
@@ -164,20 +445,38 @@ fun ThemePickerDialog(
         textContentColor = colors.textSecondary,
         title = {
             Text(
-                text = "Choose Theme",
+                text = "Themes, OLED & Fonts",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 19.sp
             )
         },
         text = {
-            ThemeSelectorGrid(
-                selectedTheme = selectedTheme,
-                onSelectTheme = { mode ->
-                    onSelectTheme(mode)
-                },
-                selectedAccent = selectedAccent,
-                onSelectAccent = onSelectAccent
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                ThemeSelectorGrid(
+                    selectedTheme = selectedTheme,
+                    onSelectTheme = onSelectTheme,
+                    selectedAccent = selectedAccent,
+                    onSelectAccent = onSelectAccent,
+                    pureBlackOled = pureBlackOled,
+                    onTogglePureBlackOled = onTogglePureBlackOled,
+                    dynamicMaterialYou = dynamicMaterialYou,
+                    onToggleDynamicMaterialYou = onToggleDynamicMaterialYou,
+                    bubbleCornerRadiusDp = bubbleCornerRadiusDp,
+                    onBubbleCornerRadiusChange = onBubbleCornerRadiusChange,
+                    customOutgoingBubbleArgb = customOutgoingBubbleArgb,
+                    customIncomingBubbleArgb = customIncomingBubbleArgb,
+                    onCustomBubbleColorsChange = onCustomBubbleColorsChange,
+                    selectedFontStyle = selectedFontStyle,
+                    hasImportedFont = hasImportedFont,
+                    onSelectFontStyle = onSelectFontStyle,
+                    onImportCustomFontUri = onImportCustomFontUri
+                )
+            }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
@@ -191,11 +490,22 @@ fun ThemePickerDialog(
 private fun ThemePreviewCard(
     mode: WuppThemeMode,
     selected: Boolean,
+    pureBlackOled: Boolean = false,
+    dynamicMaterialYou: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val appColors = LocalWaColors.current
-    val preview = colorsForTheme(mode)
+    val preview = colorsForTheme(
+        mode = mode,
+        pureBlackOled = pureBlackOled,
+        dynamicScheme = if (dynamicMaterialYou) {
+            resolvePlatformDynamicColorScheme(context, pureBlackOled || colorsForTheme(mode).isDark)
+        } else {
+            null
+        }
+    )
     val borderColor by animateColorAsState(
         targetValue = if (selected) appColors.brightGreen else appColors.divider,
         label = "themeBorder"
@@ -210,6 +520,12 @@ private fun ThemePreviewCard(
         WuppThemeMode.DARK -> Icons.Rounded.DarkMode
         WuppThemeMode.AMOLED -> Icons.Rounded.NightlightRound
         WuppThemeMode.AURORA -> Icons.Rounded.AutoAwesome
+        WuppThemeMode.SYNTHWAVE -> Icons.Rounded.Bolt
+        WuppThemeMode.SAKURA -> Icons.Rounded.LocalFlorist
+        WuppThemeMode.NOIR_GOLD -> Icons.Rounded.WorkspacePremium
+        WuppThemeMode.PAPER_INK -> Icons.Rounded.Description
+        WuppThemeMode.MATCHA -> Icons.Rounded.Eco
+        WuppThemeMode.GLACIER -> Icons.Rounded.AcUnit
     }
 
     Surface(

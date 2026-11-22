@@ -145,6 +145,10 @@ object Whatsbridge {
         nativeResolveParticipantNamesJson(jidsCsv) ?: "{}"
 
     @JvmStatic
+    fun resolveLocalDmAliasesJson(jidsCsv: String): String =
+        nativeResolveLocalDmAliasesJson(jidsCsv) ?: "{}"
+
+    @JvmStatic
     fun getGroupParticipantsJson(groupJid: String): String =
         nativeGetGroupParticipantsJson(groupJid) ?: "[]"
 
@@ -367,6 +371,7 @@ object Whatsbridge {
     )
     private external fun nativeSubscribeContactPresence(jidStr: String)
     private external fun nativeResolveParticipantNamesJson(jidsCsv: String): String?
+    private external fun nativeResolveLocalDmAliasesJson(jidsCsv: String): String?
     private external fun nativeGetGroupParticipantsJson(groupJid: String): String?
     private external fun nativeHasCachedMediaMeta(messageId: String): Boolean
     private external fun nativeRequestMediaDownload(

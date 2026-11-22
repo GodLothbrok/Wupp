@@ -3,7 +3,11 @@ package com.wa.beastclient.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,16 +39,20 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.PhotoSizeSelectActual
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
@@ -54,9 +63,12 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,12 +92,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -100,11 +114,102 @@ import com.wa.beastclient.ui.MainViewModel
 import com.wa.beastclient.ui.ResolvedParticipantUi
 import com.wa.beastclient.ui.components.ChatMediaVisibilitySelector
 import com.wa.beastclient.ui.components.FullScreenMediaViewer
+import com.wa.beastclient.ui.components.InAppPdfViewerDialog
+import com.wa.beastclient.ui.components.MessageHistorySheet
+import com.wa.beastclient.ui.components.PerChatQuickControlsSheet
 import com.wa.beastclient.ui.components.ProfilePhotoLightbox
 import com.wa.beastclient.ui.components.WallpaperPickerDialog
+import com.wa.beastclient.ui.components.formatBytesCompact
+import com.wa.beastclient.ui.components.formatMessageClock
+import com.wa.beastclient.ui.components.isDocumentMessage
+import com.wa.beastclient.ui.components.openDocumentNatively
+import com.wa.beastclient.ui.components.resolveDocumentTitleLine
 import com.wa.beastclient.ui.theme.LocalWaColors
+import com.wa.beastclient.ui.theme.LocalWuppUse24Hour
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
+
+internal data class ChatWallLinkItem(
+    val messageId: String,
+    val rawUrl: String,
+    val openUrl: String,
+    val host: String,
+    val snippet: String,
+    val timestampMs: Long
+)
+
+private val CHAT_WALL_URL_REGEX = Regex("""(?i)\b(?:https?://|www\.)[^\s<>\]"']+""")
+
+/** Extracts deduplicated clickable web links and message context snippets for the chat Links wall. */
+internal fun extractChatWallLinks(messages: List<MessageEntity>): List<ChatWallLinkItem> {
+    if (messages.isEmpty()) return emptyList()
+    val result = ArrayList<ChatWallLinkItem>(messages.size)
+    val seen = HashSet<String>(messages.size)
+    for (msg in messages) {
+        val body = msg.body
+        if (body.isBlank()) continue
+        for (match in CHAT_WALL_URL_REGEX.findAll(body)) {
+            val cleaned = match.value.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '"', '\'')
+            if (cleaned.length < 6) continue
+            val normalized = if (cleaned.startsWith("http://", ignoreCase = true) ||
+                cleaned.startsWith("https://", ignoreCase = true)
+            ) {
+                cleaned
+            } else {
+                "https://$cleaned"
+            }
+            val dedupKey = "${msg.id}|${normalized.lowercase(Locale.US)}"
+            if (!seen.add(dedupKey)) continue
+            val host = normalized
+                .substringAfter("://")
+                .substringBefore('/')
+                .substringBefore('?')
+                .substringBefore('#')
+                .removePrefix("www.")
+                .ifBlank { cleaned }
+            result += ChatWallLinkItem(
+                messageId = msg.id,
+                rawUrl = cleaned,
+                openUrl = normalized,
+                host = host,
+                snippet = body.replace('\n', ' ').trim(),
+                timestampMs = msg.timestamp
+            )
+        }
+    }
+    return result
+}
+
+private suspend fun loadChatWallThumbnail(path: String?, isVideo: Boolean): ImageBitmap? =
+    withContext(Dispatchers.IO) {
+        if (path.isNullOrBlank()) return@withContext null
+        val file = File(path)
+        if (!file.exists() || file.length() <= 0L) return@withContext null
+        runCatching {
+            val raw: Bitmap? = if (isVideo) {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(file.absolutePath)
+                    retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            } else {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                val maxDim = maxOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
+                var sample = 1
+                while (maxDim / sample > 360) sample *= 2
+                BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inSampleSize = sample }
+                )
+            }
+            raw?.asImageBitmap()
+        }.getOrNull()
+    }
 
 private data class MemberActionTarget(
     val participantJid: String,
@@ -197,10 +302,22 @@ fun ContactInfoScreen(
     val dao = remember { WaUiDatabase.getInstance(context).waDao() }
 
     val chat by viewModel.observeChat(chatJid).collectAsState(initial = null)
+    val allChats by viewModel.allChats.collectAsState()
     val allContacts by viewModel.allContacts.collectAsState()
     val contact = remember(chatJid, allContacts) { allContacts.firstOrNull { it.jid == chatJid } }
     val stealthConfig by viewModel.stealthConfig.collectAsState()
+    val deletedHistory by viewModel.deletedMessagesHistory.collectAsState()
+    val editedHistory by viewModel.editedMessagesHistory.collectAsState()
+    val allEditsHistory by viewModel.allMessageEdits.collectAsState()
+    var showChatHistorySheet by remember { mutableStateOf(false) }
     val galleryMedia by viewModel.observeChatGalleryMedia(chatJid).collectAsState(initial = emptyList())
+    val wallMediaItems by viewModel.observeChatMediaWallItems(chatJid).collectAsState(initial = emptyList())
+    val rawDocMessages by viewModel.observeChatDocuments(chatJid).collectAsState(initial = emptyList())
+    val rawLinkMessages by viewModel.observeChatLinkMessages(chatJid).collectAsState(initial = emptyList())
+    val downloadingMediaIds by viewModel.downloadingMediaIds.collectAsState()
+    val docItems = remember(rawDocMessages) { rawDocMessages.filter { isDocumentMessage(it) } }
+    val linkItems = remember(rawLinkMessages) { extractChatWallLinks(rawLinkMessages) }
+    val use24Hour = LocalWuppUse24Hour.current
 
     val isGroup = remember(chatJid, chat) { chat?.isGroup == true || chatJid.endsWith("@g.us") }
     val isChannel = remember(chatJid) { chatJid.endsWith("@newsletter") }
@@ -214,6 +331,7 @@ fun ContactInfoScreen(
     }
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var mediaWallSubTab by remember { mutableIntStateOf(0) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showProfilePhotoLightbox by remember { mutableStateOf(false) }
     var showClearChatDialog by remember { mutableStateOf(false) }
@@ -221,6 +339,7 @@ fun ContactInfoScreen(
     var showGhostPrivacySheet by remember { mutableStateOf(false) }
     var showMediaVisibilityDialog by remember { mutableStateOf(false) }
     var mediaViewerTarget by remember { mutableStateOf<MessageEntity?>(null) }
+    var fallbackPdfTarget by remember { mutableStateOf<Pair<File, String>?>(null) }
     var activeMemberActionTarget by remember { mutableStateOf<MemberActionTarget?>(null) }
 
     // Group participants & admin resolution
@@ -730,6 +849,16 @@ fun ContactInfoScreen(
                             )
                         }
 
+                        item(key = "dm_overview_media_shortcut") {
+                            SettingsCard(
+                                title = "Media, links, and docs",
+                                subtitle = "${wallMediaItems.size} media · ${docItems.size} docs · ${linkItems.size} links",
+                                icon = Icons.Rounded.PhotoLibrary,
+                                colors = colors,
+                                onClick = { selectedTab = 1 }
+                            )
+                        }
+
                         item(key = "dm_overview_stealth") {
                             SettingsCard(
                                 title = "Stealth & Ghost privacy",
@@ -743,86 +872,365 @@ fun ContactInfoScreen(
                 }
 
                 1 -> {
-                    // Media Tab (Image 4)
-                    item(key = "media_section_card") {
-                        Column(
+                    // Full Media, Docs & Links Wall
+                    item(key = "media_wall_subtabs") {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(colors.appSurface)
-                                .padding(16.dp)
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Media, links, and docs",
-                                    color = colors.textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "${galleryMedia.size} >",
-                                    color = colors.textSecondary,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.clickable {
-                                        if (galleryMedia.isNotEmpty()) {
-                                            mediaViewerTarget = galleryMedia.last()
-                                        } else {
-                                            Toast.makeText(context, "No media in this chat", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
+                            val subTabs = listOf(
+                                "Media (${wallMediaItems.size})",
+                                "Docs (${docItems.size})",
+                                "Links (${linkItems.size})"
+                            )
+                            subTabs.forEachIndexed { idx, label ->
+                                val selected = mediaWallSubTab == idx
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = { mediaWallSubTab = idx },
+                                    label = {
+                                        Text(
+                                            text = label,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = colors.pillActiveBg,
+                                        selectedLabelColor = colors.pillActiveText,
+                                        containerColor = colors.pillInactiveBg,
+                                        labelColor = colors.textSecondary
+                                    )
                                 )
                             }
+                        }
+                    }
 
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            if (galleryMedia.isEmpty()) {
-                                Text(
-                                    text = "No media, links, or documents shared in this chat yet.",
-                                    color = colors.textSecondary,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.padding(vertical = 12.dp)
-                                )
+                    when (mediaWallSubTab) {
+                        0 -> {
+                            if (wallMediaItems.isEmpty()) {
+                                item(key = "media_wall_empty") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.appSurface)
+                                            .padding(horizontal = 16.dp, vertical = 22.dp)
+                                    ) {
+                                        Text(
+                                            text = "No photos or videos shared in this chat yet.",
+                                            color = colors.textSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
                             } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    galleryMedia.takeLast(16).reversed().forEach { msg ->
-                                        val path = msg.localMediaPath
-                                        val bmp = remember(path) {
-                                            path?.let { p ->
-                                                val f = File(p)
-                                                if (f.exists() && f.length() > 0) {
-                                                    BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap()
-                                                } else null
+                                val rows = wallMediaItems.chunked(3)
+                                items(rows, key = { row -> row.joinToString("_") { it.id } }) { rowItems ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.appSurface)
+                                            .padding(horizontal = 14.dp, vertical = 3.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        for (col in 0 until 3) {
+                                            val itemMsg = rowItems.getOrNull(col)
+                                            if (itemMsg == null) {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            } else {
+                                                val localFile = itemMsg.localMediaPath?.let { p ->
+                                                    File(p).takeIf { it.exists() && it.length() > 0L }
+                                                }
+                                                val isVideo = itemMsg.msgType.equals("VIDEO", ignoreCase = true)
+                                                val isDownloading = itemMsg.id in downloadingMediaIds
+                                                val thumb by produceState<ImageBitmap?>(
+                                                    initialValue = null,
+                                                    key1 = localFile?.absolutePath,
+                                                    key2 = isVideo
+                                                ) {
+                                                    value = loadChatWallThumbnail(localFile?.absolutePath, isVideo)
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .aspectRatio(1f)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(colors.pillInactiveBg)
+                                                        .clickable {
+                                                            if (localFile != null) {
+                                                                mediaViewerTarget = itemMsg
+                                                            } else if (!isDownloading) {
+                                                                viewModel.requestMediaDownload(itemMsg, userInitiated = true)
+                                                            }
+                                                        },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (thumb != null) {
+                                                        Image(
+                                                            bitmap = thumb!!,
+                                                            contentDescription = if (isVideo) "Video thumbnail" else "Photo thumbnail",
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Icon(
+                                                            imageVector = if (isVideo) Icons.Rounded.Videocam else Icons.Rounded.PhotoSizeSelectActual,
+                                                            contentDescription = null,
+                                                            tint = colors.textSecondary
+                                                        )
+                                                    }
+
+                                                    if (localFile == null) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .background(Color.Black.copy(alpha = 0.42f)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            if (isDownloading) {
+                                                                CircularProgressIndicator(
+                                                                    color = Color.White,
+                                                                    strokeWidth = 2.dp,
+                                                                    modifier = Modifier.size(22.dp)
+                                                                )
+                                                            } else {
+                                                                Icon(
+                                                                    imageVector = Icons.Rounded.Download,
+                                                                    contentDescription = "Download media",
+                                                                    tint = Color.White,
+                                                                    modifier = Modifier.size(24.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    } else if (isVideo) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.BottomStart)
+                                                                .padding(6.dp)
+                                                                .clip(CircleShape)
+                                                                .background(Color.Black.copy(alpha = 0.62f))
+                                                                .padding(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Rounded.PlayArrow,
+                                                                contentDescription = "Video",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        1 -> {
+                            if (docItems.isEmpty()) {
+                                item(key = "docs_wall_empty") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.appSurface)
+                                            .padding(horizontal = 16.dp, vertical = 22.dp)
+                                    ) {
+                                        Text(
+                                            text = "No documents shared in this chat yet.",
+                                            color = colors.textSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                items(docItems, key = { "wall_doc_${it.id}" }) { docMsg ->
+                                    val title = remember(docMsg.id, docMsg.body) {
+                                        resolveDocumentTitleLine(docMsg.body).ifBlank { "Document" }
+                                    }
+                                    val extBadge = remember(title) {
+                                        title.substringAfterLast('.', "")
+                                            .uppercase(Locale.US)
+                                            .take(4)
+                                            .ifBlank { "DOC" }
+                                    }
+                                    val localFile = docMsg.localMediaPath?.let { p ->
+                                        File(p).takeIf { it.exists() && it.length() > 0L }
+                                    }
+                                    val isDownloading = docMsg.id in downloadingMediaIds
+                                    val sizeLabel = remember(docMsg.fileSize, localFile?.length()) {
+                                        val bytes = localFile?.length() ?: docMsg.fileSize
+                                        if (bytes > 0L) formatBytesCompact(bytes) else ""
+                                    }
+                                    val dateLabel = formatMessageClock(
+                                        docMsg.timestamp,
+                                        includeSeconds = false,
+                                        use24Hour = use24Hour
+                                    )
+                                    val metaLine = listOfNotNull(
+                                        sizeLabel.takeIf { it.isNotBlank() },
+                                        dateLabel,
+                                        if (localFile != null) "Tap to open" else if (isDownloading) "Downloading..." else "Tap to download"
+                                    ).joinToString(" · ")
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.appSurface)
+                                            .clickable {
+                                                if (localFile != null) {
+                                                    openDocumentNatively(context, docMsg, localFile) { pdfFile ->
+                                                        fallbackPdfTarget = pdfFile to title
+                                                    }
+                                                } else if (!isDownloading) {
+                                                    viewModel.requestMediaDownload(docMsg, userInitiated = true)
+                                                }
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(80.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(colors.pillInactiveBg)
-                                                .clickable { mediaViewerTarget = msg },
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(colors.pillActiveBg),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            if (bmp != null) {
-                                                Image(
-                                                    bitmap = bmp,
-                                                    contentDescription = "Media thumbnail",
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
+                                            if (isDownloading) {
+                                                CircularProgressIndicator(
+                                                    color = colors.pillActiveText,
+                                                    strokeWidth = 2.dp,
+                                                    modifier = Modifier.size(18.dp)
                                                 )
                                             } else {
-                                                Icon(
-                                                    imageVector = if (msg.msgType == "VIDEO") Icons.Rounded.Videocam else Icons.Rounded.PhotoSizeSelectActual,
-                                                    contentDescription = null,
-                                                    tint = colors.textSecondary
+                                                Text(
+                                                    text = extBadge,
+                                                    color = colors.pillActiveText,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = title,
+                                                color = colors.textPrimary,
+                                                fontSize = 14.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = metaLine,
+                                                color = colors.textSecondary,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (localFile == null && !isDownloading) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Download,
+                                                contentDescription = "Download document",
+                                                tint = colors.accentGreen,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Description,
+                                                contentDescription = null,
+                                                tint = colors.textSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        else -> {
+                            if (linkItems.isEmpty()) {
+                                item(key = "links_wall_empty") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.appSurface)
+                                            .padding(horizontal = 16.dp, vertical = 22.dp)
+                                    ) {
+                                        Text(
+                                            text = "No links shared in this chat yet.",
+                                            color = colors.textSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                items(linkItems, key = { "${it.messageId}_${it.openUrl}" }) { link ->
+                                    val dateLabel = formatMessageClock(
+                                        link.timestampMs,
+                                        includeSeconds = false,
+                                        use24Hour = use24Hour
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.appSurface)
+                                            .clickable {
+                                                runCatching {
+                                                    context.startActivity(
+                                                        Intent(Intent.ACTION_VIEW, Uri.parse(link.openUrl))
+                                                    )
+                                                }.onFailure {
+                                                    Toast.makeText(context, "No app available to open link", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(colors.pillActiveBg),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Link,
+                                                contentDescription = null,
+                                                tint = colors.pillActiveText,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = link.rawUrl,
+                                                color = colors.brightGreen,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "${link.host} · $dateLabel",
+                                                color = colors.textSecondary,
+                                                fontSize = 11.5.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (link.snippet.isNotBlank() && link.snippet != link.rawUrl) {
+                                                Text(
+                                                    text = link.snippet,
+                                                    color = colors.textSecondary.copy(alpha = 0.8f),
+                                                    fontSize = 11.5.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
@@ -833,14 +1241,13 @@ fun ContactInfoScreen(
                     }
 
                     item(key = "media_manage_storage") {
-                        val totalBytes = remember(galleryMedia) {
-                            galleryMedia.sumOf { m ->
+                        val totalBytes = remember(galleryMedia, docItems) {
+                            (galleryMedia + docItems).distinctBy { it.id }.sumOf { m ->
                                 m.localMediaPath?.let { p -> File(p).takeIf { it.exists() }?.length() ?: 0L } ?: 0L
                             }
                         }
                         val formattedSize = remember(totalBytes) {
-                            val mb = totalBytes / (1024.0 * 1024.0)
-                            if (mb >= 0.1) String.format(Locale.US, "%.1f MB", mb) else "${totalBytes / 1024} KB"
+                            formatBytesCompact(totalBytes)
                         }
 
                         SettingsCard(
@@ -1089,6 +1496,15 @@ fun ContactInfoScreen(
         )
     }
 
+    fallbackPdfTarget?.let { (pdfFile, pdfTitle) ->
+        InAppPdfViewerDialog(
+            file = pdfFile,
+            title = pdfTitle,
+            colors = colors,
+            onDismiss = { fallbackPdfTarget = null }
+        )
+    }
+
     // Member action modal sheet
     activeMemberActionTarget?.let { target ->
         val liveMeta = participantMeta[target.participantJid] ?: participantMeta[target.chatJid]
@@ -1302,73 +1718,41 @@ fun ContactInfoScreen(
         )
     }
 
-    // Ghost Privacy Overrides Sheet
+    // Per-Chat Quick Controls & Privacy Overrides Sheet
     if (showGhostPrivacySheet) {
-        var sendRead by remember(effectivePrivacy) { mutableStateOf(effectivePrivacy.sendReadReceipts) }
-        var sendPlayed by remember(effectivePrivacy) { mutableStateOf(effectivePrivacy.sendPlayedReceipts) }
-        var sendTyping by remember(effectivePrivacy) { mutableStateOf(effectivePrivacy.sendChatPresence) }
-
-        ModalBottomSheet(
-            onDismissRequest = { showGhostPrivacySheet = false },
-            containerColor = colors.elevatedBar
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Ghost Privacy Overrides",
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary,
-                    fontSize = 17.sp
-                )
-                Text(
-                    text = "Override global stealth policies exclusively for this thread:",
-                    color = colors.textSecondary,
-                    fontSize = 13.sp
-                )
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Send Read Receipts (Blue Ticks)", color = colors.textPrimary, fontSize = 14.sp)
-                    Switch(checked = sendRead, onCheckedChange = { sendRead = it })
-                }
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Send Audio Played Receipts", color = colors.textPrimary, fontSize = 14.sp)
-                    Switch(checked = sendPlayed, onCheckedChange = { sendPlayed = it })
-                }
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Send Live Typing & Recording", color = colors.textPrimary, fontSize = 14.sp)
-                    Switch(checked = sendTyping, onCheckedChange = { sendTyping = it })
-                }
-
-                HorizontalDivider(color = colors.divider)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    TextButton(
-                        onClick = {
-                            viewModel.clearChatPrivacyOverride(chatJid)
-                            showGhostPrivacySheet = false
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Use Global Default", color = colors.textSecondary)
-                    }
-                    TextButton(
-                        onClick = {
-                            viewModel.saveChatPrivacyOverride(chatJid, sendRead, sendPlayed, sendTyping)
-                            showGhostPrivacySheet = false
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Save Override", color = colors.accentGreen, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+        val chatSavedCount = remember(deletedHistory, editedHistory, chatJid) {
+            (deletedHistory.asSequence().filter { it.chatJid == chatJid }.map { it.id } +
+                editedHistory.asSequence().filter { it.chatJid == chatJid }.map { it.id }).toSet().size
         }
+        PerChatQuickControlsSheet(
+            chat = chat,
+            chatJid = chatJid,
+            effectivePrivacy = effectivePrivacy,
+            stealthConfig = stealthConfig,
+            savedHistoryCount = chatSavedCount,
+            onSavePrivacyOverride = { r, p, t -> viewModel.saveChatPrivacyOverride(chatJid, r, p, t) },
+            onClearPrivacyOverride = { viewModel.clearChatPrivacyOverride(chatJid) },
+            onSetGalleryVisibility = { viewModel.setChatMediaVisibility(chatJid, it) },
+            onTogglePin = { chat?.let { viewModel.togglePinChat(it) } },
+            onToggleMute = { chat?.let { viewModel.muteChats(listOf(it.jid), !it.isMuted) } },
+            onToggleFavorite = { chat?.let { viewModel.toggleFavoriteChat(it) } },
+            onToggleLock = { chat?.let { viewModel.setChatLock(it.jid, !it.isLocked) } },
+            onOpenWallpaper = { showWallpaperDialog = true },
+            onOpenChatHistory = { showChatHistorySheet = true },
+            onDismiss = { showGhostPrivacySheet = false }
+        )
+    }
+
+    if (showChatHistorySheet) {
+        MessageHistorySheet(
+            deletedMessages = deletedHistory,
+            editedMessages = editedHistory,
+            allEdits = allEditsHistory,
+            chats = allChats,
+            initialChatJid = chatJid,
+            onJumpToChat = { targetJid -> onOpenChat(targetJid) },
+            onDismiss = { showChatHistorySheet = false }
+        )
     }
 }
 

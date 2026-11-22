@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.MarkChatUnread
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.rounded.Unarchive
@@ -157,6 +158,7 @@ fun ChatPeekPopupOverlay(
     onToggleFavorite: () -> Unit,
     onToggleArchive: () -> Unit,
     onSelectChat: () -> Unit,
+    onQuickControls: (() -> Unit)? = null,
     onDeleteChat: () -> Unit
 ) {
     val colors = LocalWaColors.current
@@ -223,6 +225,7 @@ fun ChatPeekPopupOverlay(
                 onToggleFavorite = onToggleFavorite,
                 onToggleArchive = onToggleArchive,
                 onSelectChat = onSelectChat,
+                onQuickControls = onQuickControls,
                 onDeleteChat = onDeleteChat
             )
         }
@@ -561,68 +564,96 @@ private fun ChatPeekActionMenu(
     onToggleFavorite: () -> Unit,
     onToggleArchive: () -> Unit,
     onSelectChat: () -> Unit,
+    onQuickControls: (() -> Unit)? = null,
     onDeleteChat: () -> Unit
 ) {
     val colors = LocalWaColors.current
-    val actions = listOf(
-        PeekActionSpec(
-            label = stringResource(if (chat.unreadCount > 0) R.string.chat_peek_mark_read else R.string.chat_peek_mark_unread),
-            icon = if (chat.unreadCount > 0) Icons.Rounded.MarkChatRead else Icons.Rounded.MarkChatUnread,
-            onClick = {
-                onToggleUnread()
-                onDismiss()
-            }
-        ),
-        PeekActionSpec(
-            label = stringResource(if (chat.isPinned) R.string.chat_action_unpin else R.string.chat_action_pin),
-            icon = Icons.Rounded.PushPin,
-            onClick = {
-                onTogglePin()
-                onDismiss()
-            }
-        ),
-        PeekActionSpec(
-            label = stringResource(if (chat.isMuted) R.string.chat_action_unmute else R.string.chat_action_mute),
-            icon = if (chat.isMuted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff,
-            onClick = {
-                onToggleMute()
-                onDismiss()
-            }
-        ),
-        PeekActionSpec(
-            label = stringResource(if (chat.isFavorite) R.string.chat_peek_remove_favorite else R.string.chat_peek_add_favorite),
-            icon = if (chat.isFavorite) Icons.Rounded.StarOutline else Icons.Rounded.Star,
-            onClick = {
-                onToggleFavorite()
-                onDismiss()
-            }
-        ),
-        PeekActionSpec(
-            label = stringResource(if (chat.isArchived) R.string.chat_action_unarchive else R.string.chat_action_archive),
-            icon = if (chat.isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive,
-            onClick = {
-                onToggleArchive()
-                onDismiss()
-            }
-        ),
-        PeekActionSpec(
-            label = stringResource(R.string.chat_peek_select),
-            icon = Icons.Rounded.CheckCircleOutline,
-            onClick = {
-                onSelectChat()
-                onDismiss()
-            }
-        ),
-        PeekActionSpec(
-            label = stringResource(R.string.chat_peek_delete),
-            icon = Icons.Rounded.Delete,
-            tint = colors.antiDeleteRed,
-            onClick = {
-                onDismiss()
-                onDeleteChat()
-            }
+    val actions = buildList {
+        add(
+            PeekActionSpec(
+                label = stringResource(if (chat.unreadCount > 0) R.string.chat_peek_mark_read else R.string.chat_peek_mark_unread),
+                icon = if (chat.unreadCount > 0) Icons.Rounded.MarkChatRead else Icons.Rounded.MarkChatUnread,
+                onClick = {
+                    onToggleUnread()
+                    onDismiss()
+                }
+            )
         )
-    )
+        add(
+            PeekActionSpec(
+                label = stringResource(if (chat.isPinned) R.string.chat_action_unpin else R.string.chat_action_pin),
+                icon = Icons.Rounded.PushPin,
+                onClick = {
+                    onTogglePin()
+                    onDismiss()
+                }
+            )
+        )
+        add(
+            PeekActionSpec(
+                label = stringResource(if (chat.isMuted) R.string.chat_action_unmute else R.string.chat_action_mute),
+                icon = if (chat.isMuted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff,
+                onClick = {
+                    onToggleMute()
+                    onDismiss()
+                }
+            )
+        )
+        add(
+            PeekActionSpec(
+                label = stringResource(if (chat.isFavorite) R.string.chat_peek_remove_favorite else R.string.chat_peek_add_favorite),
+                icon = if (chat.isFavorite) Icons.Rounded.StarOutline else Icons.Rounded.Star,
+                onClick = {
+                    onToggleFavorite()
+                    onDismiss()
+                }
+            )
+        )
+        add(
+            PeekActionSpec(
+                label = stringResource(if (chat.isArchived) R.string.chat_action_unarchive else R.string.chat_action_archive),
+                icon = if (chat.isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive,
+                onClick = {
+                    onToggleArchive()
+                    onDismiss()
+                }
+            )
+        )
+        if (onQuickControls != null) {
+            add(
+                PeekActionSpec(
+                    label = "Quick controls & privacy",
+                    icon = Icons.Rounded.Shield,
+                    tint = colors.accentGreen,
+                    onClick = {
+                        onDismiss()
+                        onQuickControls()
+                    }
+                )
+            )
+        }
+        add(
+            PeekActionSpec(
+                label = stringResource(R.string.chat_peek_select),
+                icon = Icons.Rounded.CheckCircleOutline,
+                onClick = {
+                    onSelectChat()
+                    onDismiss()
+                }
+            )
+        )
+        add(
+            PeekActionSpec(
+                label = stringResource(R.string.chat_peek_delete),
+                icon = Icons.Rounded.Delete,
+                tint = colors.antiDeleteRed,
+                onClick = {
+                    onDismiss()
+                    onDeleteChat()
+                }
+            )
+        )
+    }
 
     WuppGlassContainer(
         modifier = Modifier.widthIn(min = 230.dp, max = 280.dp),
