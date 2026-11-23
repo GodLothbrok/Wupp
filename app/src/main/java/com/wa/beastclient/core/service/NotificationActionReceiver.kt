@@ -160,4 +160,4 @@ internal fun shouldSendReadReceiptOnNotificationAction(
 
 internal suspend fun isPrivateMessageNotification(dao: WaDao, chatJid: String): Boolean =
     AppLockManager.isLocked.value ||
-        (AppLockManager.config.value.hideLockedChatsBehindLock && dao.getChat(chatJid)?.isLocked == true)
+        AppLockManager.shouldSuppressAlertsForChat(dao.getChat(chatJid)?.isLocked == true)

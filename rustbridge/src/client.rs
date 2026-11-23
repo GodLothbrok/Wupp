@@ -65,9 +65,14 @@ pub async fn init_client(runtime: Arc<BridgeRuntime>, files_dir: String) -> Resu
     profile.os_version = "10.0.0".to_string();
     client.set_client_profile(profile).await;
     let snap = client.persistence_manager().get_device_snapshot();
-    runtime
-        .logged_in
-        .store(snap.pn.is_some() || snap.lid.is_some(), Ordering::SeqCst);
+    let is_logged_in = snap.pn.is_some() || snap.lid.is_some();
+    runtime.logged_in.store(is_logged_in, Ordering::SeqCst);
+    let own_jid = snap
+        .pn
+        .as_ref()
+        .map(|j| canonical_jid_str(&j.to_string()))
+        .or_else(|| snap.lid.as_ref().map(|j| canonical_jid_str(&j.to_string())))
+        .unwrap_or_default();
 
     *runtime.client.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&client));
 
@@ -85,6 +90,8 @@ pub async fn init_client(runtime: Arc<BridgeRuntime>, files_dir: String) -> Resu
         "ENGINE_READY",
         serde_json::json!({
             "ready": true,
+            "isLoggedIn": is_logged_in,
+            "ownJid": own_jid,
         }),
     );
     runtime.emit_log("Rust whatsapp-rust client initialized");

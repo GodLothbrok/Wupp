@@ -127,12 +127,25 @@
     <string name="settings_allow_screenshots_title">Allow Screenshots</string>
     <string name="settings_allow_screenshots_subtitle">Allow capturing screenshots anywhere inside Wupp</string>
     <string name="applock_hide_locked_chats_title">Hide locked chats behind App Lock</string>
-    <string name="applock_hide_locked_chats_subtitle">Hides WhatsApp locked chats on Home until unlocked locally</string>
+    <string name="applock_hide_locked_chats_subtitle">Hides locked chats and silences their notifications and calls until unlocked</string>
     <string name="applock_set_pin_title">Set Custom PIN</string>
     <string name="applock_pin_enter_label">Enter PIN (4–8 digits)</string>
     <string name="applock_pin_confirm_label">Confirm PIN</string>
     <string name="applock_pin_length_error">PIN must be 4 to 8 digits.</string>
     <string name="applock_pin_mismatch_error">PINs do not match.</string>
+    <string name="secret_code_title">Secret Code for Hidden Chats</string>
+    <string name="secret_code_subtitle_off">No secret code set · Visible unlock banner shown when chats are locked</string>
+    <string name="secret_code_subtitle_active">Active · Chats, alerts &amp; calls stay hidden until you search your #code</string>
+    <string name="secret_code_set_button">Set Secret Code</string>
+    <string name="secret_code_change_button">Change Code</string>
+    <string name="secret_code_remove_button">Remove</string>
+    <string name="secret_code_dialog_title">Set Secret Code</string>
+    <string name="secret_code_input_label">Secret code (e.g. #1234)</string>
+    <string name="secret_code_confirm_label">Confirm secret code</string>
+    <string name="secret_code_hint">Starts with # (if you type 1234, it saves as #1234). Search that exact code in Chats to reveal hidden chats.</string>
+    <string name="secret_code_length_error">Enter at least 2 characters after # with no spaces.</string>
+    <string name="secret_code_mismatch_error">Secret codes do not match.</string>
+    <string name="home_secret_chats_unlocked_banner">Hidden chats unlocked (tap to hide)</string>
 
     <!-- Language (#17) -->
     <string name="language_dialog_title">App Language</string>
@@ -143,7 +156,8 @@
     <!-- Settings / Appearance / Looks (#14, #16, #17, #18, #21, #24) -->
     <string name="settings_section_security">SECURITY &amp; LOCK</string>
     <string name="settings_applock_row_title">App Lock &amp; Locked Chats</string>
-    <string name="settings_applock_row_subtitle_off">Disabled · Tap to set Device Lock or Custom PIN</string>
+    <string name="settings_applock_row_subtitle_off">Disabled · Tap to set App Lock or Secret Code</string>
+    <string name="settings_applock_row_subtitle_secret">Secret Code active · Hidden chats, alerts &amp; calls silenced</string>
     <string name="settings_applock_row_subtitle_device">Device Lock active · Local protection</string>
     <string name="settings_applock_row_subtitle_pin">Custom PIN active · Local protection</string>
     <string name="settings_lock_now_title">Lock Wupp Now</string>

@@ -467,9 +467,14 @@ class MainActivity : FragmentActivity() {
                 val shareData by pendingShareData.collectAsState()
                 if (shareData != null && setupDone && bridgeStatus.isLoggedIn && !isAppLocked) {
                     val allChatsList by vm.allChats.collectAsState()
+                    val hiddenLockedJids by vm.hiddenLockedJids.collectAsState()
+                    val shareableChats = remember(allChatsList, hiddenLockedJids) {
+                        if (hiddenLockedJids.isEmpty()) allChatsList
+                        else allChatsList.filter { it.jid !in hiddenLockedJids && it.jid.substringBefore("@").substringBefore(":") !in hiddenLockedJids }
+                    }
                     val colors = LocalWaColors.current
                     ForwardMessageDialog(
-                        allChats = allChatsList,
+                        allChats = shareableChats,
                         announceLockedGroups = emptySet(),
                         currentChatJid = "",
                         colors = colors,
@@ -532,7 +537,7 @@ class MainActivity : FragmentActivity() {
         CallStateManager.onAppForegroundChanged(true)
         val setupDone = getSharedPreferences("wupp_setup_prefs", Context.MODE_PRIVATE)
             .getBoolean("setup_completed_v1", false)
-        if (setupDone) {
+        if (setupDone && Whatsbridge.isNativeLoaded) {
             WaRealtimeService.ensureStarted(this)
             lifecycleScope.launch {
                 WuppUpdater.onAppOpened(this@MainActivity)

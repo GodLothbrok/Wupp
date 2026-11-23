@@ -572,9 +572,6 @@ impl VoipRegistry {
         if call.ended.load(Ordering::Relaxed) {
             return -1;
         }
-        if call.audio_capture_tx.is_full() {
-            let _ = call.audio_capture_tx.try_recv();
-        }
         match call.audio_capture_tx.try_send(pcm.to_vec()) {
             Ok(()) => pcm.len() as i32,
             Err(_) => 0,
@@ -589,8 +586,8 @@ impl VoipRegistry {
             return -1;
         }
 
-        // Drain stale queue backlog to eliminate speech drift (> 3 frames = > 180 ms)
-        while call.audio_playout_rx.len() > 3 {
+        // Drain stale queue backlog beyond 4 frames (~80 ms) to prevent multi-second speech drift
+        while call.audio_playout_rx.len() > 4 {
             let _ = call.audio_playout_rx.try_recv();
         }
 
@@ -622,9 +619,6 @@ impl VoipRegistry {
         let Some(tx) = tx_opt else {
             return 0;
         };
-        if tx.is_full() {
-            let _ = tx.try_recv();
-        }
         let frame = TimedVideoFrame::builder()
             .data(data)
             .timestamp(ts_90k)
@@ -640,11 +634,6 @@ impl VoipRegistry {
         let call = self.get_active_call(call_id)?;
         let rx_opt = call.video_playout_rx.read().unwrap().clone();
         let rx = rx_opt?;
-
-        // Drain video queue backlog if decoder fell behind to keep lip-sync with audio
-        while rx.len() > 3 {
-            let _ = rx.try_recv();
-        }
 
         let frame = if let Ok(f) = rx.try_recv() {
             f

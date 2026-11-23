@@ -41,7 +41,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -78,6 +77,7 @@ import com.wa.beastclient.domain.security.AppLockManager
 import com.wa.beastclient.domain.security.AppLockMode
 import com.wa.beastclient.domain.security.AppLockTimeout
 import com.wa.beastclient.ui.theme.LocalWaColors
+import com.wa.beastclient.ui.theme.contrastingContentColor
 
 internal tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
@@ -443,11 +443,19 @@ fun AppLockConfigDialog(
 ) {
     val colors = LocalWaColors.current
     var showPinSetup by remember { mutableStateOf(false) }
+    var showSecretCodeSetup by remember { mutableStateOf(false) }
 
     if (showPinSetup) {
         CustomPinSetupDialog(
             onSaved = { showPinSetup = false },
             onDismiss = { showPinSetup = false }
+        )
+    }
+
+    if (showSecretCodeSetup) {
+        SecretCodeSetupDialog(
+            onSaved = { showSecretCodeSetup = false },
+            onDismiss = { showSecretCodeSetup = false }
         )
     }
 
@@ -622,7 +630,8 @@ fun AppLockConfigDialog(
                         )
                     }
                     Switch(
-                        checked = config.hideLockedChatsBehindLock,
+                        checked = config.hideLockedChatsBehindLock || config.hasSecretCode,
+                        enabled = !config.hasSecretCode,
                         onCheckedChange = { AppLockManager.setHideLockedChatsBehindLock(it) },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
@@ -631,109 +640,52 @@ fun AppLockConfigDialog(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
-
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.secret_code_title),
+                    color = colors.accentGreen,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = stringResource(
+                        if (config.hasSecretCode) R.string.secret_code_subtitle_active
+                        else R.string.secret_code_subtitle_off
+                    ),
+                    color = colors.textSecondary,
+                    fontSize = 11.5.sp
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    OutlinedButton(
+                        onClick = { showSecretCodeSetup = true },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text(
-                            text = "Hide locked chats folder",
-                            color = colors.textPrimary,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Hide the folder completely. Access locked chats by typing your secret code or PIN into the search bar.",
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp
+                            text = stringResource(
+                                if (config.hasSecretCode) R.string.secret_code_change_button
+                                else R.string.secret_code_set_button
+                            ),
+                            color = colors.accentGreen,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.5.sp
                         )
                     }
-                    Switch(
-                        checked = config.hideLockedFolder,
-                        onCheckedChange = { AppLockManager.setHideLockedFolder(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = colors.accentGreen
-                        )
-                    )
-                }
-
-                var showSecretCodeDialog by remember { mutableStateOf(false) }
-                var secretCodeInput by remember(config.secretCode) { mutableStateOf(config.secretCode.orEmpty()) }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showSecretCodeDialog = true }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(
-                            text = "Secret code",
-                            color = colors.textPrimary,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = if (config.secretCode.isNullOrBlank()) "Not set (uses PIN by default)" else "Code set (${config.secretCode?.length} characters)",
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp
-                        )
-                    }
-                    Text(
-                        text = if (config.secretCode.isNullOrBlank()) "Set" else "Change",
-                        color = colors.accentGreen,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                if (showSecretCodeDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showSecretCodeDialog = false },
-                        title = { Text("Secret code for locked chats", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
-                        text = {
-                            Column {
-                                Text(
-                                    text = "Enter a secret word, emoji, or PIN. Typing this in the chat list search bar reveals your locked chats.",
-                                    color = colors.textSecondary,
-                                    fontSize = 12.5.sp
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                OutlinedTextField(
-                                    value = secretCodeInput,
-                                    onValueChange = { secretCodeInput = it },
-                                    label = { Text("Secret code") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                AppLockManager.setSecretCode(secretCodeInput.trim())
-                                showSecretCodeDialog = false
-                            }) {
-                                Text("Save", color = colors.accentGreen, fontWeight = FontWeight.SemiBold)
-                            }
-                        },
-                        dismissButton = {
-                            if (!config.secretCode.isNullOrBlank()) {
-                                TextButton(onClick = {
-                                    AppLockManager.setSecretCode(null)
-                                    secretCodeInput = ""
-                                    showSecretCodeDialog = false
-                                }) {
-                                    Text("Clear", color = colors.antiDeleteRed)
-                                }
-                            }
+                    if (config.hasSecretCode) {
+                        TextButton(
+                            onClick = { AppLockManager.clearSecretCode() }
+                        ) {
+                            Text(
+                                text = stringResource(R.string.secret_code_remove_button),
+                                color = colors.antiDeleteRed,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
+                            )
                         }
-                    )
+                    }
                 }
             }
         },
@@ -876,11 +828,120 @@ fun CustomPinSetupDialog(
                         }
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = colors.accentGreen)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accentGreen,
+                    contentColor = colors.accentGreen.contrastingContentColor()
+                )
             ) {
                 Text(
                     text = stringResource(R.string.common_save),
-                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun SecretCodeSetupDialog(
+    onSaved: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = LocalWaColors.current
+    var code by remember { mutableStateOf("#") }
+    var confirmCode by remember { mutableStateOf("#") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val lenErr = stringResource(R.string.secret_code_length_error)
+    val mismatchErr = stringResource(R.string.secret_code_mismatch_error)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.elevatedBar,
+        titleContentColor = colors.textPrimary,
+        textContentColor = colors.textPrimary,
+        title = {
+            Text(
+                text = stringResource(R.string.secret_code_dialog_title),
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.secret_code_hint),
+                    color = colors.textSecondary,
+                    fontSize = 12.sp
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { raw ->
+                        errorMsg = null
+                        code = raw.filter { !it.isWhitespace() }.take(32)
+                    },
+                    label = { Text(stringResource(R.string.secret_code_input_label)) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.accentGreen,
+                        unfocusedBorderColor = colors.divider,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = confirmCode,
+                    onValueChange = { raw ->
+                        errorMsg = null
+                        confirmCode = raw.filter { !it.isWhitespace() }.take(32)
+                    },
+                    label = { Text(stringResource(R.string.secret_code_confirm_label)) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.accentGreen,
+                        unfocusedBorderColor = colors.divider,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (!errorMsg.isNullOrBlank()) {
+                    Text(
+                        text = errorMsg.orEmpty(),
+                        color = colors.antiDeleteRed,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_cancel), color = colors.textSecondary)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val normalizedA = AppLockManager.normalizeSecretCode(code)
+                    val normalizedB = AppLockManager.normalizeSecretCode(confirmCode)
+                    when {
+                        normalizedA == null -> errorMsg = lenErr
+                        normalizedA != normalizedB -> errorMsg = mismatchErr
+                        else -> {
+                            AppLockManager.setSecretCode(normalizedA)
+                            onSaved()
+                        }
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accentGreen,
+                    contentColor = colors.accentGreen.contrastingContentColor()
+                )
+            ) {
+                Text(
+                    text = stringResource(R.string.common_save),
                     fontWeight = FontWeight.SemiBold
                 )
             }

@@ -124,9 +124,16 @@ internal fun blendRgb(base: Color, tint: Color, ratio: Float): Color {
     )
 }
 
-/** Picks dark or light ink automatically so FAB/badge icons always contrast sharply on dynamic colors. */
+internal fun shouldPreferDarkContentOnLuminance(luminance: Float): Boolean {
+    val l = luminance.coerceIn(0f, 1f)
+    val darkContrast = (l + 0.05f) / 0.0566f // #0B141A relative luminance ~ 0.0066
+    val lightContrast = 1.05f / (l + 0.05f)  // #FFFFFF relative luminance = 1.0
+    return darkContrast >= lightContrast
+}
+
+/** Picks dark or light ink automatically so FAB/badge icons always achieve the highest contrast. */
 fun Color.contrastingContentColor(): Color =
-    if (luminance() > 0.45f) Color(0xFF0B141A) else Color.White
+    if (shouldPreferDarkContentOnLuminance(luminance())) Color(0xFF0B141A) else Color.White
 
 /** Returns Android 12+ wallpaper-derived Material You palette when supported by this OS version. */
 fun resolvePlatformDynamicColorScheme(context: Context, isDark: Boolean): ColorScheme? {
@@ -719,11 +726,11 @@ fun WhatsAppTheme(
         )
         waColors.isDark -> darkColorScheme(
             primary = waColors.accentGreen,
-            onPrimary = if (waColors.themeMode in setOf(WuppThemeMode.AURORA, WuppThemeMode.NOIR_GOLD, WuppThemeMode.GLACIER)) Color(0xFF06131F) else Color.White,
+            onPrimary = waColors.accentGreen.contrastingContentColor(),
             primaryContainer = waColors.pillActiveBg,
             onPrimaryContainer = waColors.pillActiveText,
             secondary = waColors.brightGreen,
-            onSecondary = Color(0xFF061310),
+            onSecondary = waColors.brightGreen.contrastingContentColor(),
             secondaryContainer = waColors.elevatedBar,
             onSecondaryContainer = waColors.textPrimary,
             tertiary = waColors.blueTick,
@@ -743,11 +750,11 @@ fun WhatsAppTheme(
         )
         else -> lightColorScheme(
             primary = waColors.accentGreen,
-            onPrimary = Color.White,
+            onPrimary = waColors.accentGreen.contrastingContentColor(),
             primaryContainer = waColors.pillActiveBg,
             onPrimaryContainer = waColors.pillActiveText,
             secondary = waColors.brightGreen,
-            onSecondary = Color.White,
+            onSecondary = waColors.brightGreen.contrastingContentColor(),
             secondaryContainer = waColors.elevatedBar,
             onSecondaryContainer = waColors.textPrimary,
             tertiary = waColors.blueTick,

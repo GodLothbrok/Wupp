@@ -40,11 +40,10 @@ data class AppLockConfig(
     val mode: AppLockMode = AppLockMode.OFF,
     val timeout: AppLockTimeout = AppLockTimeout.IMMEDIATE,
     val hideInRecents: Boolean = true,
-    val hideLockedChatsBehindLock: Boolean = true,
+    val hideLockedChatsBehindLock: Boolean = false,
     val allowScreenshots: Boolean = true,
     val hasCustomPin: Boolean = false,
-    val secretCode: String? = null,
-    val hideLockedFolder: Boolean = false
+    val hasSecretCode: Boolean = false
 )
 
 internal data class WindowPrivacyPolicy(
@@ -54,7 +53,7 @@ internal data class WindowPrivacyPolicy(
 
 /**
  * Local-only App Lock controller (Zero WhatsApp flag risk).
- * Stores custom PINs as salted SHA-256 hashes and keeps background sync uninterrupted while locked.
+ * Stores custom PINs and hidden-chat Secret Codes as salted SHA-256 hashes and keeps background sync uninterrupted while locked.
  */
 object AppLockManager {
     private const val PREFS_NAME = "wupp_applock_prefs"
@@ -65,8 +64,8 @@ object AppLockManager {
     private const val KEY_ALLOW_SCREENSHOTS = "applock_allow_screenshots"
     private const val KEY_PIN_SALT = "applock_pin_salt"
     private const val KEY_PIN_HASH = "applock_pin_hash"
-    private const val KEY_SECRET_CODE = "applock_secret_code"
-    private const val KEY_HIDE_LOCKED_FOLDER = "applock_hide_locked_folder"
+    private const val KEY_SECRET_CODE_SALT = "applock_secret_code_salt"
+    private const val KEY_SECRET_CODE_HASH = "applock_secret_code_hash"
 
     private lateinit var prefs: SharedPreferences
     private val _config = MutableStateFlow(AppLockConfig())
@@ -74,6 +73,9 @@ object AppLockManager {
 
     private val _isLocked = MutableStateFlow(false)
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
+
+    private val _lockedChatsRevealed = MutableStateFlow(false)
+    val lockedChatsRevealed: StateFlow<Boolean> = _lockedChatsRevealed.asStateFlow()
 
     @Volatile
     private var initialized = false
@@ -91,6 +93,8 @@ object AppLockManager {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val hasPin = !prefs.getString(KEY_PIN_HASH, null).isNullOrBlank() &&
                 !prefs.getString(KEY_PIN_SALT, null).isNullOrBlank()
+            val hasSecretCode = !prefs.getString(KEY_SECRET_CODE_HASH, null).isNullOrBlank() &&
+                !prefs.getString(KEY_SECRET_CODE_SALT, null).isNullOrBlank()
             val savedMode = AppLockMode.fromStorageKey(prefs.getString(KEY_MODE, null))
             val effectiveMode = if (savedMode == AppLockMode.CUSTOM_PIN && !hasPin) {
                 AppLockMode.OFF
@@ -101,19 +105,50 @@ object AppLockManager {
                 mode = effectiveMode,
                 timeout = AppLockTimeout.fromStorageKey(prefs.getString(KEY_TIMEOUT, null)),
                 hideInRecents = prefs.getBoolean(KEY_HIDE_RECENTS, true),
-                hideLockedChatsBehindLock = prefs.getBoolean(KEY_HIDE_LOCKED_CHATS, true),
+                hideLockedChatsBehindLock = prefs.getBoolean(KEY_HIDE_LOCKED_CHATS, false) || hasSecretCode,
                 allowScreenshots = prefs.getBoolean(KEY_ALLOW_SCREENSHOTS, true),
                 hasCustomPin = hasPin,
-                secretCode = prefs.getString(KEY_SECRET_CODE, null),
-                hideLockedFolder = prefs.getBoolean(KEY_HIDE_LOCKED_FOLDER, false)
+                hasSecretCode = hasSecretCode
             )
             _config.value = loaded
             _isLocked.value = loaded.mode != AppLockMode.OFF
+            _lockedChatsRevealed.value = false
             initialized = true
         }
     }
 
     fun isLockActive(cfg: AppLockConfig = _config.value): Boolean = cfg.mode != AppLockMode.OFF
+
+    fun setLockedChatsRevealed(revealed: Boolean) {
+        _lockedChatsRevealed.value = revealed
+    }
+
+    internal fun normalizeSecretCode(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() }) return null
+        val normalized = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+        return if (normalized.length in 3..32) normalized else null
+    }
+
+    internal fun shouldHideLockedChats(
+        cfg: AppLockConfig = _config.value,
+        revealed: Boolean = _lockedChatsRevealed.value
+    ): Boolean = (cfg.hideLockedChatsBehindLock || cfg.hasSecretCode) && !revealed
+
+    internal fun shouldShowLockedBannerInHome(
+        cfg: AppLockConfig = _config.value,
+        revealed: Boolean = _lockedChatsRevealed.value
+    ): Boolean = when {
+        revealed -> true
+        cfg.hasSecretCode -> false
+        else -> cfg.hideLockedChatsBehindLock
+    }
+
+    internal fun shouldSuppressAlertsForChat(
+        chatIsLocked: Boolean,
+        cfg: AppLockConfig = _config.value,
+        revealed: Boolean = _lockedChatsRevealed.value
+    ): Boolean = chatIsLocked && shouldHideLockedChats(cfg, revealed)
 
     fun suspendNextBackgroundLock() {
         suppressNextBackgroundLock = true
@@ -125,6 +160,7 @@ object AppLockManager {
             lastBackgroundElapsedMs = SystemClock.elapsedRealtime()
             return
         }
+        _lockedChatsRevealed.value = false
         if (isLockActive()) {
             lastBackgroundElapsedMs = SystemClock.elapsedRealtime()
         }
@@ -146,10 +182,12 @@ object AppLockManager {
         val elapsed = SystemClock.elapsedRealtime() - bgAt
         if (elapsed >= cfg.timeout.timeoutMs) {
             _isLocked.value = true
+            _lockedChatsRevealed.value = false
         }
     }
 
     fun lockNow() {
+        _lockedChatsRevealed.value = false
         if (isLockActive()) {
             _isLocked.value = true
         }
@@ -171,6 +209,51 @@ object AppLockManager {
         if (matched) {
             lastBackgroundElapsedMs = 0L
             _isLocked.value = false
+        }
+        return matched
+    }
+
+    fun setSecretCode(rawCode: String): Boolean {
+        if (!initialized) return false
+        val normalized = normalizeSecretCode(rawCode) ?: return false
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val hash = hashPin(salt, normalized)
+        prefs.edit()
+            .putString(KEY_SECRET_CODE_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
+            .putString(KEY_SECRET_CODE_HASH, Base64.encodeToString(hash, Base64.NO_WRAP))
+            .putBoolean(KEY_HIDE_LOCKED_CHATS, true)
+            .apply()
+        _config.value = _config.value.copy(
+            hasSecretCode = true,
+            hideLockedChatsBehindLock = true
+        )
+        _lockedChatsRevealed.value = false
+        return true
+    }
+
+    fun clearSecretCode() {
+        if (!initialized) return
+        prefs.edit()
+            .remove(KEY_SECRET_CODE_SALT)
+            .remove(KEY_SECRET_CODE_HASH)
+            .apply()
+        _config.value = _config.value.copy(hasSecretCode = false)
+        _lockedChatsRevealed.value = false
+    }
+
+    fun verifySecretCode(searchQuery: String): Boolean {
+        if (!initialized || !_config.value.hasSecretCode) return false
+        val trimmed = searchQuery.trim()
+        if (!trimmed.startsWith("#")) return false
+        val normalized = normalizeSecretCode(trimmed) ?: return false
+        val saltB64 = prefs.getString(KEY_SECRET_CODE_SALT, null) ?: return false
+        val hashB64 = prefs.getString(KEY_SECRET_CODE_HASH, null) ?: return false
+        val salt = runCatching { Base64.decode(saltB64, Base64.NO_WRAP) }.getOrNull() ?: return false
+        val expectedHash = runCatching { Base64.decode(hashB64, Base64.NO_WRAP) }.getOrNull() ?: return false
+        val actualHash = hashPin(salt, normalized)
+        val matched = MessageDigest.isEqual(expectedHash, actualHash)
+        if (matched) {
+            _lockedChatsRevealed.value = true
         }
         return matched
     }
@@ -222,8 +305,12 @@ object AppLockManager {
     }
 
     fun setHideLockedChatsBehindLock(hide: Boolean) {
-        prefs.edit().putBoolean(KEY_HIDE_LOCKED_CHATS, hide).apply()
-        _config.value = _config.value.copy(hideLockedChatsBehindLock = hide)
+        val effectiveHide = hide || _config.value.hasSecretCode
+        prefs.edit().putBoolean(KEY_HIDE_LOCKED_CHATS, effectiveHide).apply()
+        _config.value = _config.value.copy(hideLockedChatsBehindLock = effectiveHide)
+        if (!effectiveHide) {
+            _lockedChatsRevealed.value = false
+        }
     }
 
     fun setAllowScreenshots(allow: Boolean) {
@@ -258,32 +345,6 @@ object AppLockManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             runCatching { activity.setRecentsScreenshotEnabled(policy.allowRecentsScreenshot) }
         }
-    }
-
-    fun setSecretCode(code: String?) {
-        if (!initialized) return
-        val clean = code?.trim()?.takeIf { it.isNotBlank() }
-        prefs.edit().putString(KEY_SECRET_CODE, clean).apply()
-        _config.value = _config.value.copy(secretCode = clean)
-    }
-
-    fun setHideLockedFolder(hide: Boolean) {
-        if (!initialized) return
-        prefs.edit().putBoolean(KEY_HIDE_LOCKED_FOLDER, hide).apply()
-        _config.value = _config.value.copy(hideLockedFolder = hide)
-    }
-
-    fun matchesSecretCodeOrPin(query: String): Boolean {
-        val q = query.trim()
-        if (q.isBlank()) return false
-        val cfg = _config.value
-        if (!cfg.secretCode.isNullOrBlank() && (q.equals(cfg.secretCode, ignoreCase = true) || q == "#${cfg.secretCode}")) {
-            return true
-        }
-        if (cfg.hasCustomPin && verifyCustomPin(q)) {
-            return true
-        }
-        return false
     }
 
     private fun hashPin(salt: ByteArray, pin: String): ByteArray {

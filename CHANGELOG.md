@@ -1,20 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.8-pre.4] - 2026-11-23
 
 ### ✨ Features
-- Added an optional iOS Style theme in settings with Apple iOS blue accents and clean daylight card styling (#99).
-- Added secret code support to hide locked chats completely and unlock them from the search bar (#74, #128, #97).
-- Added an interactive sticker action dialog to view and favorite received stickers (#84).
-- Added share target support to share photos, videos, audio, and documents directly into Wupp (#80).
-- Added an option in settings to disable in-app conversation sounds (#92).
-- Added animated GIF playback and decoding support (#83).
+- 🔒 Added a Secret Code for hidden chats so they stay invisible in Chats, search, badges, and Calls with notifications and incoming calls silenced until unlocked (#128).
+- 📱 Added an optional iOS Style light theme under Settings → Theme (#99).
+- 📤 Added Android share target support so you can share photos, videos, audio, documents, and text from other apps into Wupp (#80).
+- ⭐ Tapping a received sticker now opens a preview dialog to add or remove it from favorites (#84).
+- 🔊 Added a Conversation Sounds switch under Alerts settings to mute incoming and outgoing message effects (#92).
+- 🎞️ Added animated GIF decoding support via Coil (#83).
 
 ### 🛠️ Fixes
-- Fixed video call orientation, front camera mirroring, aspect ratios, and eliminated the 5–7s speech latency delay (#127).
-- Fixed unread message navigation to scroll directly to the oldest unread message (#90).
-- Prevented startup crashes on unsupported 32-bit devices with a clear architecture alert (#100).
-- Normalized Meta AI contact display and added companion device advisory (#97).
+- 🔄 Fixed saved logins incorrectly resetting or prompting to re-link after app updates when sessions are already paired.
+- 📇 Added a toggle to disable Local Contact Names Fallback and optionally prioritize your phonebook names (#124, #126).
+- 📹 Added H.264 encoder/decoder fallbacks and error recovery for budget devices, plus reduced voice call playout queue latency (#130, #127).
+- 💬 Fixed opening unread chats to jump to the oldest unread message (#90).
+- 🎨 Fixed button and badge text contrast across Dark, AMOLED, Synthwave, and light custom themes and enlarged cramped chat buttons.
+- 🛡️ Prevented startup crashes on unsupported 32-bit devices with a clear alert and normalized Meta AI's display name (#100, #97).
 
 ## [0.3.8-pre.3] - 2026-11-22
 

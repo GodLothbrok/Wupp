@@ -179,8 +179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val includePreReleases: StateFlow<Boolean> = WuppUpdater.includePreReleases
     val showUpdatePrompt: StateFlow<Boolean> = WuppUpdater.showPromptDialog
 
-    private val _lockedChatsRevealed = MutableStateFlow(false)
-    val lockedChatsRevealed: StateFlow<Boolean> = _lockedChatsRevealed.asStateFlow()
+    val lockedChatsRevealed: StateFlow<Boolean> = AppLockManager.lockedChatsRevealed
 
     init {
         AccountManager.init(appContext)
@@ -191,7 +190,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             AppLockManager.isLocked.collect { locked ->
                 if (locked) {
-                    _lockedChatsRevealed.value = false
+                    AppLockManager.setLockedChatsRevealed(false)
+                }
+            }
+        }
+        viewModelScope.launch {
+            AppLockManager.lockedChatsRevealed.collect { revealed ->
+                if (!revealed) {
+                    if (_selectedFilter.value == HomeFilterChip.LOCKED) {
+                        _selectedFilter.value = HomeFilterChip.ALL
+                    }
+                    if (_selectedGroupsFilter.value == HomeFilterChip.LOCKED) {
+                        _selectedGroupsFilter.value = HomeFilterChip.ALL
+                    }
                 }
             }
         }
@@ -200,10 +211,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 synchronized(pagerFlowCache) {
                     pagerFlowCache.clear()
                 }
-                _ftsSearchResults.value = emptyList()
+                _rawFtsSearchResults.value = emptyList()
                 _homeSearchQuery.value = ""
                 _bulkVerifyOutput.value = null
-                _lockedChatsRevealed.value = false
+                AppLockManager.setLockedChatsRevealed(false)
+                _selectedFilter.value = HomeFilterChip.ALL
+                _selectedGroupsFilter.value = HomeFilterChip.ALL
                 _participantMeta.value = emptyMap()
                 viewModelScope.launch(Dispatchers.IO) {
                     purgeExpiredStatuses()
@@ -231,8 +244,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _homeSearchQuery = MutableStateFlow("")
     val homeSearchQuery: StateFlow<String> = _homeSearchQuery.asStateFlow()
 
-    private val _ftsSearchResults = MutableStateFlow<List<MessageEntity>>(emptyList())
-    val ftsSearchResults: StateFlow<List<MessageEntity>> = _ftsSearchResults.asStateFlow()
+    private val _rawFtsSearchResults = MutableStateFlow<List<MessageEntity>>(emptyList())
 
     private val _bulkVerifyOutput = MutableStateFlow<String?>(null)
     val bulkVerifyOutput: StateFlow<String?> = _bulkVerifyOutput.asStateFlow()
@@ -244,11 +256,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var activeRecordingFile: File? = null
     private var recordingStartMs: Long = 0L
 
+    private val allChatsIncludingArchived: StateFlow<List<ChatEntity>> = activeDaoFlow
+        .flatMapLatest { it.observeChats(true) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     val allChats: StateFlow<List<ChatEntity>> = combine(activeDaoFlow, _includeArchived) { activeDao, archived ->
         activeDao to archived
     }
         .flatMapLatest { (activeDao, archived) -> activeDao.observeChats(archived) }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val hiddenLockedJids: StateFlow<Set<String>> = combine(
+        allChatsIncludingArchived,
+        appLockConfig,
+        lockedChatsRevealed
+    ) { chats, lockCfg, revealed ->
+        if (!AppLockManager.shouldHideLockedChats(lockCfg, revealed)) emptySet()
+        else chats.asSequence()
+            .filter { it.isLocked }
+            .flatMap { chat ->
+                val bare = chat.jid.substringBefore("@").substringBefore(":")
+                if (bare.isNotBlank()) sequenceOf(chat.jid, bare) else sequenceOf(chat.jid)
+            }
+            .toSet()
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
+
+    val ftsSearchResults: StateFlow<List<MessageEntity>> = combine(
+        _rawFtsSearchResults,
+        hiddenLockedJids
+    ) { hits, hiddenJids ->
+        if (hiddenJids.isEmpty()) hits
+        else hits.filter { it.chatJid !in hiddenJids && it.chatJid.substringBefore("@").substringBefore(":") !in hiddenJids }
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val allContacts: StateFlow<List<ContactEntity>> = activeDaoFlow
         .flatMapLatest { it.observeContacts() }
@@ -290,16 +329,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val customStickerStore = CustomStickerStore.getInstance(appContext)
     val customStickers: StateFlow<List<CustomStickerItem>> = customStickerStore.stickers
 
-    val archivedCount: StateFlow<Int> = activeDaoFlow
-        .flatMapLatest { it.observeArchivedCount() }
-        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
+    val archivedCount: StateFlow<Int> = combine(
+        allChatsIncludingArchived,
+        hiddenLockedJids
+    ) { chats, hiddenJids ->
+        chats.count {
+            it.isArchived &&
+                !it.isCommunityParent &&
+                !it.jid.endsWith("@newsletter") &&
+                it.jid != "status@broadcast" &&
+                !it.jid.endsWith("@broadcast") &&
+                it.jid !in hiddenJids
+        }
+    }.stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
     val hiddenLockedChatsCount: StateFlow<Int> = combine(
         allChats,
         appLockConfig,
         lockedChatsRevealed
     ) { chats, lockCfg, revealed ->
-        if (revealed) 0
+        if (!AppLockManager.shouldHideLockedChats(lockCfg, revealed)) 0
         else chats.count {
             it.isLocked &&
                 !it.isCommunityParent &&
@@ -317,11 +366,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         appLockConfig,
         lockedChatsRevealed
     ) { chats, query, lockCfg, revealed ->
-        if (!revealed && AppLockManager.matchesSecretCodeOrPin(query)) {
-            _lockedChatsRevealed.value = true
-        }
-        val isRevealed = revealed || _lockedChatsRevealed.value
-        QuadFilterState(chats, query, !isRevealed)
+        QuadFilterState(chats, query, AppLockManager.shouldHideLockedChats(lockCfg, revealed))
     }
 
     private data class QuadFilterState(
@@ -425,20 +470,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setLockedChatsRevealed(revealed: Boolean) {
-        _lockedChatsRevealed.value = revealed
+        AppLockManager.setLockedChatsRevealed(revealed)
+        if (!revealed) {
+            if (_selectedFilter.value == HomeFilterChip.LOCKED) {
+                _selectedFilter.value = HomeFilterChip.ALL
+            }
+            if (_selectedGroupsFilter.value == HomeFilterChip.LOCKED) {
+                _selectedGroupsFilter.value = HomeFilterChip.ALL
+            }
+        }
     }
 
     fun updateHomeSearch(query: String) {
+        if (AppLockManager.config.value.hasSecretCode &&
+            !AppLockManager.lockedChatsRevealed.value &&
+            AppLockManager.verifySecretCode(query)
+        ) {
+            _homeSearchQuery.value = ""
+            _rawFtsSearchResults.value = emptyList()
+            _selectedFilter.value = HomeFilterChip.LOCKED
+            _selectedGroupsFilter.value = HomeFilterChip.LOCKED
+            return
+        }
         _homeSearchQuery.value = query
         viewModelScope.launch(Dispatchers.IO) {
             val cleaned = query.trim().replace("\"", "")
             if (cleaned.length < 2) {
-                _ftsSearchResults.value = emptyList()
+                _rawFtsSearchResults.value = emptyList()
             } else {
                 val results = runCatching {
                     dao.searchMessagesFts("$cleaned*")
                 }.getOrDefault(emptyList())
-                _ftsSearchResults.value = results
+                _rawFtsSearchResults.value = results
             }
         }
     }
@@ -829,6 +892,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setChatLock(chatJid: String, locked: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.updateChatLock(chatJid, locked)
+            if (locked) {
+                WaRealtimeService.cancelChatNotification(appContext, chatJid)
+            }
         }
     }
 
@@ -1675,8 +1741,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _quotedMsgMeta = MutableStateFlow<Map<String, QuotedSenderMeta>>(emptyMap())
     val quotedMsgMeta: StateFlow<Map<String, QuotedSenderMeta>> = _quotedMsgMeta.asStateFlow()
 
+    fun setLocalContactFallbackEnabled(enabled: Boolean) {
+        updateGlobalStealth { c -> c.copy(localContactFallbackEnabled = enabled) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!enabled) {
+                DeviceContactFallbackResolver.clearCache()
+                val restored = DeviceContactFallbackResolver.restoreServerNames(
+                    context = appContext,
+                    dao = dao,
+                    restoreFallbackOnlyJids = true
+                )
+                _participantMeta.value = emptyMap()
+                showToast(
+                    if (restored > 0) "Local contact fallback disabled · restored $restored name(s)"
+                    else "Local contact fallback disabled"
+                )
+            } else {
+                val updated = DeviceContactFallbackResolver.backfillMissingContactNames(
+                    context = appContext,
+                    dao = dao,
+                    forceRefresh = true
+                )
+                _participantMeta.value = emptyMap()
+                showToast(
+                    if (updated > 0) "Synced $updated contact name(s) from phonebook"
+                    else "Local contact fallback enabled"
+                )
+            }
+        }
+    }
+
+    fun setPreferPhonebookContactNames(prefer: Boolean) {
+        updateGlobalStealth { c -> c.copy(preferPhonebookContactNames = prefer) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (prefer) {
+                val updated = DeviceContactFallbackResolver.backfillMissingContactNames(
+                    context = appContext,
+                    dao = dao,
+                    forceRefresh = true
+                )
+                _participantMeta.value = emptyMap()
+                showToast(
+                    if (updated > 0) "Showing phonebook names ($updated updated)"
+                    else "Phonebook names prioritized over server names"
+                )
+            } else {
+                val restored = DeviceContactFallbackResolver.restoreServerNames(
+                    context = appContext,
+                    dao = dao,
+                    restoreFallbackOnlyJids = false
+                )
+                _participantMeta.value = emptyMap()
+                showToast(
+                    if (restored > 0) "Restored $restored server contact name(s)"
+                    else "Server contact names prioritized"
+                )
+            }
+        }
+    }
+
     fun syncDeviceContactFallbacks(forceRefresh: Boolean = true, notifyUser: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
+            if (!DeviceContactFallbackResolver.isFallbackEnabled()) {
+                if (notifyUser) showToast("Local contact fallback is turned off")
+                return@launch
+            }
             val updated = DeviceContactFallbackResolver.backfillMissingContactNames(
                 context = appContext,
                 dao = dao,
@@ -1686,8 +1815,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val currentMeta = _participantMeta.value
             val staleKeys = currentMeta.entries
                 .filter { (_, v) ->
-                    DeviceContactFallbackResolver.isServerNameMissing(v.savedName, v.jid, v.altJid) &&
-                        DeviceContactFallbackResolver.isServerNameMissing(v.pushName, v.jid, v.altJid)
+                    DeviceContactFallbackResolver.isPreferPhonebookEnabled() ||
+                        (DeviceContactFallbackResolver.isServerNameMissing(v.savedName, v.jid, v.altJid) &&
+                            DeviceContactFallbackResolver.isServerNameMissing(v.pushName, v.jid, v.altJid))
                 }
                 .map { it.key }
             if (staleKeys.isNotEmpty()) {
@@ -1695,7 +1825,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (notifyUser) {
                 val msg = if (updated > 0) {
-                    "Matched $updated missing contact name(s) from device"
+                    "Synced $updated contact name(s) from phonebook"
+                } else if (DeviceContactFallbackResolver.isPreferPhonebookEnabled()) {
+                    "Phonebook contacts up to date"
                 } else {
                     "Device contact fallback active · server names prioritized"
                 }
@@ -1718,6 +1850,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val raw = WaRealtimeService.resolveParticipantNamesJson(missing.joinToString(","))
             val obj = runCatching { JSONObject(raw) }.getOrNull() ?: return@launch
             val parsed = HashMap<String, ResolvedParticipantUi>(missing.size)
+            val fallbackEnabled = DeviceContactFallbackResolver.isFallbackEnabled()
+            val preferPhonebook = DeviceContactFallbackResolver.isPreferPhonebookEnabled()
             val keys = obj.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
@@ -1727,6 +1861,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val fallbackName = item.optString("name")
                 val serverPush = item.optString("pushName").ifBlank { fallbackName }
                 val phone = item.optString("phone")
+                val phonebookName = if (fallbackEnabled) {
+                    DeviceContactFallbackResolver.lookupForParticipant(
+                        context = appContext,
+                        jid = key,
+                        altJid = altJid,
+                        phone = phone
+                    ).orEmpty()
+                } else ""
                 val dbContactName = listOfNotNull(
                     dao.getContact(key)?.name,
                     altJid.takeIf { it.isNotBlank() }?.let { dao.getContact(it)?.name },
@@ -1739,16 +1881,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     DeviceContactFallbackResolver.isUsableDisplayName(it, key, altJid)
                 }.orEmpty()
                 val effectiveSaved = when {
+                    preferPhonebook && phonebookName.isNotBlank() -> phonebookName
                     bestServerSaved.isNotBlank() -> bestServerSaved
                     dbContactName.isNotBlank() -> dbContactName
-                    DeviceContactFallbackResolver.isServerNameMissing(serverPush, key, altJid) -> {
-                        DeviceContactFallbackResolver.lookupForParticipant(
-                            context = appContext,
-                            jid = key,
-                            altJid = altJid,
-                            phone = phone
-                        ).orEmpty()
-                    }
+                    fallbackEnabled && DeviceContactFallbackResolver.isServerNameMissing(serverPush, key, altJid) -> phonebookName
                     else -> ""
                 }
                 val cleanPush = serverPush.takeIf {

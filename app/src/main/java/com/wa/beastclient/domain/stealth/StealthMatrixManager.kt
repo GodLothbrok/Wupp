@@ -142,7 +142,9 @@ data class GlobalStealthConfig(
     val customIncomingBubbleArgb: Long = 0L,
     val vaultLockEnabled: Boolean = false,
     val autoRecordCalls: Boolean = false,
-    val chatSoundsEnabled: Boolean = true
+    val chatSoundsEnabled: Boolean = true,
+    val localContactFallbackEnabled: Boolean = true,
+    val preferPhonebookContactNames: Boolean = false
 )
 
 data class EffectiveChatPrivacy(
@@ -237,6 +239,8 @@ object StealthMatrixManager {
     private const val KEY_VAULT_LOCK_ENABLED = "vault_lock_enabled"
     private const val KEY_AUTO_RECORD_CALLS = "auto_record_calls"
     private const val KEY_CHAT_SOUNDS_ENABLED = "chat_sounds_enabled"
+    private const val KEY_LOCAL_CONTACT_FALLBACK = "local_contact_fallback_enabled"
+    private const val KEY_PREFER_PHONEBOOK_NAMES = "prefer_phonebook_contact_names"
 
     private const val FOURTEEN_DAYS_MS = 14L * 24L * 60L * 60L * 1000L
     private const val WARNING_THRESHOLD_DAYS = 10
@@ -361,7 +365,9 @@ object StealthMatrixManager {
                 customIncomingBubbleArgb = prefs.getLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, 0L),
                 vaultLockEnabled = prefs.getBoolean(KEY_VAULT_LOCK_ENABLED, false),
                 autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false),
-                chatSoundsEnabled = prefs.getBoolean(KEY_CHAT_SOUNDS_ENABLED, true)
+                chatSoundsEnabled = prefs.getBoolean(KEY_CHAT_SOUNDS_ENABLED, true),
+                localContactFallbackEnabled = prefs.getBoolean(KEY_LOCAL_CONTACT_FALLBACK, true),
+                preferPhonebookContactNames = prefs.getBoolean(KEY_PREFER_PHONEBOOK_NAMES, false)
         )
 
     fun updateConfig(transform: (GlobalStealthConfig) -> GlobalStealthConfig) {
@@ -430,6 +436,8 @@ object StealthMatrixManager {
                 .putBoolean(KEY_VAULT_LOCK_ENABLED, updated.vaultLockEnabled)
                 .putBoolean(KEY_AUTO_RECORD_CALLS, updated.autoRecordCalls)
                 .putBoolean(KEY_CHAT_SOUNDS_ENABLED, updated.chatSoundsEnabled)
+                .putBoolean(KEY_LOCAL_CONTACT_FALLBACK, updated.localContactFallbackEnabled)
+                .putBoolean(KEY_PREFER_PHONEBOOK_NAMES, updated.preferPhonebookContactNames)
                 .apply()
         }
     }

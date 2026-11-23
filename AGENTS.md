@@ -41,3 +41,12 @@ Whenever updating `CHANGELOG.md` or preparing release/pre-release notes:
 
 1. **Keep entries short and simple:** Use 1 clear, user-facing bullet per fix or feature in plain everyday English (no multi-clause explanations or internal symbol names).
 2. **Match release automation headers:** Always place entries under `## [<version>] - YYYY-MM-DD` cleanly so `.github/workflows/release.yml` extracts the exact release notes.
+
+## Hard Rule: Always Use Natural Human Writing (Humanizer), Especially for Comments
+
+Whenever drafting GitHub issue/PR comments, social or community replies, release announcements, user-facing copy, or prose explanations:
+
+1. **Write like a real person:** Use short, direct, natural sentences with zero stiff phrasing, filler hype, or robotic transitions.
+2. **Strip classic AI tells:** Avoid filler phrases (`"it is important to note"`, `"additionally"`, `"leverage"`, `"seamless"`, `"comprehensive"`), heavy em-dash chains, and padded bullet-point fluff.
+3. **Keep comments & replies sharp:** Get straight to the point, sound conversational and grounded, and state real trade-offs honestly without fake guarantees.
+

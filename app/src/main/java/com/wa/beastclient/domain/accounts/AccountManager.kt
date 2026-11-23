@@ -179,6 +179,26 @@ object AccountManager {
         }
     }
 
+    fun clearActiveIdentity(context: Context) {
+        init(context)
+        synchronized(this) {
+            val targetId = _activeAccountId.value
+            var changed = false
+            val updated = _accounts.value.map { acc ->
+                if (acc.id == targetId && (acc.ownJid.isNotBlank() || acc.pushName.isNotBlank())) {
+                    changed = true
+                    acc.copy(ownJid = "", pushName = "")
+                } else {
+                    acc
+                }
+            }
+            if (changed) {
+                _accounts.value = updated
+                persistLocked(registryPrefs(context), updated, targetId)
+            }
+        }
+    }
+
     fun setActiveAccount(context: Context, targetAccountId: String): Boolean {
         init(context)
         val cleanTarget = sanitizeAccountId(targetAccountId)

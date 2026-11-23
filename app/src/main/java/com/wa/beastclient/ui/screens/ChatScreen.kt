@@ -524,6 +524,12 @@ fun ChatScreen(
             }
         }
     }
+    var initialUnreadCount by remember(chatJid) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(chatJid, chat?.unreadCount) {
+        if (initialUnreadCount == null && chat != null) {
+            initialUnreadCount = chat?.unreadCount ?: 0
+        }
+    }
     var lastLatestMsgId by remember(chatJid) { mutableStateOf<String?>(null) }
     var latestVisibleMsg: MessageEntity? = null
     val latestPeekCount = minOf(pagedItems.itemCount, 8)
@@ -539,9 +545,9 @@ fun ChatScreen(
         val prevId = lastLatestMsgId
         lastLatestMsgId = newest.id
         if (prevId == null) {
-            val unread = chat?.unreadCount ?: 0
-            if (unread > 1) {
-                val targetIndex = (unread - 1).coerceAtMost(pagedItems.itemCount - 1).coerceAtLeast(0)
+            val unread = initialUnreadCount ?: chat?.unreadCount ?: 0
+            if (unread > 1 && pagedItems.itemCount > 0) {
+                val targetIndex = (unread - 1).coerceIn(0, pagedItems.itemCount - 1)
                 listState.scrollToItem(targetIndex)
             } else if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
                 listState.scrollToItem(0)
@@ -1029,7 +1035,7 @@ fun ChatScreen(
                                 val label = labelForAction(action)
                                 IconButton(
                                     onClick = { triggerAction(action) },
-                                    modifier = Modifier.size(40.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(
                                         imageVector = iconForAction(action),
@@ -1044,7 +1050,7 @@ fun ChatScreen(
                                 Box {
                                     IconButton(
                                         onClick = { showSelectionOverflow = true },
-                                        modifier = Modifier.size(40.dp)
+                                        modifier = Modifier.size(48.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Rounded.MoreVert,
@@ -1929,7 +1935,7 @@ fun ChatScreen(
                                 containerColor = colors.pillInactiveBg,
                                 contentColor = colors.textSecondary,
                                 checkedContainerColor = colors.accentGreen,
-                                checkedContentColor = Color(0xFF0B141A)
+                                checkedContentColor = colors.accentGreen.contrastingContentColor()
                             )
                             val modes = remember {
                                 listOf(
@@ -2073,8 +2079,16 @@ fun ChatScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                IconButton(onClick = { replyTarget = null }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Rounded.Close, "Cancel Reply", tint = colors.textSecondary)
+                                IconButton(
+                                    onClick = { replyTarget = null },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Cancel Reply",
+                                        tint = colors.textSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                             }
                         }
@@ -2136,7 +2150,7 @@ fun ChatScreen(
                                         keyboardController?.hide()
                                     }
                                 },
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
                                     imageVector = if (showEmojiPicker) Icons.Rounded.Keyboard else Icons.Rounded.SentimentSatisfiedAlt,
@@ -2211,7 +2225,7 @@ fun ChatScreen(
                                         holdDockForIme = false
                                     }
                                 },
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(Icons.Rounded.AttachFile, "Attach", tint = colors.textSecondary)
                             }
@@ -2223,7 +2237,7 @@ fun ChatScreen(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                                         )
                                     },
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
                                         painter = painterResource(R.drawable.vec_ic_camera_reply),

@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
+import com.wa.beastclient.domain.accounts.AccountManager
 import com.wa.beastclient.domain.stealth.StealthMatrixManager
 import com.wa.bridge.whatsbridge.Whatsbridge
 
@@ -27,9 +28,12 @@ class SyncWatchdogJobService : JobService() {
             jobFinished(params, false)
             return false
         }
+        AccountManager.init(appCtx)
         val setupDone = appCtx.getSharedPreferences("wupp_setup_prefs", Context.MODE_PRIVATE)
             .getBoolean("setup_completed_v1", false)
-        val loggedIn = setupDone && runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)
+        val hasActiveSession = runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false) ||
+            AccountManager.getActiveAccount().ownJid.isNotBlank()
+        val loggedIn = setupDone && hasActiveSession
         if (loggedIn) {
             if (WaRealtimeService.instance == null) {
                 Log.i(TAG, "Watchdog reviving WaRealtimeService")

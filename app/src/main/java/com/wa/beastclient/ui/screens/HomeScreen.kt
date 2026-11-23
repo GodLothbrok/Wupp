@@ -364,6 +364,8 @@ fun HomeScreen(
     val archivedCount by viewModel.archivedCount.collectAsState()
     val lockedChatsRevealed by viewModel.lockedChatsRevealed.collectAsState()
     val hiddenLockedCount by viewModel.hiddenLockedChatsCount.collectAsState()
+    val hiddenLockedJids by viewModel.hiddenLockedJids.collectAsState()
+    val hideLockedCurrently = AppLockManager.shouldHideLockedChats(appLockConfig, lockedChatsRevealed)
     val showSeconds = LocalWuppShowSeconds.current
     val bridgeStatus by viewModel.bridgeStatus.collectAsState()
     val heartbeat by viewModel.heartbeatStatus.collectAsState()
@@ -382,22 +384,24 @@ fun HomeScreen(
     val updateState by viewModel.updateState.collectAsState()
     val context = LocalContext.current
 
-    val unreadChatsCount = remember(allChats, stealth.separateGroupsAndChats) {
+    val unreadChatsCount = remember(allChats, stealth.separateGroupsAndChats, hideLockedCurrently) {
         allChats.count {
             !it.isCommunityParent &&
                 !it.jid.endsWith("@newsletter") &&
                 !it.isPhantomEmptyDm() &&
                 !(it.name.startsWith("@") && it.lastMessagePreview.isBlank()) &&
                 (!stealth.separateGroupsAndChats || !it.isGroup) &&
+                (!hideLockedCurrently || !it.isLocked) &&
                 it.unreadCount > 0
         }
     }
-    val unreadGroupsCount = remember(allChats, stealth.separateGroupsAndChats) {
+    val unreadGroupsCount = remember(allChats, stealth.separateGroupsAndChats, hideLockedCurrently) {
         if (!stealth.separateGroupsAndChats) 0
         else allChats.count {
             !it.isCommunityParent &&
                 !it.jid.endsWith("@newsletter") &&
                 it.isGroup &&
+                (!hideLockedCurrently || !it.isLocked) &&
                 it.unreadCount > 0
         }
     }
@@ -1077,7 +1081,8 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = if (updatesFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
                                     contentDescription = if (updatesFabExpanded) "Close status actions" else "Status actions",
-                                    tint = Color(0xFF0B141A)
+                                    tint = (if (updatesFabExpanded) colors.accentGreen else colors.brightGreen)
+                                        .contrastingContentColor()
                                 )
                             }
                         }
@@ -1214,7 +1219,7 @@ fun HomeScreen(
                             includeArchived = includeArchived,
                             hiddenLockedCount = hiddenLockedCount,
                             hideLockedBehindLock = appLockConfig.hideLockedChatsBehindLock,
-                            hideLockedFolder = appLockConfig.hideLockedFolder,
+                            hasSecretCode = appLockConfig.hasSecretCode,
                             lockedChatsRevealed = lockedChatsRevealed,
                             compactRows = stealth.compactChatRows,
                             showSeconds = showSeconds,
@@ -1282,6 +1287,7 @@ fun HomeScreen(
                         callLogs = callLogs,
                         allChats = allChats,
                         allContacts = allContacts,
+                        hiddenLockedJids = hiddenLockedJids,
                         searchQuery = searchQuery,
                         listState = callsListState,
                         bottomPadding = contentBottomPad,
@@ -1826,6 +1832,7 @@ private fun CallsTab(
     callLogs: List<MessageEntity>,
     allChats: List<ChatEntity>,
     allContacts: List<ContactEntity>,
+    hiddenLockedJids: Set<String> = emptySet(),
     searchQuery: String,
     listState: LazyListState,
     bottomPadding: Dp,
@@ -1895,9 +1902,17 @@ private fun CallsTab(
         val normalizedQuery = searchQuery.trim().lowercase()
         val queryDigits = remember(searchQuery) { searchQuery.filter { it.isDigit() } }
 
-        val filteredLogs = remember(callLogs, chatLookup, contactLookup, normalizedQuery, queryDigits) {
-            if (normalizedQuery.isEmpty()) callLogs
+        val visibleLogs = remember(callLogs, hiddenLockedJids) {
+            if (hiddenLockedJids.isEmpty()) callLogs
             else callLogs.filter { log ->
+                val bare = log.chatJid.substringBefore("@").substringBefore(":")
+                log.chatJid !in hiddenLockedJids && bare !in hiddenLockedJids
+            }
+        }
+
+        val filteredLogs = remember(visibleLogs, chatLookup, contactLookup, normalizedQuery, queryDigits) {
+            if (normalizedQuery.isEmpty()) visibleLogs
+            else visibleLogs.filter { log ->
                 val bare = log.chatJid.substringBefore("@").substringBefore(":")
                 val peerName = chatLookup[log.chatJid]?.name?.ifBlank { null }
                     ?: chatLookup[bare]?.name?.ifBlank { null }
@@ -1910,11 +1925,12 @@ private fun CallsTab(
             }
         }
 
-        val callableContacts = remember(allChats, allContacts, normalizedQuery, queryDigits) {
+        val callableContacts = remember(allChats, allContacts, hiddenLockedJids, normalizedQuery, queryDigits) {
             val byJid = LinkedHashMap<String, ChatEntity>(allContacts.size + allChats.size)
             for (c in allContacts) {
                 if (c.jid.endsWith("@g.us") || c.jid.endsWith("@newsletter") ||
-                    c.jid == "status@broadcast" || c.jid.endsWith("@broadcast")
+                    c.jid == "status@broadcast" || c.jid.endsWith("@broadcast") ||
+                    c.jid in hiddenLockedJids || c.jid.substringBefore("@").substringBefore(":") in hiddenLockedJids
                 ) continue
                 byJid[c.jid] = ChatEntity(
                     jid = c.jid,
@@ -1927,7 +1943,8 @@ private fun CallsTab(
             for (ch in allChats) {
                 if (ch.isGroup || ch.isCommunityParent || ch.jid.endsWith("@newsletter") ||
                     ch.jid == "status@broadcast" || ch.jid.endsWith("@broadcast") ||
-                    ch.isPhantomEmptyDm()
+                    ch.isPhantomEmptyDm() ||
+                    ch.jid in hiddenLockedJids || ch.jid.substringBefore("@").substringBefore(":") in hiddenLockedJids
                 ) continue
                 val existing = byJid[ch.jid]
                 if (existing == null) {
@@ -2366,7 +2383,7 @@ private fun ChatsTabContent(
     includeArchived: Boolean = false,
     hiddenLockedCount: Int = 0,
     hideLockedBehindLock: Boolean = false,
-    hideLockedFolder: Boolean = false,
+    hasSecretCode: Boolean = false,
     lockedChatsRevealed: Boolean = false,
     compactRows: Boolean = false,
     showSeconds: Boolean = false,
@@ -2401,8 +2418,13 @@ private fun ChatsTabContent(
                 (groupFilterMode == null || it.isGroup == groupFilterMode)
         }
     }
-    val tabHiddenLockedCount = remember(nonCommunityChats, hideLockedBehindLock, lockedChatsRevealed, hiddenLockedCount) {
-        if (!hideLockedBehindLock || lockedChatsRevealed) 0
+    val hideLockedCurrently = (hideLockedBehindLock || hasSecretCode) && !lockedChatsRevealed
+    val visibleChatsForCounts = remember(nonCommunityChats, hideLockedCurrently) {
+        if (!hideLockedCurrently) nonCommunityChats
+        else nonCommunityChats.filter { !it.isLocked }
+    }
+    val tabHiddenLockedCount = remember(nonCommunityChats, hideLockedCurrently, hiddenLockedCount) {
+        if (!hideLockedCurrently) 0
         else nonCommunityChats.count { it.isLocked }
     }
 
@@ -2484,7 +2506,7 @@ private fun ChatsTabContent(
                     if (searchQuery.isNotEmpty()) {
                         IconButton(
                             onClick = { onSearchChange("") },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(44.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
@@ -2536,8 +2558,8 @@ private fun ChatsTabContent(
 
         // Filter Chips Row (All / Unread N / Favorites / Groups N / +)
         item(key = "filter_chips") {
-            val hasLockedChats = remember(nonCommunityChats, tabHiddenLockedCount) {
-                tabHiddenLockedCount > 0 || nonCommunityChats.any { it.isLocked }
+            val hasLockedChats = remember(nonCommunityChats, hideLockedCurrently) {
+                !hideLockedCurrently && nonCommunityChats.any { it.isLocked }
             }
             val visibleChips = remember(showExtraFilters, hasLockedChats, groupFilterMode) {
                 buildList {
@@ -2558,13 +2580,13 @@ private fun ChatsTabContent(
             ) {
                 items(visibleChips) { chip ->
                     val count = when (chip) {
-                        HomeFilterChip.ALL -> nonCommunityChats.size
-                        HomeFilterChip.UNREAD -> nonCommunityChats.count { it.unreadCount > 0 }
-                        HomeFilterChip.FAVORITES -> nonCommunityChats.count { it.isFavorite }
-                        HomeFilterChip.GROUPS -> nonCommunityChats.count { it.isGroup }
-                        HomeFilterChip.LOCKED -> maxOf(tabHiddenLockedCount, nonCommunityChats.count { it.isLocked })
-                        HomeFilterChip.DELETED -> nonCommunityChats.count { it.hasDeletedMessages || it.lastMessageIsDeleted }
-                        HomeFilterChip.EDITED -> nonCommunityChats.count { it.hasEditedMessages }
+                        HomeFilterChip.ALL -> visibleChatsForCounts.size
+                        HomeFilterChip.UNREAD -> visibleChatsForCounts.count { it.unreadCount > 0 }
+                        HomeFilterChip.FAVORITES -> visibleChatsForCounts.count { it.isFavorite }
+                        HomeFilterChip.GROUPS -> visibleChatsForCounts.count { it.isGroup }
+                        HomeFilterChip.LOCKED -> nonCommunityChats.count { it.isLocked }
+                        HomeFilterChip.DELETED -> visibleChatsForCounts.count { it.hasDeletedMessages || it.lastMessageIsDeleted }
+                        HomeFilterChip.EDITED -> visibleChatsForCounts.count { it.hasEditedMessages }
                     }
                     val active = chip == selectedChip
                     val isClassicUi = com.wa.beastclient.ui.theme.LocalWuppClassicUi.current
@@ -2695,7 +2717,7 @@ private fun ChatsTabContent(
             }
         }
 
-        if (tabHiddenLockedCount > 0 && !hideLockedFolder) {
+        if (tabHiddenLockedCount > 0 && !hasSecretCode) {
             item(key = "locked_chats_hidden_banner") {
                 Row(
                     modifier = Modifier
@@ -2734,7 +2756,7 @@ private fun ChatsTabContent(
                     }
                 }
             }
-        } else if (hideLockedBehindLock && lockedChatsRevealed && nonCommunityChats.any { it.isLocked }) {
+        } else if ((hideLockedBehindLock || hasSecretCode) && lockedChatsRevealed && nonCommunityChats.any { it.isLocked }) {
             item(key = "locked_chats_revealed_banner") {
                 Row(
                     modifier = Modifier
@@ -2751,7 +2773,10 @@ private fun ChatsTabContent(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = stringResource(R.string.home_locked_chats_unlocked_banner),
+                        text = stringResource(
+                            if (hasSecretCode) R.string.home_secret_chats_unlocked_banner
+                            else R.string.home_locked_chats_unlocked_banner
+                        ),
                         color = colors.accentGreen,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium
@@ -3009,7 +3034,7 @@ private fun ChatListRow(
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = "Selected",
-                        tint = Color(0xFF0B141A),
+                        tint = colors.brightGreen.contrastingContentColor(),
                         modifier = Modifier.size(13.dp)
                     )
                 }
@@ -3151,7 +3176,7 @@ private fun ChatListRow(
                         ) {
                             Text(
                                 text = if (chat.unreadCount > 999) "999+" else chat.unreadCount.toString(),
-                                color = if (colors.isDark) Color(0xFF0B141A) else Color.White,
+                                color = colors.brightGreen.contrastingContentColor(),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = mono
@@ -3331,7 +3356,7 @@ private fun UpdatesStatusTab(
                             Icon(
                                 imageVector = Icons.Rounded.Add,
                                 contentDescription = "Add status",
-                                tint = Color(0xFF0B141A),
+                                tint = colors.brightGreen.contrastingContentColor(),
                                 modifier = Modifier.size(12.dp)
                             )
                         }
@@ -3637,7 +3662,7 @@ private fun AddStatusStoryCard(
                 Icon(
                     imageVector = Icons.Rounded.Add,
                     contentDescription = "Add status",
-                    tint = Color(0xFF0B141A),
+                    tint = colors.brightGreen.contrastingContentColor(),
                     modifier = Modifier.size(if (latestOwnStatus != null) 11.dp else 14.dp)
                 )
             }
@@ -3973,7 +3998,7 @@ private fun ChannelListRow(
                         ) {
                             Text(
                                 text = if (channel.unreadCount > 999) "999+" else channel.unreadCount.toString(),
-                                color = if (colors.isDark) Color(0xFF0B141A) else Color.White,
+                                color = colors.brightGreen.contrastingContentColor(),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = mono
@@ -4469,8 +4494,9 @@ private fun ToolsVaultTab(
     ) { granted ->
         hasContactsPermission = granted
         if (granted) {
-            viewModel.syncDeviceContactFallbacks(forceRefresh = true, notifyUser = true)
+            viewModel.setLocalContactFallbackEnabled(true)
         } else {
+            viewModel.setLocalContactFallbackEnabled(false)
             Toast.makeText(
                 context,
                 "Contacts permission not granted — showing server names and numbers only",
@@ -4674,7 +4700,7 @@ private fun ToolsVaultTab(
             matchesSearch("theme", "oled", "material you", "accent", "bubble", "font", "wallpaper", "reactions", "emoji", "language", "enter sends")
             )
         val showLooksSection = showCategory(SettingsCategory.LOOKS) && (
-            matchesSearch("status", "vertical", "bio", "classic", "compact", "seconds", "time format", "clock", "camera", "badges", "separate groups", "channels", "local contact names", "fallback")
+            matchesSearch("status", "vertical", "bio", "classic", "compact", "seconds", "time format", "clock", "camera", "badges", "separate groups", "channels", "local contact names", "fallback", "phonebook", "prefer")
             )
         val showAlertsSection = showCategory(SettingsCategory.ALERTS) && (
             matchesSearch("notifications", "dm", "group", "preview", "vibrate", "conversation sounds", "chat sounds", "sound", "sync banner", "battery", "unrestricted", "24/7")
@@ -4804,10 +4830,11 @@ private fun ToolsVaultTab(
 
             if (showPrivacySection) {
                 item(key = "patch_section_privacy") {
-                    val lockSubtitle = when (appLockConfig.mode) {
-                        AppLockMode.OFF -> stringResource(R.string.settings_applock_row_subtitle_off)
-                        AppLockMode.DEVICE -> stringResource(R.string.settings_applock_row_subtitle_device)
-                        AppLockMode.CUSTOM_PIN -> stringResource(R.string.settings_applock_row_subtitle_pin)
+                    val lockSubtitle = when {
+                        appLockConfig.mode == AppLockMode.DEVICE -> stringResource(R.string.settings_applock_row_subtitle_device)
+                        appLockConfig.mode == AppLockMode.CUSTOM_PIN -> stringResource(R.string.settings_applock_row_subtitle_pin)
+                        appLockConfig.hasSecretCode -> stringResource(R.string.settings_applock_row_subtitle_secret)
+                        else -> stringResource(R.string.settings_applock_row_subtitle_off)
                     }
                     ExpressiveSegmentedGroup(title = "Privacy, Stealth & Security") {
                         ExpressiveSegmentedSwitchRow(
@@ -4917,7 +4944,7 @@ private fun ToolsVaultTab(
                             icon = Icons.Rounded.Lock,
                             title = stringResource(R.string.settings_applock_row_title),
                             subtitle = lockSubtitle,
-                            badgeText = if (appLockConfig.mode != AppLockMode.OFF) {
+                            badgeText = if (appLockConfig.mode != AppLockMode.OFF || appLockConfig.hasSecretCode) {
                                 stringResource(R.string.common_enabled)
                             } else null,
                             position = ExpressiveSegmentPosition.MIDDLE,
@@ -5416,23 +5443,55 @@ private fun ToolsVaultTab(
                                 }
                             }
                         )
-                        ExpressiveSegmentedActionRow(
+                        val fallbackActive = stealth.localContactFallbackEnabled && hasContactsPermission
+                        ExpressiveSegmentedSwitchRow(
                             icon = Icons.Rounded.Person,
                             title = "Local Contact Names Fallback",
-                            subtitle = if (hasContactsPermission) {
-                                "Active · Tap to refresh phonebook names"
-                            } else {
-                                "Tap to allow phonebook names"
+                            checked = fallbackActive,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Local Contact Names Fallback" to
+                                    "Reads your phone's Contacts locally (never uploaded) to show names when WhatsApp only provides numbers. Turn off anytime to use server names only."
                             },
-                            badgeText = if (hasContactsPermission) stringResource(R.string.common_enabled) else null,
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    if (DeviceContactFallbackResolver.hasReadContactsPermission(context)) {
+                                        hasContactsPermission = true
+                                        viewModel.setLocalContactFallbackEnabled(true)
+                                    } else {
+                                        contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                    }
+                                } else {
+                                    viewModel.setLocalContactFallbackEnabled(false)
+                                }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Person,
+                            title = "Prefer Phonebook Contact Names",
+                            checked = stealth.preferPhonebookContactNames,
+                            enabled = fallbackActive,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Prefer Phonebook Contact Names" to
+                                    "Shows the saved name from your phone's Contacts instead of WhatsApp's server push or contact name."
+                            },
+                            onCheckedChange = { prefer ->
+                                viewModel.setPreferPhonebookContactNames(prefer)
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Person,
+                            title = "Refresh Phonebook Contacts",
+                            subtitle = if (fallbackActive) {
+                                "Re-scan your device contacts and update chat names"
+                            } else {
+                                "Turn on Local Contact Names Fallback to sync phonebook"
+                            },
+                            enabled = fallbackActive,
                             position = ExpressiveSegmentPosition.MIDDLE,
                             onClick = {
-                                if (DeviceContactFallbackResolver.hasReadContactsPermission(context)) {
-                                    hasContactsPermission = true
-                                    viewModel.syncDeviceContactFallbacks(forceRefresh = true, notifyUser = true)
-                                } else {
-                                    contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                                }
+                                viewModel.syncDeviceContactFallbacks(forceRefresh = true, notifyUser = true)
                             }
                         )
                         ExpressiveSegmentedSwitchRow(
@@ -6016,7 +6075,7 @@ private fun ToolsVaultTab(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.accentGreen,
-                        contentColor = Color(0xFF0B141A)
+                        contentColor = colors.accentGreen.contrastingContentColor()
                     )
                 ) {
                     Text("Open Setting", fontWeight = FontWeight.SemiBold)

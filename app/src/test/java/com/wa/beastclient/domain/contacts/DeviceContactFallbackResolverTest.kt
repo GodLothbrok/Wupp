@@ -91,4 +91,30 @@ class DeviceContactFallbackResolverTest {
         assertEquals("", DeviceContactFallbackResolver.formatIntlPhoneCompact("123"))
         assertEquals("", DeviceContactFallbackResolver.formatIntlPhoneCompact(""))
     }
+
+    @Test
+    fun contactFallbackAndPhonebookPreferenceRespectStealthSettings() {
+        val original = com.wa.beastclient.domain.stealth.StealthMatrixManager.config.value
+        try {
+            com.wa.beastclient.domain.stealth.StealthMatrixManager.updateConfig {
+                it.copy(localContactFallbackEnabled = true, preferPhonebookContactNames = false)
+            }
+            assertTrue(DeviceContactFallbackResolver.isFallbackEnabled())
+            assertFalse(DeviceContactFallbackResolver.isPreferPhonebookEnabled())
+
+            com.wa.beastclient.domain.stealth.StealthMatrixManager.updateConfig {
+                it.copy(localContactFallbackEnabled = true, preferPhonebookContactNames = true)
+            }
+            assertTrue(DeviceContactFallbackResolver.isFallbackEnabled())
+            assertTrue(DeviceContactFallbackResolver.isPreferPhonebookEnabled())
+
+            com.wa.beastclient.domain.stealth.StealthMatrixManager.updateConfig {
+                it.copy(localContactFallbackEnabled = false, preferPhonebookContactNames = true)
+            }
+            assertFalse(DeviceContactFallbackResolver.isFallbackEnabled())
+            assertFalse(DeviceContactFallbackResolver.isPreferPhonebookEnabled())
+        } finally {
+            com.wa.beastclient.domain.stealth.StealthMatrixManager.updateConfig { original }
+        }
+    }
 }

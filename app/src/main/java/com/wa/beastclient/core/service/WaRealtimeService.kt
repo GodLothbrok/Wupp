@@ -110,6 +110,29 @@ internal fun resolveOutboundMediaDispatch(
     else -> "DOCUMENT" to qualityMode.wireValue
 }
 
+internal fun resolveEngineReadyBridgeStatus(
+    current: BridgeStatus,
+    eventLoggedIn: Boolean,
+    eventOwnJid: String,
+    nativeLoggedIn: Boolean,
+    nativeOwnJid: String,
+    offlineMode: Boolean
+): BridgeStatus {
+    val own = eventOwnJid.trim().ifBlank { nativeOwnJid.trim() }.ifBlank { current.ownJid }
+    val loggedIn = eventLoggedIn || nativeLoggedIn || own.isNotBlank()
+    val offlinePaused = loggedIn && offlineMode
+    return current.copy(
+        engineReady = true,
+        isLoggedIn = loggedIn,
+        ownJid = if (loggedIn) own else "",
+        connectionState = when {
+            !loggedIn -> "AWAITING_PAIR"
+            offlinePaused -> "OFFLINE_PAUSED"
+            else -> "CONNECTING"
+        }
+    )
+}
+
 /**
  * Persistent remoteMessaging foreground service hosting the Rust whatsapp-rust bridge,
  * ordered event Channel consumer, sync WakeLock, and network switch socket resetter.
@@ -669,11 +692,15 @@ class WaRealtimeService : Service() {
                 Whatsbridge.setGhostPresence(StealthMatrixManager.config.value.ghostPresence)
                 syncAutoDownloadPolicy(applicationContext)
                 val loggedIn = runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)
+                val own = if (loggedIn) runCatching { Whatsbridge.getOwnJID() }.getOrDefault("") else ""
                 if (loggedIn && StealthMatrixManager.config.value.offlineMode) {
-                    _bridgeStatus.value = _bridgeStatus.value.copy(
-                        engineReady = true,
-                        isLoggedIn = true,
-                        connectionState = "OFFLINE_PAUSED"
+                    _bridgeStatus.value = resolveEngineReadyBridgeStatus(
+                        current = _bridgeStatus.value,
+                        eventLoggedIn = true,
+                        eventOwnJid = own,
+                        nativeLoggedIn = true,
+                        nativeOwnJid = own,
+                        offlineMode = true
                     )
                     promoteForeground("Offline mode (sync paused)")
                 } else {
@@ -715,19 +742,20 @@ class WaRealtimeService : Service() {
     private suspend fun dispatchEvent(eventType: String, json: JSONObject) {
         when (eventType) {
             "ENGINE_READY" -> {
-                val own = json.optString("ownJid", "")
-                val loggedIn = json.optBoolean("isLoggedIn", false) || own.isNotBlank()
-                val offlinePaused = loggedIn && StealthMatrixManager.config.value.offlineMode
-                _bridgeStatus.value = _bridgeStatus.value.copy(
-                    engineReady = true,
-                    isLoggedIn = loggedIn,
-                    ownJid = own,
-                    connectionState = when {
-                        !loggedIn -> "AWAITING_PAIR"
-                        offlinePaused -> "OFFLINE_PAUSED"
-                        else -> "CONNECTING"
-                    }
+                val nativeLoggedIn = runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)
+                val nativeOwn = if (nativeLoggedIn) runCatching { Whatsbridge.getOwnJID() }.getOrDefault("") else ""
+                val resolved = resolveEngineReadyBridgeStatus(
+                    current = _bridgeStatus.value,
+                    eventLoggedIn = json.optBoolean("isLoggedIn", false),
+                    eventOwnJid = json.optString("ownJid", ""),
+                    nativeLoggedIn = nativeLoggedIn,
+                    nativeOwnJid = nativeOwn,
+                    offlineMode = StealthMatrixManager.config.value.offlineMode
                 )
+                _bridgeStatus.value = resolved
+                if (resolved.isLoggedIn && resolved.ownJid.isNotBlank()) {
+                    AccountManager.updateActiveIdentity(applicationContext, ownJid = resolved.ownJid)
+                }
             }
             "QR" -> {
                 terminalSyncHalted = false
@@ -796,7 +824,9 @@ class WaRealtimeService : Service() {
                     latestPairCode = if (nextLoggedIn) null else _bridgeStatus.value.latestPairCode,
                     lastError = errSummary ?: if (st == "CONNECTED") null else _bridgeStatus.value.lastError
                 )
-                if (st != "LOGGED_OUT" && own.isNotBlank()) {
+                if (st == "LOGGED_OUT") {
+                    AccountManager.clearActiveIdentity(applicationContext)
+                } else if (own.isNotBlank()) {
                     AccountManager.updateActiveIdentity(applicationContext, ownJid = own)
                 }
                 val statusLine = when {
@@ -1217,14 +1247,26 @@ class WaRealtimeService : Service() {
         rawSenderName: String,
         chatJid: String
     ): String {
+        val cleanSender = senderJid.trim()
+        val cleanAlt = altSenderJid.trim()
         val cleanRaw = rawSenderName.trim()
+        if (DeviceContactFallbackResolver.isPreferPhonebookEnabled() &&
+            (cleanSender.isNotBlank() || cleanAlt.isNotBlank()) &&
+            !DeviceContactFallbackResolver.isGroupJidLikeIdentifier(cleanSender, chatJid)
+        ) {
+            val localName = DeviceContactFallbackResolver.lookupForParticipant(applicationContext, cleanSender, cleanAlt)
+            if (!localName.isNullOrBlank() &&
+                !DeviceContactFallbackResolver.isGroupJidLikeIdentifier(localName, chatJid) &&
+                DeviceContactFallbackResolver.isUsableDisplayName(localName, cleanSender, cleanAlt)
+            ) {
+                return localName.trim()
+            }
+        }
         if (!DeviceContactFallbackResolver.isGroupJidLikeIdentifier(cleanRaw, chatJid) &&
             DeviceContactFallbackResolver.isUsableDisplayName(cleanRaw, senderJid, altSenderJid)
         ) {
             return cleanRaw
         }
-        val cleanSender = senderJid.trim()
-        val cleanAlt = altSenderJid.trim()
         if (cleanSender.isBlank() && cleanAlt.isBlank()) return ""
         if (DeviceContactFallbackResolver.isGroupJidLikeIdentifier(cleanSender, chatJid)) return ""
 
@@ -1281,16 +1323,29 @@ class WaRealtimeService : Service() {
         if (pendingResolution.isEmpty()) return
         val rawJson = resolveParticipantNamesJson(pendingResolution.keys.take(40).joinToString(","))
         val obj = runCatching { JSONObject(rawJson) }.getOrNull() ?: return
+        val preferPhonebook = DeviceContactFallbackResolver.isPreferPhonebookEnabled()
         for ((sJid, pairs) in pendingResolution) {
             val item = obj.optJSONObject(sJid) ?: continue
             val altJid = item.optString("altJid")
             val phone = item.optString("phone")
-            val bestName = sequenceOf(
-                item.optString("savedName"),
-                item.optString("pushName"),
-                item.optString("name"),
-                DeviceContactFallbackResolver.lookupForParticipant(applicationContext, sJid, altJid, phone).orEmpty()
-            ).firstOrNull {
+            val phonebookName = DeviceContactFallbackResolver
+                .lookupForParticipant(applicationContext, sJid, altJid, phone)
+                .orEmpty()
+            val bestName = if (preferPhonebook) {
+                sequenceOf(
+                    phonebookName,
+                    item.optString("savedName"),
+                    item.optString("pushName"),
+                    item.optString("name")
+                )
+            } else {
+                sequenceOf(
+                    item.optString("savedName"),
+                    item.optString("pushName"),
+                    item.optString("name"),
+                    phonebookName
+                )
+            }.firstOrNull {
                 !DeviceContactFallbackResolver.isGroupJidLikeIdentifier(it) &&
                     DeviceContactFallbackResolver.isUsableDisplayName(it, sJid, altJid)
             } ?: DeviceContactFallbackResolver.formatIntlPhoneCompact(phone)
@@ -1390,11 +1445,15 @@ class WaRealtimeService : Service() {
                     .onFailure { Log.w(TAG, "Auto markRead failed for ${msg.id}: ${it.message}") }
             }
         }
+        val targetChat = dao.getChat(msg.chatJid)
+        val suppressHiddenAlerts = AppLockManager.shouldSuppressAlertsForChat(targetChat?.isLocked == true)
         if (insertedNew && !isSync && !msg.isFromMe && !isActiveChat && !msg.chatJid.endsWith("@newsletter")) {
-            if (isUiForeground) {
-                SoundPoolManager.playIncoming()
+            if (!suppressHiddenAlerts) {
+                if (isUiForeground) {
+                    SoundPoolManager.playIncoming()
+                }
+                postIncomingMessageNotification(msg, isGrp)
             }
-            postIncomingMessageNotification(msg, isGrp)
         }
     }
 
@@ -1407,6 +1466,7 @@ class WaRealtimeService : Service() {
         }
         val chat = dao.getChat(msg.chatJid)
         if (chat?.isMuted == true || chat?.isArchived == true) return
+        if (AppLockManager.shouldSuppressAlertsForChat(chat?.isLocked == true)) return
         val stealthCfg = StealthMatrixManager.config.value
         if (isGroup && !stealthCfg.notifyGroupEnabled) return
         if (!isGroup && !stealthCfg.notifyDmEnabled) return
@@ -1917,33 +1977,41 @@ class WaRealtimeService : Service() {
         val arr = json.optJSONArray("contacts") ?: return
         val contactEntities = ArrayList<ContactEntity>(arr.length())
         val now = System.currentTimeMillis()
+        val preferPhonebook = DeviceContactFallbackResolver.isPreferPhonebookEnabled()
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             val rawJid = item.optString("jid")
             val altJid = item.optString("altJid")
-            val name = item.optString("name").trim()
+            val serverName = item.optString("name").trim()
             val isCustom = item.optBoolean("isCustom", false)
             val canonicalJid = if (altJid.isNotBlank()) canonicalizeAndMergeAlias(rawJid, altJid) else (chatAliasToCanonical[rawJid] ?: rawJid)
-            if (name.isBlank()) continue
-            if (canonicalJid.isNotBlank() && DeviceContactFallbackResolver.isUsableDisplayName(name, canonicalJid, altJid)) {
-                pushnameCache[canonicalJid] = name
+            if (serverName.isBlank()) continue
+            val localPhonebookName = if (preferPhonebook && canonicalJid.isNotBlank()) {
+                DeviceContactFallbackResolver.lookupForParticipant(applicationContext, canonicalJid, altJid)
+            } else null
+            val effectiveName = localPhonebookName ?: serverName
+            val effectiveIsSaved = isCustom || !localPhonebookName.isNullOrBlank()
+            if (canonicalJid.isNotBlank() && DeviceContactFallbackResolver.isUsableDisplayName(effectiveName, canonicalJid, altJid)) {
+                DeviceContactFallbackResolver.recordServerNameBackup(applicationContext, canonicalJid, serverName)
+                pushnameCache[canonicalJid] = effectiveName
                 val existingChat = dao.getChat(canonicalJid)
-                val overwrite = isCustom || (existingChat != null && DeviceContactFallbackResolver.isServerNameMissing(existingChat.name, canonicalJid, altJid))
-                dao.updateChatName(canonicalJid, name, overwrite = overwrite)
-                propagateStatusAndSenderName(canonicalJid, name, overwriteStatus = isCustom)
+                val overwrite = effectiveIsSaved || (existingChat != null && DeviceContactFallbackResolver.isServerNameMissing(existingChat.name, canonicalJid, altJid))
+                dao.updateChatName(canonicalJid, effectiveName, overwrite = overwrite)
+                propagateStatusAndSenderName(canonicalJid, effectiveName, overwriteStatus = effectiveIsSaved)
                 contactEntities.add(
                     ContactEntity(
                         jid = canonicalJid,
-                        name = name,
-                        isSaved = isCustom,
+                        name = effectiveName,
+                        isSaved = effectiveIsSaved,
                         updatedAt = now
                     )
                 )
             }
-            if (altJid.isNotBlank() && DeviceContactFallbackResolver.isUsableDisplayName(name, altJid, canonicalJid)) {
-                pushnameCache[altJid] = name
-                dao.updateChatName(altJid, name, overwrite = isCustom)
-                propagateStatusAndSenderName(altJid, name, overwriteStatus = isCustom)
+            if (altJid.isNotBlank() && DeviceContactFallbackResolver.isUsableDisplayName(effectiveName, altJid, canonicalJid)) {
+                DeviceContactFallbackResolver.recordServerNameBackup(applicationContext, altJid, serverName)
+                pushnameCache[altJid] = effectiveName
+                dao.updateChatName(altJid, effectiveName, overwrite = effectiveIsSaved)
+                propagateStatusAndSenderName(altJid, effectiveName, overwriteStatus = effectiveIsSaved)
             }
         }
         if (contactEntities.isNotEmpty()) {
@@ -2029,40 +2097,54 @@ class WaRealtimeService : Service() {
         val altJid = json.optString("altJid")
         if (rawJid.isBlank()) return
         val jid = if (altJid.isNotBlank()) canonicalizeAndMergeAlias(rawJid, altJid) else (chatAliasToCanonical[rawJid] ?: rawJid)
+        val preferPhonebook = DeviceContactFallbackResolver.isPreferPhonebookEnabled()
         when (kind) {
             "CONTACT" -> {
-                val name = json.optString("name").trim()
+                val serverName = json.optString("name").trim()
                 val ts = json.optLong("timestamp", System.currentTimeMillis())
-                if (DeviceContactFallbackResolver.isUsableDisplayName(name, jid, altJid)) {
-                    pushnameCache[jid] = name
-                    dao.updateChatName(jid, name, overwrite = true)
-                    propagateStatusAndSenderName(jid, name, overwriteStatus = true)
+                val localPhonebookName = if (preferPhonebook) {
+                    DeviceContactFallbackResolver.lookupForParticipant(applicationContext, jid, altJid)
+                } else null
+                val effectiveName = localPhonebookName ?: serverName
+                if (DeviceContactFallbackResolver.isUsableDisplayName(effectiveName, jid, altJid)) {
+                    DeviceContactFallbackResolver.recordServerNameBackup(applicationContext, jid, serverName)
+                    pushnameCache[jid] = effectiveName
+                    dao.updateChatName(jid, effectiveName, overwrite = true)
+                    propagateStatusAndSenderName(jid, effectiveName, overwriteStatus = true)
                     dao.upsertContacts(
-                        listOf(ContactEntity(jid = jid, name = name, isSaved = true, updatedAt = ts))
+                        listOf(ContactEntity(jid = jid, name = effectiveName, isSaved = true, updatedAt = ts))
                     )
                     if (altJid.isNotBlank()) {
-                        pushnameCache[altJid] = name
-                        dao.updateChatName(altJid, name, overwrite = true)
-                        propagateStatusAndSenderName(altJid, name, overwriteStatus = true)
+                        DeviceContactFallbackResolver.recordServerNameBackup(applicationContext, altJid, serverName)
+                        pushnameCache[altJid] = effectiveName
+                        dao.updateChatName(altJid, effectiveName, overwrite = true)
+                        propagateStatusAndSenderName(altJid, effectiveName, overwriteStatus = true)
                     }
                 }
             }
             "PUSHNAME" -> {
-                val name = json.optString("name").trim()
+                val serverName = json.optString("name").trim()
                 val ts = json.optLong("timestamp", System.currentTimeMillis())
-                if (DeviceContactFallbackResolver.isUsableDisplayName(name, jid, altJid)) {
-                    pushnameCache[jid] = name
+                val localPhonebookName = if (preferPhonebook) {
+                    DeviceContactFallbackResolver.lookupForParticipant(applicationContext, jid, altJid)
+                } else null
+                val effectiveName = localPhonebookName ?: serverName
+                if (DeviceContactFallbackResolver.isUsableDisplayName(effectiveName, jid, altJid)) {
+                    DeviceContactFallbackResolver.recordServerNameBackup(applicationContext, jid, serverName)
+                    pushnameCache[jid] = effectiveName
                     val existingChat = dao.getChat(jid)
-                    val overwrite = existingChat != null && DeviceContactFallbackResolver.isServerNameMissing(existingChat.name, jid, altJid)
-                    dao.updateChatName(jid, name, overwrite = overwrite)
-                    propagateStatusAndSenderName(jid, name, overwriteStatus = false)
+                    val overwrite = !localPhonebookName.isNullOrBlank() ||
+                        (existingChat != null && DeviceContactFallbackResolver.isServerNameMissing(existingChat.name, jid, altJid))
+                    dao.updateChatName(jid, effectiveName, overwrite = overwrite)
+                    propagateStatusAndSenderName(jid, effectiveName, overwriteStatus = !localPhonebookName.isNullOrBlank())
                     dao.upsertContacts(
-                        listOf(ContactEntity(jid = jid, name = name, isSaved = false, updatedAt = ts))
+                        listOf(ContactEntity(jid = jid, name = effectiveName, isSaved = !localPhonebookName.isNullOrBlank(), updatedAt = ts))
                     )
                     if (altJid.isNotBlank()) {
-                        pushnameCache[altJid] = name
-                        dao.updateChatName(altJid, name, overwrite = overwrite)
-                        propagateStatusAndSenderName(altJid, name, overwriteStatus = false)
+                        DeviceContactFallbackResolver.recordServerNameBackup(applicationContext, altJid, serverName)
+                        pushnameCache[altJid] = effectiveName
+                        dao.updateChatName(altJid, effectiveName, overwrite = overwrite)
+                        propagateStatusAndSenderName(altJid, effectiveName, overwriteStatus = !localPhonebookName.isNullOrBlank())
                     }
                 }
             }
@@ -2213,6 +2295,11 @@ class WaRealtimeService : Service() {
 
         val peerChat = dao.getChat(chatJid) ?: dao.getChat(callerJid)
         val callerChat = dao.getChat(callerJid) ?: dao.getChat(rawAltJid)
+        val isLockedPeer = peerChat?.isLocked == true || callerChat?.isLocked == true
+        if (AppLockManager.shouldSuppressAlertsForChat(isLockedPeer)) {
+            Log.d(TAG, "Suppressing incoming call alert/screen while chat $callerJid remains hidden")
+            return
+        }
         val resolvedName = listOfNotNull(
             peerChat?.name?.takeIf { it.isNotBlank() && !isNumericOrPhoneString(it) },
             callerChat?.name?.takeIf { it.isNotBlank() && !isNumericOrPhoneString(it) },
@@ -2651,6 +2738,12 @@ class WaRealtimeService : Service() {
             notificationThreads.remove(chatJid)
         }
 
+        fun cancelChatNotification(context: Context, chatJid: String) {
+            notificationThreads.remove(chatJid)
+            val mgr = context.applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            runCatching { mgr?.cancel(notificationIdForChat(chatJid)) }
+        }
+
         suspend fun appendSelfReplyToNotification(
             context: Context,
             chatJid: String,
@@ -2693,10 +2786,16 @@ class WaRealtimeService : Service() {
             alertOnce: Boolean
         ) {
             val mgr = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            val dao = WaUiDatabase.getInstance(appCtx).waDao()
+            if (AppLockManager.shouldSuppressAlertsForChat(dao.getChat(chatJid)?.isLocked == true)) {
+                notificationThreads.remove(chatJid)
+                runCatching { mgr.cancel(notificationIdForChat(chatJid)) }
+                return
+            }
             ensureMessageNotificationChannel(mgr)
 
             val stealthCfg = StealthMatrixManager.config.value
-            val privateConversation = isPrivateMessageNotification(WaUiDatabase.getInstance(appCtx).waDao(), chatJid)
+            val privateConversation = isPrivateMessageNotification(dao, chatJid)
             val showPreview = stealthCfg.notifyShowPreview && !privateConversation
             val policy = resolveNotificationActionPolicy(
                 notifyShowPreview = showPreview,

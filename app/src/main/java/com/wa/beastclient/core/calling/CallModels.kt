@@ -34,7 +34,6 @@ data class CallUiState(
     val peerAvatarPath: String? = null,
     val direction: CallDirection = CallDirection.OUTGOING,
     val isVideo: Boolean = false,
-    val isFrontCamera: Boolean = true,
     val isGroup: Boolean = false,
     val isMuted: Boolean = false,
     val isCameraOff: Boolean = false,

@@ -2,14 +2,17 @@ package com.wa.beastclient.core.calling
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.params.StreamConfigurationMap
 import android.hardware.display.DisplayManager
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Bundle
 import android.os.Handler
@@ -22,6 +25,56 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
+
+internal enum class AvcBitrateMode {
+    VBR,
+    CBR,
+    DEFAULT
+}
+
+internal data class VideoEncoderCandidate(
+    val width: Int,
+    val height: Int,
+    val bitrateMode: AvcBitrateMode,
+    val bitrate: Int
+)
+
+internal fun buildAvcEncoderCandidates(): List<VideoEncoderCandidate> = listOf(
+    VideoEncoderCandidate(width = 480, height = 640, bitrateMode = AvcBitrateMode.VBR, bitrate = 800_000),
+    VideoEncoderCandidate(width = 480, height = 640, bitrateMode = AvcBitrateMode.CBR, bitrate = 800_000),
+    VideoEncoderCandidate(width = 480, height = 640, bitrateMode = AvcBitrateMode.DEFAULT, bitrate = 800_000),
+    VideoEncoderCandidate(width = 368, height = 480, bitrateMode = AvcBitrateMode.DEFAULT, bitrate = 500_000)
+)
+
+internal fun isSoftwareAvcCodec(name: String): Boolean {
+    val lower = name.lowercase()
+    return lower.startsWith("omx.google.") ||
+        lower.startsWith("c2.android.") ||
+        lower.contains(".sw.")
+}
+
+internal fun selectBestCameraCaptureSize(
+    sizes: List<Pair<Int, Int>>,
+    targetWidth: Int = 640,
+    targetHeight: Int = 480
+): Pair<Int, Int> {
+    val valid = sizes.filter { it.first > 0 && it.second > 0 }
+    if (valid.isEmpty()) return targetWidth to targetHeight
+    val targetArea = targetWidth * targetHeight
+    val targetRatio = targetWidth.toDouble() / targetHeight.toDouble()
+    return valid.minWithOrNull(
+        compareBy<Pair<Int, Int>>(
+            { (w, h) -> if (w == targetWidth && h == targetHeight) 0 else 1 },
+            { (w, h) ->
+                val minDim = minOf(w, h)
+                if (minDim >= 360) 0 else 1
+            },
+            { (w, h) -> abs((w.toDouble() / h.toDouble()) - targetRatio) },
+            { (w, h) -> abs((w * h) - targetArea) }
+        )
+    ) ?: (targetWidth to targetHeight)
+}
 
 /**
  * Hardware MediaCodec H.264 Annex-B video encoder (Camera2 -> GL upright portrait relay ->
@@ -41,8 +94,8 @@ class NativeVoipVideoPipeline(
         private const val CAM_HEIGHT = 480
         private const val ENC_WIDTH = 480
         private const val ENC_HEIGHT = 640
-        private const val BITRATE = 1_200_000
-        private const val FPS = 30
+        private const val BITRATE = 800_000
+        private const val FPS = 24
         private const val I_FRAME_INTERVAL_SEC = 2
     }
 
@@ -131,28 +184,77 @@ class NativeVoipVideoPipeline(
         }
     }
 
+    private fun openConfiguredAvcEncoder(): Triple<MediaCodec, Surface, VideoEncoderCandidate>? {
+        val explicitCodecs = runCatching {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS)
+                .codecInfos
+                .filter { info ->
+                    info.isEncoder && info.supportedTypes.any { it.equals(MIME_AVC, ignoreCase = true) }
+                }
+                .sortedBy { if (isSoftwareAvcCodec(it.name)) 1 else 0 }
+                .map { it.name }
+        }.getOrDefault(emptyList())
+
+        val codecNamesToTry: List<String?> = buildList {
+            add(null)
+            explicitCodecs.forEach { add(it) }
+        }
+        val presets = buildAvcEncoderCandidates()
+
+        for (codecName in codecNamesToTry) {
+            for (preset in presets) {
+                var enc: MediaCodec? = null
+                var inputSurf: Surface? = null
+                try {
+                    val format = MediaFormat.createVideoFormat(MIME_AVC, preset.width, preset.height).apply {
+                        setInteger(
+                            MediaFormat.KEY_COLOR_FORMAT,
+                            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+                        )
+                        setInteger(MediaFormat.KEY_BIT_RATE, preset.bitrate)
+                        setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+                        setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_SEC)
+                        when (preset.bitrateMode) {
+                            AvcBitrateMode.VBR -> setInteger(
+                                MediaFormat.KEY_BITRATE_MODE,
+                                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR
+                            )
+                            AvcBitrateMode.CBR -> setInteger(
+                                MediaFormat.KEY_BITRATE_MODE,
+                                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+                            )
+                            AvcBitrateMode.DEFAULT -> Unit
+                        }
+                    }
+                    enc = if (codecName == null) {
+                        MediaCodec.createEncoderByType(MIME_AVC)
+                    } else {
+                        MediaCodec.createByCodecName(codecName)
+                    }
+                    enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                    inputSurf = enc.createInputSurface()
+                    enc.start()
+                    return Triple(enc, inputSurf, preset)
+                } catch (t: Throwable) {
+                    Log.w(
+                        TAG,
+                        "AVC encoder attempt failed codec=${codecName ?: "default"} size=${preset.width}x${preset.height} mode=${preset.bitrateMode}: ${t.message}"
+                    )
+                    runCatching { inputSurf?.release() }
+                    runCatching { enc?.release() }
+                }
+            }
+        }
+        return null
+    }
+
     @SuppressLint("MissingPermission")
     private fun startCameraAndEncoder() {
         synchronized(cameraLock) {
             if (cameraDevice != null) return
             try {
-                val format = MediaFormat.createVideoFormat(MIME_AVC, ENC_WIDTH, ENC_HEIGHT).apply {
-                    setInteger(
-                        MediaFormat.KEY_COLOR_FORMAT,
-                        MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
-                    )
-                    setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
-                    setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
-                    setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_SEC)
-                    setInteger(
-                        MediaFormat.KEY_BITRATE_MODE,
-                        MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR
-                    )
-                }
-                val enc = MediaCodec.createEncoderByType(MIME_AVC)
-                enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                val inputSurf = enc.createInputSurface()
-                enc.start()
+                val (enc, inputSurf, encPreset) = openConfiguredAvcEncoder()
+                    ?: throw IllegalStateException("No compatible H.264 encoder found")
                 encoder = enc
                 encoderInputSurface = inputSurf
                 codecConfigAnnexB = null
@@ -169,13 +271,21 @@ class NativeVoipVideoPipeline(
                         .get(CameraCharacteristics.LENS_FACING) == targetFacing
                 } ?: cm.cameraIdList.firstOrNull() ?: return
 
-                val sensorDeg = cm.getCameraCharacteristics(camId)
+                val characteristics = cm.getCameraCharacteristics(camId)
+                val sensorDeg = characteristics
                     .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+                val streamMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                val availableSizes = streamMap
+                    ?.getOutputSizes(SurfaceTexture::class.java)
+                    ?.map { it.width to it.height }
+                    .orEmpty()
+                val (camW, camH) = selectBestCameraCaptureSize(availableSizes, CAM_WIDTH, CAM_HEIGHT)
+
                 val relay = CameraVideoGlRelay(
-                    encWidth = ENC_WIDTH,
-                    encHeight = ENC_HEIGHT,
-                    camWidth = CAM_WIDTH,
-                    camHeight = CAM_HEIGHT,
+                    encWidth = encPreset.width,
+                    encHeight = encPreset.height,
+                    camWidth = camW,
+                    camHeight = camH,
                     encoderInputSurface = inputSurf,
                     rotationDegreesProvider = {
                         val displayDeg = currentDisplayRotationDegrees()
@@ -259,11 +369,16 @@ class NativeVoipVideoPipeline(
     }
 
     @Suppress("DEPRECATION")
-    private fun createCaptureSessionLocked(camera: CameraDevice) {
+    private fun createCaptureSessionLocked(
+        camera: CameraDevice,
+        includeLocalSurface: Boolean = true
+    ) {
         val encSurf = glCameraSurface ?: encoderInputSurface ?: return
         val targets = buildList {
             add(encSurf)
-            localSurfaceRef.get()?.takeIf { it.isValid }?.let { add(it) }
+            if (includeLocalSurface) {
+                localSurfaceRef.get()?.takeIf { it.isValid }?.let { add(it) }
+            }
         }
         val handler = cameraHandler
         runCatching {
@@ -289,13 +404,23 @@ class NativeVoipVideoPipeline(
                     }
 
                     override fun onConfigureFailed(session: CameraCaptureSession) {
-                        Log.w(TAG, "Camera capture session configure failed")
+                        Log.w(TAG, "Camera capture session configure failed (targets=${targets.size})")
+                        if (includeLocalSurface && targets.size > 1) {
+                            synchronized(cameraLock) {
+                                if (cameraDevice === camera && running.get() && sendEnabled.get()) {
+                                    createCaptureSessionLocked(camera, includeLocalSurface = false)
+                                }
+                            }
+                        }
                     }
                 },
                 handler
             )
         }.onFailure {
-            Log.w(TAG, "createCaptureSession failed: ${it.message}")
+            Log.w(TAG, "createCaptureSession failed (targets=${targets.size}): ${it.message}")
+            if (includeLocalSurface && targets.size > 1) {
+                createCaptureSessionLocked(camera, includeLocalSurface = false)
+            }
         }
     }
 
@@ -356,6 +481,44 @@ class NativeVoipVideoPipeline(
         }
     }
 
+    private fun openConfiguredAvcDecoder(
+        format: MediaFormat,
+        targetSurface: Surface
+    ): MediaCodec? {
+        val explicitDecoders = runCatching {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS)
+                .codecInfos
+                .filter { info ->
+                    !info.isEncoder && info.supportedTypes.any { it.equals(MIME_AVC, ignoreCase = true) }
+                }
+                .sortedBy { if (isSoftwareAvcCodec(it.name)) 1 else 0 }
+                .map { it.name }
+        }.getOrDefault(emptyList())
+
+        val codecNamesToTry: List<String?> = buildList {
+            add(null)
+            explicitDecoders.forEach { add(it) }
+        }
+
+        for (codecName in codecNamesToTry) {
+            var dec: MediaCodec? = null
+            try {
+                dec = if (codecName == null) {
+                    MediaCodec.createDecoderByType(MIME_AVC)
+                } else {
+                    MediaCodec.createByCodecName(codecName)
+                }
+                dec.configure(format, targetSurface, null, 0)
+                dec.start()
+                return dec
+            } catch (t: Throwable) {
+                Log.w(TAG, "AVC decoder attempt failed codec=${codecName ?: "default"}: ${t.message}")
+                runCatching { dec?.release() }
+            }
+        }
+        return null
+    }
+
     private fun runDecoderLoop() {
         var decoder: MediaCodec? = null
         var configuredSurface: Surface? = null
@@ -363,6 +526,16 @@ class NativeVoipVideoPipeline(
         var lastOrientation = -1
         var firstFrameReported = false
         val info = MediaCodec.BufferInfo()
+
+        fun resetDecoderAndRequestKeyframe() {
+            if (decoder != null) {
+                runCatching { decoder?.stop() }
+                runCatching { decoder?.release() }
+                decoder = null
+            }
+            configuredSurface = null
+            runCatching { Whatsbridge.requestPeerKeyframe(callId) }
+        }
 
         try {
             while (running.get()) {
@@ -387,8 +560,8 @@ class NativeVoipVideoPipeline(
                 val targetSurface = remoteSurfaceRef.get()
                 if (targetSurface == null || !targetSurface.isValid) {
                     if (decoder != null) {
-                        runCatching { decoder.stop() }
-                        runCatching { decoder.release() }
+                        runCatching { decoder?.stop() }
+                        runCatching { decoder?.release() }
                         decoder = null
                         configuredSurface = null
                     }
@@ -397,8 +570,8 @@ class NativeVoipVideoPipeline(
 
                 if (decoder == null || configuredSurface !== targetSurface) {
                     if (decoder != null) {
-                        runCatching { decoder.stop() }
-                        runCatching { decoder.release() }
+                        runCatching { decoder?.stop() }
+                        runCatching { decoder?.release() }
                         decoder = null
                     }
                     val initCfg = cachedSpsPps
@@ -410,12 +583,7 @@ class NativeVoipVideoPipeline(
                     if (initCfg != null) {
                         fmt.setByteBuffer("csd-0", ByteBuffer.wrap(initCfg))
                     }
-                    decoder = runCatching {
-                        MediaCodec.createDecoderByType(MIME_AVC).apply {
-                            configure(fmt, targetSurface, null, 0)
-                            start()
-                        }
-                    }.getOrNull()
+                    decoder = openConfiguredAvcDecoder(fmt, targetSurface)
                     if (decoder != null) {
                         configuredSurface = targetSurface
                     } else {
@@ -423,54 +591,64 @@ class NativeVoipVideoPipeline(
                     }
                 }
 
-                val dec = decoder
-                val inIdx = runCatching { dec.dequeueInputBuffer(15_000) }.getOrElse { -1 }
-                if (inIdx >= 0) {
-                    val inBuf = dec.getInputBuffer(inIdx)
-                    inBuf?.clear()
-                    val ptsUs = System.nanoTime() / 1_000L
-                    if (inBuf != null && payload.size <= inBuf.remaining()) {
-                        inBuf.put(payload)
-                        val decFlags = if (isKey) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-                        dec.queueInputBuffer(inIdx, 0, payload.size, ptsUs, decFlags)
-                    } else {
-                        // Return the slot without feeding a truncated frame to the decoder.
-                        dec.queueInputBuffer(inIdx, 0, 0, ptsUs, 0)
+                val dec = decoder ?: continue
+                var codecFailed = false
+                try {
+                    val inIdx = dec.dequeueInputBuffer(15_000)
+                    if (inIdx >= 0) {
+                        val inBuf = dec.getInputBuffer(inIdx)
+                        inBuf?.clear()
+                        val ptsUs = (ts90k * 1_000L) / 90L
+                        if (inBuf != null && payload.size <= inBuf.remaining()) {
+                            inBuf.put(payload)
+                            val decFlags = if (isKey) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+                            dec.queueInputBuffer(inIdx, 0, payload.size, ptsUs, decFlags)
+                        } else {
+                            // Return the slot without feeding a truncated frame to the decoder.
+                            dec.queueInputBuffer(inIdx, 0, 0, ptsUs, 0)
+                        }
                     }
-                }
 
-                while (true) {
-                    val outIdx = runCatching { dec.dequeueOutputBuffer(info, 0) }.getOrElse { break }
-                    if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        runCatching {
-                            val outFmt = dec.outputFormat
-                            val w = if (outFmt.containsKey("crop-right") && outFmt.containsKey("crop-left")) {
-                                outFmt.getInteger("crop-right") - outFmt.getInteger("crop-left") + 1
-                            } else if (outFmt.containsKey(MediaFormat.KEY_WIDTH)) {
-                                outFmt.getInteger(MediaFormat.KEY_WIDTH)
-                            } else {
-                                0
+                    while (true) {
+                        val outIdx = dec.dequeueOutputBuffer(info, 0)
+                        if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            runCatching {
+                                val outFmt = dec.outputFormat
+                                val w = if (outFmt.containsKey("crop-right") && outFmt.containsKey("crop-left")) {
+                                    outFmt.getInteger("crop-right") - outFmt.getInteger("crop-left") + 1
+                                } else if (outFmt.containsKey(MediaFormat.KEY_WIDTH)) {
+                                    outFmt.getInteger(MediaFormat.KEY_WIDTH)
+                                } else {
+                                    0
+                                }
+                                val h = if (outFmt.containsKey("crop-bottom") && outFmt.containsKey("crop-top")) {
+                                    outFmt.getInteger("crop-bottom") - outFmt.getInteger("crop-top") + 1
+                                } else if (outFmt.containsKey(MediaFormat.KEY_HEIGHT)) {
+                                    outFmt.getInteger(MediaFormat.KEY_HEIGHT)
+                                } else {
+                                    0
+                                }
+                                if (w > 0 && h > 0) {
+                                    onRemoteVideoSizeChanged(w, h)
+                                }
                             }
-                            val h = if (outFmt.containsKey("crop-bottom") && outFmt.containsKey("crop-top")) {
-                                outFmt.getInteger("crop-bottom") - outFmt.getInteger("crop-top") + 1
-                            } else if (outFmt.containsKey(MediaFormat.KEY_HEIGHT)) {
-                                outFmt.getInteger(MediaFormat.KEY_HEIGHT)
-                            } else {
-                                0
+                        } else if (outIdx >= 0) {
+                            dec.releaseOutputBuffer(outIdx, true)
+                            if (!firstFrameReported) {
+                                firstFrameReported = true
+                                onRemoteFirstFrameDecoded()
                             }
-                            if (w > 0 && h > 0) {
-                                onRemoteVideoSizeChanged(w, h)
-                            }
+                        } else {
+                            break
                         }
-                    } else if (outIdx >= 0) {
-                        dec.releaseOutputBuffer(outIdx, true)
-                        if (!firstFrameReported) {
-                            firstFrameReported = true
-                            onRemoteFirstFrameDecoded()
-                        }
-                    } else {
-                        break
                     }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Recoverable decoder frame failure, resetting decoder: ${t.message}")
+                    codecFailed = true
+                }
+                if (codecFailed) {
+                    resetDecoderAndRequestKeyframe()
+                    continue
                 }
             }
         } catch (t: Throwable) {
