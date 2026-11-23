@@ -313,6 +313,7 @@ class WaRealtimeService : Service() {
         loadPersistedAliases(applicationContext)
         EagerMediaVault.ensureDirectories(applicationContext)
         StealthMatrixManager.init(applicationContext)
+        AppLockManager.init(applicationContext)
         CallStateManager.init(applicationContext)
         SoundPoolManager.init(applicationContext)
 

@@ -16,7 +16,7 @@ class BootReceiver : BroadcastReceiver() {
         }
         val setupDone = context.getSharedPreferences("wupp_setup_prefs", Context.MODE_PRIVATE)
             .getBoolean("setup_completed_v1", false)
-        if (setupDone) {
+        if (setupDone && com.wa.bridge.whatsbridge.Whatsbridge.isNativeLoaded) {
             val appCtx = context.applicationContext
             SyncWatchdogJobService.schedulePeriodic(appCtx)
             WaRealtimeService.ensureStarted(appCtx)

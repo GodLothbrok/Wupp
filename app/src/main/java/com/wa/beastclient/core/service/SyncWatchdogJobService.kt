@@ -23,6 +23,10 @@ class SyncWatchdogJobService : JobService() {
 
     override fun onStartJob(params: JobParameters?): Boolean {
         val appCtx = applicationContext
+        if (!Whatsbridge.isNativeLoaded) {
+            jobFinished(params, false)
+            return false
+        }
         StealthMatrixManager.init(appCtx)
         if (WaRealtimeService.shouldSkipBackgroundReconnect()) {
             jobFinished(params, false)

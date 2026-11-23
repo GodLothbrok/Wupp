@@ -94,8 +94,8 @@ class MainActivity : FragmentActivity() {
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
 
         val mimeType = targetIntent.type
-        val text = targetIntent.getStringExtra(Intent.EXTRA_TEXT)
-        val uris = when (action) {
+        val text = targetIntent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        val streamUris = when (action) {
             Intent.ACTION_SEND -> {
                 val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                     targetIntent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
@@ -115,6 +115,18 @@ class MainActivity : FragmentActivity() {
                 list.orEmpty()
             }
             else -> emptyList()
+        }
+        val uris = if (streamUris.isNotEmpty()) {
+            streamUris
+        } else {
+            val clip = targetIntent.clipData
+            buildList {
+                if (clip != null) {
+                    for (i in 0 until clip.itemCount) {
+                        clip.getItemAt(i)?.uri?.let { add(it) }
+                    }
+                }
+            }
         }
 
         if (!text.isNullOrBlank() || uris.isNotEmpty()) {
@@ -138,7 +150,7 @@ class MainActivity : FragmentActivity() {
         val setupPrefs = getSharedPreferences("wupp_setup_prefs", Context.MODE_PRIVATE)
         val initialSetupDone = setupPrefs.getBoolean("setup_completed_v1", false)
         CallStateManager.init(applicationContext)
-        if (initialSetupDone) {
+        if (initialSetupDone && Whatsbridge.isNativeLoaded) {
             WaRealtimeService.ensureStarted(this)
         }
 
@@ -221,8 +233,11 @@ class MainActivity : FragmentActivity() {
                 if (!target.isNullOrBlank() && setupDone && bridgeStatus.isLoggedIn && !isAppLocked) {
                     val chat = vm.observeChat(target).first()
                     if (vm.isAppLocked.value || pendingOpenChatJid.value != target) return@LaunchedEffect
-                    val hidden = vm.appLockConfig.value.hideLockedChatsBehindLock &&
-                        !vm.lockedChatsRevealed.value && chat?.isLocked == true
+                    val hidden = AppLockManager.shouldSuppressAlertsForChat(
+                        chatIsLocked = chat?.isLocked == true,
+                        cfg = vm.appLockConfig.value,
+                        revealed = vm.lockedChatsRevealed.value
+                    )
                     activeContactInfoJid = null
                     selectedChatJid = target.takeUnless { hidden }
                     if (hidden) {
@@ -486,7 +501,11 @@ class MainActivity : FragmentActivity() {
                                 if (data.uris.isNotEmpty()) {
                                     lifecycleScope.launch {
                                         for (u in data.uris) {
-                                            val staged = vm.stageMediaForPreview(u, data.mimeType) ?: continue
+                                            val perUriMime = runCatching { contentResolver.getType(u) }
+                                                .getOrNull()
+                                                ?.takeIf { it.isNotBlank() }
+                                                ?: data.mimeType
+                                            val staged = vm.stageMediaForPreview(u, perUriMime) ?: continue
                                             for (targetJid in targetJids) {
                                                 vm.sendStagedMedia(
                                                     chatJid = targetJid,

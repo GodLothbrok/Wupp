@@ -35,6 +35,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
             var replySent = false
             try {
                 StealthMatrixManager.init(appCtx)
+                AppLockManager.init(appCtx)
                 val dao = WaUiDatabase.getInstance(appCtx).waDao()
                 val policy = resolveNotificationActionPolicy(
                     notifyShowPreview = StealthMatrixManager.config.value.notifyShowPreview,

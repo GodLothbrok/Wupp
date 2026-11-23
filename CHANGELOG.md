@@ -1,6 +1,26 @@
 # Changelog
 
-## [0.3.8-pre.4] - 2026-11-23
+## [0.3.8-pre.5] - 2026-11-23
+
+### 🛠️ Fixes
+- 💥 Fixed an immediate crash on launch caused by a startup initialization order bug.
+- 🛡️ Prevented background sync services from starting on unsupported 32-bit devices.
+- 📤 Improved external app sharing to detect mixed file types and rich text reliably.
+- 🔄 Fixed saved logins resetting or prompting to re-link after app updates.
+- 📹 Added H.264 encoder/decoder fallbacks for budget devices and lowered voice call latency.
+- 💬 Fixed opening unread chats to scroll straight to the oldest unread message.
+- 🎨 Fixed button and badge contrast across all themes and enlarged small chat buttons.
+- 📇 Added toggles to disable phonebook fallback or prioritize your saved contact names.
+
+### ✨ Features
+- 🔒 Added a Secret Code for hidden chats with silenced notifications and calls until unlocked (#128).
+- 📱 Added an optional iOS Style light theme under Settings → Theme (#99).
+- 📤 Added Android share target support to share media, files, and text into Wupp (#80).
+- ⭐ Tapping a sticker now lets you add or remove it from favorites (#84).
+- 🔊 Added a Conversation Sounds toggle under Alerts settings to mute chat sound effects (#92).
+- 🎞️ Added animated GIF playback in chats and the full-screen media viewer (#83).
+
+## [0.3.8-pre.4] - 2026-11-23 (pulled)
 
 ### ✨ Features
 - 🔒 Added a Secret Code for hidden chats so they stay invisible in Chats, Updates, search, badges, and Calls with notifications and incoming calls silenced until unlocked (#128).

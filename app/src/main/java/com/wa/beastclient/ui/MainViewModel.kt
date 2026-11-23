@@ -154,6 +154,25 @@ internal fun filterHomeThreads(
     )
 }
 
+internal fun resolveEffectiveMediaMimeType(
+    rawMimeType: String?,
+    detectedMimeType: String?
+): String {
+    val raw = rawMimeType?.trim().orEmpty()
+    val detected = detectedMimeType?.trim().orEmpty()
+    val rawSpecific = raw.isNotEmpty() &&
+        !raw.equals("*/*", ignoreCase = true) &&
+        !raw.endsWith("/*") &&
+        !raw.equals("application/octet-stream", ignoreCase = true)
+    if (rawSpecific) return raw
+    val detectedUseful = detected.isNotEmpty() &&
+        !detected.equals("*/*", ignoreCase = true) &&
+        !detected.equals("application/octet-stream", ignoreCase = true)
+    if (detectedUseful) return detected
+    if (raw.isNotEmpty() && !raw.equals("*/*", ignoreCase = true)) return raw
+    return "application/octet-stream"
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
@@ -181,8 +200,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val lockedChatsRevealed: StateFlow<Boolean> = AppLockManager.lockedChatsRevealed
 
+    private val _includeArchived = MutableStateFlow(false)
+    val includeArchived: StateFlow<Boolean> = _includeArchived.asStateFlow()
+
+    private val _selectedFilter = MutableStateFlow(HomeFilterChip.ALL)
+    val selectedFilter: StateFlow<HomeFilterChip> = _selectedFilter.asStateFlow()
+
+    private val _selectedGroupsFilter = MutableStateFlow(HomeFilterChip.ALL)
+    val selectedGroupsFilter: StateFlow<HomeFilterChip> = _selectedGroupsFilter.asStateFlow()
+
+    private val _homeSearchQuery = MutableStateFlow("")
+    val homeSearchQuery: StateFlow<String> = _homeSearchQuery.asStateFlow()
+
+    private val _rawFtsSearchResults = MutableStateFlow<List<MessageEntity>>(emptyList())
+
+    private val _bulkVerifyOutput = MutableStateFlow<String?>(null)
+    val bulkVerifyOutput: StateFlow<String?> = _bulkVerifyOutput.asStateFlow()
+
+    private val _isRecordingVoice = MutableStateFlow(false)
+    val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
+    private var activeRecorder: MediaRecorder? = null
+    private var activeOpusRecorder: OpusOggVoiceRecorder? = null
+    private var activeRecordingFile: File? = null
+    private var recordingStartMs: Long = 0L
+
+    private val pagerFlowCache = object : LinkedHashMap<String, Flow<PagingData<MessageEntity>>>(16, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Flow<PagingData<MessageEntity>>>?
+        ): Boolean = size > 12
+    }
+
+    private val _participantMeta = MutableStateFlow<Map<String, ResolvedParticipantUi>>(emptyMap())
+    val participantMeta: StateFlow<Map<String, ResolvedParticipantUi>> = _participantMeta.asStateFlow()
+
+    private val _quotedMsgMeta = MutableStateFlow<Map<String, QuotedSenderMeta>>(emptyMap())
+    val quotedMsgMeta: StateFlow<Map<String, QuotedSenderMeta>> = _quotedMsgMeta.asStateFlow()
+
     init {
         AccountManager.init(appContext)
+        StealthMatrixManager.init(appContext)
+        AppLockManager.init(appContext)
         WuppUpdater.init(appContext)
         viewModelScope.launch {
             WuppUpdater.checkForUpdates(appContext, silent = true)
@@ -231,30 +288,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val heartbeatStatus: StateFlow<PrimaryHeartbeatStatus> = stealthConfig
         .map { StealthMatrixManager.computeHeartbeatStatus(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StealthMatrixManager.computeHeartbeatStatus())
-
-    private val _includeArchived = MutableStateFlow(false)
-    val includeArchived: StateFlow<Boolean> = _includeArchived.asStateFlow()
-
-    private val _selectedFilter = MutableStateFlow(HomeFilterChip.ALL)
-    val selectedFilter: StateFlow<HomeFilterChip> = _selectedFilter.asStateFlow()
-
-    private val _selectedGroupsFilter = MutableStateFlow(HomeFilterChip.ALL)
-    val selectedGroupsFilter: StateFlow<HomeFilterChip> = _selectedGroupsFilter.asStateFlow()
-
-    private val _homeSearchQuery = MutableStateFlow("")
-    val homeSearchQuery: StateFlow<String> = _homeSearchQuery.asStateFlow()
-
-    private val _rawFtsSearchResults = MutableStateFlow<List<MessageEntity>>(emptyList())
-
-    private val _bulkVerifyOutput = MutableStateFlow<String?>(null)
-    val bulkVerifyOutput: StateFlow<String?> = _bulkVerifyOutput.asStateFlow()
-
-    private val _isRecordingVoice = MutableStateFlow(false)
-    val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
-    private var activeRecorder: MediaRecorder? = null
-    private var activeOpusRecorder: OpusOggVoiceRecorder? = null
-    private var activeRecordingFile: File? = null
-    private var recordingStartMs: Long = 0L
 
     private val allChatsIncludingArchived: StateFlow<List<ChatEntity>> = activeDaoFlow
         .flatMapLatest { it.observeChats(true) }
@@ -567,12 +600,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 d.observeRecentMessages(chatJid, 1).map { it.isNotEmpty() }
             }
         }
-    }
-
-    private val pagerFlowCache = object : LinkedHashMap<String, Flow<PagingData<MessageEntity>>>(16, 0.75f, true) {
-        override fun removeEldestEntry(
-            eldest: MutableMap.MutableEntry<String, Flow<PagingData<MessageEntity>>>?
-        ): Boolean = size > 12
     }
 
     fun pagedMessages(chatJid: String): Flow<PagingData<MessageEntity>> = synchronized(pagerFlowCache) {
@@ -1320,9 +1347,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun stageMediaForPreview(uri: Uri, rawMimeType: String?): StagedOutboundMedia? {
-        val resolvedMime = rawMimeType?.takeIf {
-            it.isNotBlank() && !it.equals("application/octet-stream", ignoreCase = true)
-        } ?: "application/octet-stream"
+        val detectedMime = runCatching { appContext.contentResolver.getType(uri) }.getOrNull()
+        val resolvedMime = resolveEffectiveMediaMimeType(rawMimeType, detectedMime)
         val ext = when {
             resolvedMime.contains("png", ignoreCase = true) -> "png"
             resolvedMime.contains("webp", ignoreCase = true) -> "webp"
@@ -1734,12 +1760,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             WuppUpdater.checkForUpdates(appContext, silent = !enabled)
         }
     }
-
-    private val _participantMeta = MutableStateFlow<Map<String, ResolvedParticipantUi>>(emptyMap())
-    val participantMeta: StateFlow<Map<String, ResolvedParticipantUi>> = _participantMeta.asStateFlow()
-
-    private val _quotedMsgMeta = MutableStateFlow<Map<String, QuotedSenderMeta>>(emptyMap())
-    val quotedMsgMeta: StateFlow<Map<String, QuotedSenderMeta>> = _quotedMsgMeta.asStateFlow()
 
     fun setLocalContactFallbackEnabled(enabled: Boolean) {
         updateGlobalStealth { c -> c.copy(localContactFallbackEnabled = enabled) }
