@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.8] - 2026-11-23
+
+> **Note:** Video calls are currently **Beta / Unstable** and may still have rough edges depending on your device.
+
+### ✨ Features
+- 👥 Added a multi-account switcher to link and switch between accounts with separate chats, media, and settings.
+- ⚙️ Redesigned Settings with a search bar, quick category pills, info popups, and an inline chat font-size slider.
+- 🔒 Added a Secret Code for hidden chats with silenced notifications and calls until unlocked (#128).
+- 📱 Added an optional iOS Style light theme under Settings → Theme (#99).
+- 📤 Added Android share target support to share media, files, and text into Wupp (#80).
+- ⭐ Tapping a sticker now lets you add or remove it from favorites (#84).
+- 🔊 Added a Conversation Sounds toggle under Alerts settings to mute chat sound effects (#92).
+- 🎞️ Added animated GIF playback in chats and the full-screen media viewer (#83).
+- 🎨 Refreshed the call screen with a cleaner header, rounded self-view tile, and single-row floating control dock.
+
+### 🛠️ Fixes
+- 💥 Fixed an immediate launch crash from a startup initialization bug and guarded unsupported 32-bit devices (#100).
+- 🔄 Fixed saved logins resetting or prompting to re-link after app updates.
+- 📞 Fixed incoming group calls showing as 1:1 chats instead of linking to the group.
+- 📹 **Video Calls (Beta / Unstable):** Added H.264 encoder/decoder fallbacks, lowered latency, and fixed sideways video and preview rotation (#127, #130).
+- 🔊 Fixed call controls, audio route switching, and ongoing call notification updates.
+- 💬 Fixed opening unread chats to scroll straight to the oldest unread message (#90).
+- 📇 Added toggles to disable phonebook fallback or prioritize your saved contact names (#124, #126).
+- 🖼️ Fixed reaction emojis, date separators, background pause, and retry handling in the full-screen media viewer (#118).
+- 🔔 Hid notification previews and quick replies for locked chats and when App Lock is active.
+- 🎨 Fixed button and badge contrast across all themes, enlarged small chat buttons, and normalized Meta AI's display name (#97).
+
 ## [0.3.8-pre.6] - 2026-11-23
 
 ### 🛠️ Fixes
