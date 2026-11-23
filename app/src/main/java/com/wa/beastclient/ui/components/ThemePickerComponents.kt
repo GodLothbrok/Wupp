@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.LocalFlorist
 import androidx.compose.material.icons.rounded.NightlightRound
+import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.WorkspacePremium
@@ -526,6 +527,7 @@ private fun ThemePreviewCard(
         WuppThemeMode.PAPER_INK -> Icons.Rounded.Description
         WuppThemeMode.MATCHA -> Icons.Rounded.Eco
         WuppThemeMode.GLACIER -> Icons.Rounded.AcUnit
+        WuppThemeMode.IOS -> Icons.Rounded.PhoneIphone
     }
 
     Surface(

@@ -362,7 +362,7 @@ object StealthMatrixManager {
                 .putBoolean(KEY_DISAPPEARING_IMMUNITY, updated.disappearingImmunity)
                 .putString(KEY_THEME_MODE, updated.themeMode.storageKey)
                 .putString(KEY_ACCENT_COLOR, updated.accentColor.storageKey)
-                .putBoolean(KEY_DARK_THEME, updated.themeMode != WuppThemeMode.LIGHT)
+                .putBoolean(KEY_DARK_THEME, updated.themeMode != WuppThemeMode.LIGHT && updated.themeMode != WuppThemeMode.IOS)
                 .putBoolean(KEY_USE_SYSTEM_FONT, updated.useSystemFont)
                 .putString(KEY_QUICK_REACTIONS, encodeQuickReactions(updated.quickReactionEmojis))
                 .putBoolean(KEY_CLASSIC_LOOK, updated.classicWhatsAppLook)

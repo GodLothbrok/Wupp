@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### ✨ Features
+- Added an optional iOS Style theme in settings with Apple iOS blue accents and clean daylight card styling (#99).
 - Added secret code support to hide locked chats completely and unlock them from the search bar (#74, #128, #97).
 - Added an interactive sticker action dialog to view and favorite received stickers (#84).
 - Added share target support to share photos, videos, audio, and documents directly into Wupp (#80).
