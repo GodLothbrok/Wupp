@@ -21,18 +21,70 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal data class RelayTransformParams(
+    val cwRotationDeg: Int,
+    val effectiveSourceWidth: Int,
+    val effectiveSourceHeight: Int
+)
+
+/**
+ * Determines the remaining clockwise rotation and effective source dimensions for [CameraVideoGlRelay].
+ *
+ * On most Android Camera2 devices, [SurfaceTexture.getTransformMatrix] already includes the camera
+ * sensor's 90/270-degree orientation transform (meaning the off-diagonal terms `stMatrix[1]` and
+ * `stMatrix[4]` are non-zero while `stMatrix[0]` and `stMatrix[5]` are ~0). When that happens, we
+ * must NOT apply [sensorDeg] a second time — only compensate for [displayDeg] and swap the
+ * effective source dimensions to match the already-rotated texture.
+ */
+internal fun resolveCameraRelayTransform(
+    camWidth: Int,
+    camHeight: Int,
+    sensorDeg: Int,
+    displayDeg: Int,
+    isFrontCamera: Boolean,
+    stMatrix: FloatArray
+): RelayTransformParams {
+    val normalizedDisplay = ((displayDeg % 360) + 360) % 360
+    val stHasQuarterTurn = stMatrix.size >= 6 &&
+        kotlin.math.abs(stMatrix[0]) < 0.5f &&
+        kotlin.math.abs(stMatrix[5]) < 0.5f &&
+        kotlin.math.abs(stMatrix[1]) > 0.5f &&
+        kotlin.math.abs(stMatrix[4]) > 0.5f
+
+    return if (stHasQuarterTurn) {
+        RelayTransformParams(
+            cwRotationDeg = (360 - normalizedDisplay) % 360,
+            effectiveSourceWidth = camHeight,
+            effectiveSourceHeight = camWidth
+        )
+    } else {
+        val cwRot = if (isFrontCamera) {
+            (sensorDeg + normalizedDisplay) % 360
+        } else {
+            (sensorDeg - normalizedDisplay + 360) % 360
+        }
+        RelayTransformParams(
+            cwRotationDeg = cwRot,
+            effectiveSourceWidth = camWidth,
+            effectiveSourceHeight = camHeight
+        )
+    }
+}
+
 /**
  * Offscreen OpenGL ES 2.0 relay that converts Camera2 external texture frames into upright
  * portrait frames for [MediaCodec.createInputSurface], applying sensor + display rotation
- * without stretching.
+ * without stretching or double-rotating when [SurfaceTexture] already carries sensor transform.
  */
 internal class CameraVideoGlRelay(
     private val encWidth: Int,
     private val encHeight: Int,
     private val camWidth: Int,
     private val camHeight: Int,
+    private val sensorDeg: Int,
+    private val isFrontCamera: Boolean,
     private val encoderInputSurface: Surface,
-    private val rotationDegreesProvider: () -> Int
+    private val displayRotationProvider: () -> Int
 ) {
     companion object {
         private const val TAG = "CameraVideoGlRelay"
@@ -196,16 +248,35 @@ internal class CameraVideoGlRelay(
             st.updateTexImage()
             st.getTransformMatrix(stMatrix)
 
-            val cwRot = ((rotationDegreesProvider() % 360) + 360) % 360
+            val transform = resolveCameraRelayTransform(
+                camWidth = camWidth,
+                camHeight = camHeight,
+                sensorDeg = sensorDeg,
+                displayDeg = displayRotationProvider(),
+                isFrontCamera = isFrontCamera,
+                stMatrix = stMatrix
+            )
+            val cwRot = transform.cwRotationDeg
+            val rotatedW = if (cwRot == 90 || cwRot == 270) {
+                transform.effectiveSourceHeight.toFloat()
+            } else {
+                transform.effectiveSourceWidth.toFloat()
+            }
+            val rotatedH = if (cwRot == 90 || cwRot == 270) {
+                transform.effectiveSourceWidth.toFloat()
+            } else {
+                transform.effectiveSourceHeight.toFloat()
+            }
+
             Matrix.setIdentityM(mvpMatrix, 0)
-            // Keep proportional fit if camera and encoder orientations temporarily mismatch (e.g. phone held sideways)
-            if (cwRot == 0 || cwRot == 180) {
-                val camAspect = camWidth.toFloat() / camHeight.toFloat().coerceAtLeast(1f)
-                val encAspect = encWidth.toFloat() / encHeight.toFloat().coerceAtLeast(1f)
-                if (camAspect > encAspect) {
-                    Matrix.scaleM(mvpMatrix, 0, 1f, encAspect / camAspect, 1f)
+            // Keep proportional fit if camera and encoder aspect ratios differ (e.g. phone held sideways)
+            val srcAspect = rotatedW / rotatedH.coerceAtLeast(1f)
+            val encAspect = encWidth.toFloat() / encHeight.toFloat().coerceAtLeast(1f)
+            if (kotlin.math.abs(srcAspect - encAspect) > 0.01f) {
+                if (srcAspect > encAspect) {
+                    Matrix.scaleM(mvpMatrix, 0, 1f, encAspect / srcAspect, 1f)
                 } else {
-                    Matrix.scaleM(mvpMatrix, 0, camAspect / encAspect, 1f, 1f)
+                    Matrix.scaleM(mvpMatrix, 0, srcAspect / encAspect, 1f, 1f)
                 }
             }
             if (cwRot != 0) {

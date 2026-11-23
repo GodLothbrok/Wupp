@@ -32,6 +32,8 @@ data class CallUiState(
     val peerPhoneDigits: String = "",
     val peerName: String = "",
     val peerAvatarPath: String? = null,
+    val senderJid: String = "",
+    val senderName: String = "",
     val direction: CallDirection = CallDirection.OUTGOING,
     val isVideo: Boolean = false,
     val isGroup: Boolean = false,

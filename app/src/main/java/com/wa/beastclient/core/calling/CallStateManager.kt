@@ -186,34 +186,45 @@ object CallStateManager {
         isVideo: Boolean,
         isGroup: Boolean = false,
         @Suppress("UNUSED_PARAMETER") isNotice: Boolean = false,
-        isSavedContact: Boolean = false
+        isSavedContact: Boolean = false,
+        chatJid: String = "",
+        callerName: String = ""
     ) {
         val ctx = appContext ?: return
         init(ctx)
         if (callId.isBlank()) return
 
         val cfg = StealthMatrixManager.config.value
-        val primaryPeer = callerJid.ifBlank { fromJid }
+        val individualCaller = callerJid.ifBlank { fromJid }
+        val effectiveIsGroup = isGroup || chatJid.endsWith("@g.us") || individualCaller.endsWith("@g.us")
+        val targetChatJid = resolveIncomingCallTargetChatJid(
+            chatJid = chatJid,
+            callerJid = individualCaller,
+            fromJid = fromJid,
+            isGroup = effectiveIsGroup
+        )
         when (resolveIncomingAntiCallAction(cfg.antiCallMode, isSavedContact)) {
             IncomingCallPolicyAction.SILENCE -> return
             IncomingCallPolicyAction.REJECT -> {
                 if (loggedCallIds.size > 512) loggedCallIds.clear()
-                if (loggedCallIds.add(callId)) {
+                if (shouldPersistLocalCallLog(targetChatJid, effectiveIsGroup) && loggedCallIds.add(callId)) {
                     WaRealtimeService.recordLocalCallLog(
                         context = ctx,
                         callId = callId,
-                        peerJid = primaryPeer,
+                        peerJid = targetChatJid,
                         isFromMe = false,
                         isVideo = isVideo,
-                        isGroup = isGroup || primaryPeer.endsWith("@g.us"),
+                        isGroup = effectiveIsGroup,
                         timestampMs = System.currentTimeMillis(),
                         durationSec = 0,
-                        subtitleOverride = "Blocked by Anti-Call"
+                        subtitleOverride = "Blocked by Anti-Call",
+                        senderJid = individualCaller,
+                        senderName = callerName
                     )
                 }
                 ioScope.launch {
                     runCatching {
-                        Whatsbridge.rejectCall(fromJid.ifBlank { primaryPeer }, callId)
+                        Whatsbridge.rejectCall(fromJid.ifBlank { individualCaller }, callId)
                     }.onFailure { err ->
                         Log.w(TAG, "Anti-Call reject failed: ${err.message}", err)
                     }
@@ -230,23 +241,25 @@ object CallStateManager {
 
         failedDismissJob?.cancel()
         val canAnswerInApp = !cfg.offlineMode && cfg.callBackendMode != CallBackendMode.OFF
-        val digits = extractDialablePhoneDigits(primaryPeer, callerAltJid)
+        val digits = if (effectiveIsGroup) "" else extractDialablePhoneDigits(individualCaller, callerAltJid)
         val label = peerName.ifBlank {
             digits.takeIf { it.isNotEmpty() }?.let { "+$it" }
-                ?: primaryPeer.substringBefore("@").ifBlank { "WhatsApp Call" }
+                ?: targetChatJid.substringBefore("@").ifBlank { "WhatsApp Call" }
         }
 
         _uiState.value = CallUiState(
             phase = CallPhase.INCOMING_RINGING,
             callId = callId,
-            peerJid = primaryPeer,
-            peerFromJid = fromJid.ifBlank { primaryPeer },
+            peerJid = targetChatJid,
+            peerFromJid = fromJid.ifBlank { individualCaller },
             peerPhoneDigits = digits,
             peerName = label,
             peerAvatarPath = peerAvatarPath,
+            senderJid = individualCaller,
+            senderName = callerName,
             direction = CallDirection.INCOMING,
             isVideo = isVideo,
-            isGroup = isGroup || primaryPeer.endsWith("@g.us"),
+            isGroup = effectiveIsGroup,
             isMuted = false,
             isCameraOff = !isVideo,
             hasRemoteVideo = false,
@@ -838,6 +851,7 @@ object CallStateManager {
     ) {
         val ctx = appContext ?: return
         if (cur.peerJid.isBlank()) return
+        if (!shouldPersistLocalCallLog(cur.peerJid, cur.isGroup)) return
         val dedupKey = cur.callId.ifBlank { "${cur.peerJid}_${System.currentTimeMillis() / 10_000L}" }
         if (loggedCallIds.size > 512) {
             loggedCallIds.clear()
@@ -854,7 +868,31 @@ object CallStateManager {
             timestampMs = tsMs,
             durationSec = cur.durationSec,
             titleOverride = titleOverride,
-            subtitleOverride = subtitleOverride
+            subtitleOverride = subtitleOverride,
+            senderJid = cur.senderJid.ifBlank { cur.peerJid },
+            senderName = cur.senderName
         )
     }
+}
+
+internal fun resolveIncomingCallTargetChatJid(
+    chatJid: String,
+    callerJid: String,
+    fromJid: String,
+    isGroup: Boolean
+): String {
+    val cleanChat = chatJid.trim()
+    val cleanCaller = callerJid.trim().ifBlank { fromJid.trim() }
+    if (cleanChat.endsWith("@g.us")) return cleanChat
+    if (isGroup && cleanChat.isNotBlank()) return cleanChat
+    return cleanChat.ifBlank { cleanCaller }
+}
+
+internal fun shouldPersistLocalCallLog(
+    targetChatJid: String,
+    isGroup: Boolean
+): Boolean {
+    val clean = targetChatJid.trim()
+    if (clean.isEmpty()) return false
+    return !isGroup || clean.endsWith("@g.us")
 }

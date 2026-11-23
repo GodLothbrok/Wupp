@@ -2301,13 +2301,16 @@ class WaRealtimeService : Service() {
             Log.d(TAG, "Suppressing incoming call alert/screen while chat $callerJid remains hidden")
             return
         }
-        val resolvedName = listOfNotNull(
-            peerChat?.name?.takeIf { it.isNotBlank() && !isNumericOrPhoneString(it) },
+        val callerName = listOfNotNull(
             callerChat?.name?.takeIf { it.isNotBlank() && !isNumericOrPhoneString(it) },
             pushnameCache[callerJid],
-            pushnameCache[chatJid],
-            peerChat?.name?.takeIf { it.isNotBlank() },
+            pushnameCache[rawAltJid],
             callerChat?.name?.takeIf { it.isNotBlank() }
+        ).firstOrNull().orEmpty()
+        val resolvedName = listOfNotNull(
+            peerChat?.name?.takeIf { it.isNotBlank() && !isNumericOrPhoneString(it) },
+            callerName.takeIf { it.isNotBlank() },
+            peerChat?.name?.takeIf { it.isNotBlank() }
         ).firstOrNull().orEmpty()
         val avatarPath = peerChat?.avatarPath ?: callerChat?.avatarPath
         val isSavedContact = listOf(callerJid, rawAltJid, chatJid)
@@ -2323,9 +2326,11 @@ class WaRealtimeService : Service() {
             peerName = resolvedName,
             peerAvatarPath = avatarPath,
             isVideo = isVideo,
-            isGroup = isGroup,
+            isGroup = isGroup || chatJid.endsWith("@g.us"),
             isNotice = isNotice,
-            isSavedContact = isSavedContact
+            isSavedContact = isSavedContact,
+            chatJid = chatJid,
+            callerName = callerName
         )
     }
 
@@ -2343,12 +2348,17 @@ class WaRealtimeService : Service() {
         val isFromMe = json.optBoolean("isFromMe", false)
         val isGroup = json.optBoolean("isGroup", canonicalChat.endsWith("@g.us"))
         val senderJid = stripJidDevice(json.optString("senderJid")).ifBlank { canonicalChat }
+        val senderName = if (senderJid == canonicalChat) {
+            pushnameCache[canonicalChat].orEmpty()
+        } else {
+            pushnameCache[senderJid].orEmpty().ifBlank { dao.getChat(senderJid)?.name.orEmpty() }
+        }
         persistCallMessage(
             dao = dao,
             id = id,
             chatJid = canonicalChat,
             senderJid = senderJid,
-            senderName = pushnameCache[canonicalChat].orEmpty(),
+            senderName = senderName,
             isFromMe = isFromMe,
             isGroup = isGroup,
             timestamp = ts,
@@ -2521,7 +2531,8 @@ class WaRealtimeService : Service() {
             isGroup: Boolean,
             timestamp: Long,
             body: String,
-            durationSec: Int
+            durationSec: Int,
+            chatNameHint: String = if (isGroup || chatJid.endsWith("@g.us")) "" else senderName
         ) {
             if (!body.endsWith("|Incoming call")) {
                 val placeholder = dao.findPlaceholderCallMessage(chatJid, timestamp)
@@ -2558,7 +2569,7 @@ class WaRealtimeService : Service() {
             )
             dao.upsertIncomingMessageAndRefreshChat(
                 message = msg,
-                chatNameHint = senderName,
+                chatNameHint = chatNameHint,
                 isGroup = isGroup,
                 incrementUnread = false
             )
@@ -2574,7 +2585,9 @@ class WaRealtimeService : Service() {
             timestampMs: Long,
             durationSec: Int,
             titleOverride: String? = null,
-            subtitleOverride: String? = null
+            subtitleOverride: String? = null,
+            senderJid: String = peerJid,
+            senderName: String = ""
         ) {
             if (peerJid.isBlank()) return
             val appCtx = context.applicationContext
@@ -2592,17 +2605,27 @@ class WaRealtimeService : Service() {
                         else -> "No answer"
                     }
                     val safeId = callId.ifBlank { "${peerJid.substringBefore("@")}_${timestampMs / 1000L}" }
+                    val effectiveSenderJid = senderJid.ifBlank { peerJid }
+                    val effectiveSenderName = senderName.ifBlank {
+                        dao.getChat(effectiveSenderJid)?.name.orEmpty()
+                    }
+                    val groupChatName = if (isGroup || peerJid.endsWith("@g.us")) {
+                        dao.getChat(peerJid)?.name.orEmpty()
+                    } else {
+                        effectiveSenderName
+                    }
                     persistCallMessage(
                         dao = dao,
                         id = "call_$safeId",
                         chatJid = peerJid,
-                        senderJid = peerJid,
-                        senderName = dao.getChat(peerJid)?.name.orEmpty(),
+                        senderJid = effectiveSenderJid,
+                        senderName = effectiveSenderName,
                         isFromMe = isFromMe,
                         isGroup = isGroup,
                         timestamp = timestampMs,
                         body = "$title|$sub",
-                        durationSec = durationSec.coerceAtLeast(0)
+                        durationSec = durationSec.coerceAtLeast(0),
+                        chatNameHint = groupChatName
                     )
                 }.onFailure {
                     Log.w(TAG, "recordLocalCallLog failed: ${it.message}")

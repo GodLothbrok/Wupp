@@ -264,4 +264,114 @@ class CallingEnginePolicyTest {
             )
         )
     }
+
+    @Test
+    fun resolveIncomingCallTargetChatJidPrefersGroupJidForGroupCalls() {
+        val groupJid = "120363012345678901@g.us"
+        val callerJid = "923001112233@s.whatsapp.net"
+
+        assertEquals(
+            groupJid,
+            resolveIncomingCallTargetChatJid(
+                chatJid = groupJid,
+                callerJid = callerJid,
+                fromJid = callerJid,
+                isGroup = true
+            )
+        )
+        assertEquals(
+            groupJid,
+            resolveIncomingCallTargetChatJid(
+                chatJid = groupJid,
+                callerJid = callerJid,
+                fromJid = callerJid,
+                isGroup = false
+            )
+        )
+        assertEquals(
+            callerJid,
+            resolveIncomingCallTargetChatJid(
+                chatJid = "",
+                callerJid = callerJid,
+                fromJid = callerJid,
+                isGroup = false
+            )
+        )
+    }
+
+    @Test
+    fun shouldPersistLocalCallLogBlocksGroupCallFallbackIntoOneToOneDm() {
+        assertTrue(shouldPersistLocalCallLog("120363012345678901@g.us", isGroup = true))
+        assertFalse(shouldPersistLocalCallLog("923001112233@s.whatsapp.net", isGroup = true))
+        assertTrue(shouldPersistLocalCallLog("923001112233@s.whatsapp.net", isGroup = false))
+        assertFalse(shouldPersistLocalCallLog("", isGroup = false))
+    }
+
+    @Test
+    fun resolveCameraRelayTransformAvoidsDoubleRotationWhenStMatrixIncludesSensorTurn() {
+        // Simulated SurfaceTexture matrix with 90/270 sensor turn already baked in (m00=0, m10=1, m01=1, m11=0)
+        val rotatedSt = FloatArray(16).apply {
+            this[1] = 1f
+            this[4] = 1f
+            this[10] = 1f
+            this[15] = 1f
+        }
+        val portrait = resolveCameraRelayTransform(
+            camWidth = 640,
+            camHeight = 480,
+            sensorDeg = 270,
+            displayDeg = 0,
+            isFrontCamera = true,
+            stMatrix = rotatedSt
+        )
+        assertEquals(0, portrait.cwRotationDeg)
+        assertEquals(480, portrait.effectiveSourceWidth)
+        assertEquals(640, portrait.effectiveSourceHeight)
+
+        val landscape90 = resolveCameraRelayTransform(
+            camWidth = 640,
+            camHeight = 480,
+            sensorDeg = 270,
+            displayDeg = 90,
+            isFrontCamera = true,
+            stMatrix = rotatedSt
+        )
+        assertEquals(270, landscape90.cwRotationDeg)
+        assertEquals(480, landscape90.effectiveSourceWidth)
+        assertEquals(640, landscape90.effectiveSourceHeight)
+    }
+
+    @Test
+    fun resolveCameraRelayTransformAppliesSensorRotationWhenStMatrixIsUnrotated() {
+        // Simulated identity/Y-flipped SurfaceTexture matrix without quarter turn (m00=1, m11=-1)
+        val unrotatedSt = FloatArray(16).apply {
+            this[0] = 1f
+            this[5] = -1f
+            this[10] = 1f
+            this[15] = 1f
+        }
+        val frontPortrait = resolveCameraRelayTransform(
+            camWidth = 640,
+            camHeight = 480,
+            sensorDeg = 270,
+            displayDeg = 0,
+            isFrontCamera = true,
+            stMatrix = unrotatedSt
+        )
+        assertEquals(270, frontPortrait.cwRotationDeg)
+        assertEquals(640, frontPortrait.effectiveSourceWidth)
+        assertEquals(480, frontPortrait.effectiveSourceHeight)
+
+        val backPortrait = resolveCameraRelayTransform(
+            camWidth = 640,
+            camHeight = 480,
+            sensorDeg = 90,
+            displayDeg = 0,
+            isFrontCamera = false,
+            stMatrix = unrotatedSt
+        )
+        assertEquals(90, backPortrait.cwRotationDeg)
+        assertEquals(640, backPortrait.effectiveSourceWidth)
+        assertEquals(480, backPortrait.effectiveSourceHeight)
+    }
 }

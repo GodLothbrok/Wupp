@@ -286,15 +286,10 @@ class NativeVoipVideoPipeline(
                     encHeight = encPreset.height,
                     camWidth = camW,
                     camHeight = camH,
+                    sensorDeg = sensorDeg,
+                    isFrontCamera = isFront,
                     encoderInputSurface = inputSurf,
-                    rotationDegreesProvider = {
-                        val displayDeg = currentDisplayRotationDegrees()
-                        if (isFront) {
-                            (sensorDeg + displayDeg) % 360
-                        } else {
-                            (sensorDeg - displayDeg + 360) % 360
-                        }
-                    }
+                    displayRotationProvider = { currentDisplayRotationDegrees() }
                 )
                 val relaySurface = relay.startAndGetCameraSurface()
                 if (relaySurface == null) {

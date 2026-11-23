@@ -45,20 +45,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.BluetoothAudio
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.HeadsetMic
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
-import androidx.compose.material.icons.rounded.StopCircle
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PhoneInTalk
+import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.VideocamOff
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -290,7 +292,6 @@ class CallActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CallScreenContent(
     state: CallUiState,
@@ -309,6 +310,8 @@ private fun CallScreenContent(
     onDeclineVideoUpgrade: () -> Unit
 ) {
     val mono = LocalWaMonoFamily.current
+    val waColors = com.wa.beastclient.ui.theme.LocalWaColors.current
+    val accentGreen = waColors.brightGreen
     val showVideoFeed = state.isVideo && (
         state.phase == CallPhase.ACTIVE ||
             state.phase == CallPhase.CONNECTING ||
@@ -316,6 +319,7 @@ private fun CallScreenContent(
         ) && (!state.isCameraOff || state.hasRemoteVideo)
     var showChrome by remember { mutableStateOf(true) }
     var showRouteMenu by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -330,9 +334,9 @@ private fun CallScreenContent(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color(0xFF0A1418),
-                        Color(0xFF0F2127),
-                        Color(0xFF081014)
+                        Color(0xFF0B1419),
+                        Color(0xFF102229),
+                        Color(0xFF091115)
                     )
                 )
             )
@@ -384,7 +388,33 @@ private fun CallScreenContent(
         }
 
         if (!showVideoFeed || !state.hasRemoteVideo) {
-            VoiceCallBackdropContent(state = state, isInPip = isInPip)
+            VoiceCallBackdropContent(state = state, isInPip = isInPip, accentColor = accentGreen)
+        }
+
+        if (showVideoFeed && !isInPip) {
+            // Subtle top and bottom edge scrims keep header text and dock legible over bright video.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(148.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xA6000000), Color.Transparent)
+                        )
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0xB8000000))
+                        )
+                    )
+            )
         }
 
         if (showVideoFeed && !state.isCameraOff && !isInPip) {
@@ -392,11 +422,12 @@ private fun CallScreenContent(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(top = 68.dp, end = 16.dp)
-                    .size(width = 104.dp, height = 148.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .padding(top = 74.dp, end = 16.dp)
+                    .size(width = 104.dp, height = 152.dp)
+                    .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFF101C22))
-                    .border(1.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(18.dp))
+                    .clickable(onClick = onFlipCamera)
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -430,6 +461,39 @@ private fun CallScreenContent(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+                if (state.isMuted) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xB3000000)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MicOff,
+                            contentDescription = "Muted",
+                            tint = Color(0xFFFF8A80),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Color(0x73000000))
+                        .padding(vertical = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "You",
+                        color = Color.White,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
 
@@ -441,63 +505,99 @@ private fun CallScreenContent(
                 modifier = Modifier.fillMaxSize()
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // Top header bar
-                    Row(
+                    // Top header bar: minimize button left, centered title & timer, flip/REC right
+                    Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        IconButton(
+                            onClick = onMinimize,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0x88142026))
-                                .clickable(onClick = onMinimize)
-                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                .align(Alignment.CenterStart)
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x99142026))
+                                .border(1.dp, Color(0x26FFFFFF), CircleShape)
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                imageVector = Icons.Rounded.CloseFullscreen,
                                 contentDescription = "Minimize",
                                 tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Chats",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = if (state.isVideo) "End-to-end encrypted video" else "End-to-end encrypted call",
-                                color = Color(0xCCDAE5EA),
-                                fontSize = 11.5.sp
-                            )
-                            if (state.isRecording) {
-                                Spacer(modifier = Modifier.height(4.dp))
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = 56.dp)
+                        ) {
+                            if (showVideoFeed) {
+                                Text(
+                                    text = state.peerName.ifBlank { "Call" },
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = state.statusText.ifBlank { "Connecting…" },
+                                    color = if (state.phase == CallPhase.ACTIVE) accentGreen else Color(0xFFE0E7EB),
+                                    fontSize = 12.5.sp,
+                                    fontFamily = mono,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xCCE53935))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color(0x66142026))
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Lock,
+                                        contentDescription = null,
+                                        tint = Color(0xCCDAE5EA),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = if (state.isVideo) "End-to-end encrypted video" else "End-to-end encrypted",
+                                        color = Color(0xCCDAE5EA),
+                                        fontSize = 11.5.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        ) {
+                            if (state.isRecording) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color(0xD9E53935))
+                                        .padding(horizontal = 9.dp, vertical = 5.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Rounded.FiberManualRecord,
                                         contentDescription = "Recording",
                                         tint = Color.White,
-                                        modifier = Modifier.size(10.dp)
+                                        modifier = Modifier.size(9.dp)
                                     )
                                     Text(
-                                        text = "REC ${formatCallTimer(state.recordingDurationSec)}",
+                                        text = formatCallTimer(state.recordingDurationSec),
                                         color = Color.White,
                                         fontSize = 11.sp,
                                         fontFamily = mono,
@@ -505,16 +605,22 @@ private fun CallScreenContent(
                                     )
                                 }
                             }
-                            if (showVideoFeed) {
-                                Text(
-                                    text = "${state.peerName} · ${state.statusText}",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = mono,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            if (state.isVideo && !state.isCameraOff) {
+                                IconButton(
+                                    onClick = onFlipCamera,
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x99142026))
+                                        .border(1.dp, Color(0x26FFFFFF), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Cameraswitch,
+                                        contentDescription = "Flip camera",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -525,7 +631,7 @@ private fun CallScreenContent(
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .navigationBarsPadding()
-                            .padding(horizontal = 20.dp, vertical = 28.dp),
+                            .padding(horizontal = 20.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -535,15 +641,15 @@ private fun CallScreenContent(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(Color(0xE61A252C))
-                                    .border(1.dp, Color(0x40FFFFFF), RoundedCornerShape(18.dp))
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xEB152026))
+                                    .border(1.dp, Color(0x38FFFFFF), RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
                             ) {
                                 Text(
                                     text = "Peer requested video",
                                     color = Color.White,
-                                    fontSize = 13.sp,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -553,9 +659,9 @@ private fun CallScreenContent(
                                     }
                                     Button(
                                         onClick = onAcceptVideoUpgrade,
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                                        colors = ButtonDefaults.buttonColors(containerColor = accentGreen)
                                     ) {
-                                        Text("Switch", color = Color.Black, fontSize = 12.sp)
+                                        Text("Switch", color = Color(0xFF0A1418), fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -567,7 +673,7 @@ private fun CallScreenContent(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(Color(0xD91A252C))
+                                        .background(Color(0xE0152026))
                                         .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
                                         .padding(20.dp)
                                 ) {
@@ -584,9 +690,9 @@ private fun CallScreenContent(
                                         }
                                         Button(
                                             onClick = onOpenOfficialWa,
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                                            colors = ButtonDefaults.buttonColors(containerColor = accentGreen)
                                         ) {
-                                            Text("Open in WhatsApp", color = Color(0xFF0A1418))
+                                            Text("Open in Official App", color = Color(0xFF0A1418))
                                         }
                                     }
                                 }
@@ -598,13 +704,13 @@ private fun CallScreenContent(
                                     verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(36.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(40.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(36.dp))
-                                            .background(Color(0xD9162229))
-                                            .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(36.dp))
-                                            .padding(horizontal = 28.dp, vertical = 18.dp)
+                                            .clip(RoundedCornerShape(40.dp))
+                                            .background(Color(0xE0141F25))
+                                            .border(1.dp, Color(0x2EFFFFFF), RoundedCornerShape(40.dp))
+                                            .padding(horizontal = 30.dp, vertical = 16.dp)
                                     ) {
                                         CallRoundAction(
                                             icon = Icons.Rounded.CallEnd,
@@ -617,15 +723,15 @@ private fun CallScreenContent(
                                             CallRoundAction(
                                                 icon = if (state.isVideo) Icons.Rounded.Videocam else Icons.Rounded.Call,
                                                 label = "Answer",
-                                                containerColor = Color(0xFF25D366),
+                                                containerColor = accentGreen,
                                                 contentColor = Color(0xFF091418),
                                                 onClick = { onAnswer(false) }
                                             )
                                         } else {
                                             CallRoundAction(
                                                 icon = Icons.Rounded.Call,
-                                                label = "WhatsApp",
-                                                containerColor = Color(0xFF25D366),
+                                                label = "Official",
+                                                containerColor = accentGreen,
                                                 contentColor = Color(0xFF091418),
                                                 onClick = onOpenOfficialWa
                                             )
@@ -640,19 +746,72 @@ private fun CallScreenContent(
                             }
 
                             else -> {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(34.dp))
-                                        .background(Color(0xD917242C))
-                                        .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(34.dp))
-                                        .padding(horizontal = 20.dp, vertical = 14.dp)
+                                        .clip(RoundedCornerShape(36.dp))
+                                        .background(Color(0xE0141F25))
+                                        .border(1.dp, Color(0x2EFFFFFF), RoundedCornerShape(36.dp))
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
                                 ) {
+                                    // More options (Call Recording & Audio Devices)
                                     Box {
-                                        CallPillToggle(
+                                        CallCircleControl(
+                                            icon = Icons.Rounded.MoreHoriz,
+                                            contentDescription = "More call options",
+                                            active = state.isRecording,
+                                            activeContainer = Color(0xFFE53935),
+                                            activeContent = Color.White,
+                                            onClick = { showMoreMenu = true }
+                                        )
+                                        DropdownMenu(
+                                            expanded = showMoreMenu,
+                                            onDismissRequest = { showMoreMenu = false }
+                                        ) {
+                                            if (state.phase == CallPhase.ACTIVE) {
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(if (state.isRecording) "Stop recording" else "Record call")
+                                                    },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            imageVector = if (state.isRecording) Icons.Rounded.StopCircle else Icons.Rounded.FiberManualRecord,
+                                                            contentDescription = null,
+                                                            tint = if (state.isRecording) Color(0xFFE53935) else waColors.textPrimary
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showMoreMenu = false
+                                                        onToggleRecording()
+                                                    }
+                                                )
+                                            }
+                                            state.availableRoutes.forEach { route ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(if (route == state.audioRoute) "${route.label} ✓" else route.label)
+                                                    },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            imageVector = routeIcon(route),
+                                                            contentDescription = null
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showMoreMenu = false
+                                                        onSelectAudioRoute(route)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Audio Route (Speaker / Bluetooth / Earpiece)
+                                    Box {
+                                        CallCircleControl(
                                             icon = routeIcon(state.audioRoute),
-                                            label = state.audioRoute.label,
+                                            contentDescription = state.audioRoute.label,
                                             active = state.audioRoute != CallAudioRoute.EARPIECE,
                                             onClick = {
                                                 if (state.availableRoutes.size <= 2) {
@@ -683,52 +842,32 @@ private fun CallScreenContent(
                                         }
                                     }
 
-                                    CallPillToggle(
+                                    // Camera Toggle
+                                    CallCircleControl(
                                         icon = if (state.isVideo && !state.isCameraOff) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
-                                        label = if (!state.isVideo) "Video" else if (state.isCameraOff) "Cam off" else "Cam on",
+                                        contentDescription = if (!state.isVideo || state.isCameraOff) "Turn camera on" else "Turn camera off",
                                         active = state.isVideo && !state.isCameraOff,
                                         onClick = onToggleCamera
                                     )
 
-                                    if (state.isVideo && !state.isCameraOff) {
-                                        CallPillToggle(
-                                            icon = Icons.Rounded.Cameraswitch,
-                                            label = "Flip",
-                                            active = false,
-                                            onClick = onFlipCamera
-                                        )
-                                    }
-
-                                    CallPillToggle(
+                                    // Microphone Mute
+                                    CallCircleControl(
                                         icon = if (state.isMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                                        label = if (state.isMuted) "Unmute" else "Mute",
+                                        contentDescription = if (state.isMuted) "Unmute" else "Mute",
                                         active = state.isMuted,
+                                        activeContent = Color(0xFFD32F2F),
                                         onClick = onToggleMute
                                     )
 
-                                    if (state.phase == CallPhase.ACTIVE) {
-                                        CallPillToggle(
-                                            icon = if (state.isRecording) Icons.Rounded.StopCircle else Icons.Rounded.FiberManualRecord,
-                                            label = if (state.isRecording) "Stop Rec" else "Record",
-                                            active = state.isRecording,
-                                            onClick = onToggleRecording
-                                        )
-                                    }
-
-                                    IconButton(
-                                        onClick = onDeclineOrEnd,
-                                        modifier = Modifier
-                                            .size(54.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFE53935))
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.CallEnd,
-                                            contentDescription = "End call",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(26.dp)
-                                        )
-                                    }
+                                    // End Call
+                                    CallCircleControl(
+                                        icon = Icons.Rounded.CallEnd,
+                                        contentDescription = "End call",
+                                        active = true,
+                                        activeContainer = Color(0xFFE53935),
+                                        activeContent = Color.White,
+                                        onClick = onDeclineOrEnd
+                                    )
                                 }
                             }
                         }
@@ -742,7 +881,8 @@ private fun CallScreenContent(
 @Composable
 private fun VoiceCallBackdropContent(
     state: CallUiState,
-    isInPip: Boolean
+    isInPip: Boolean,
+    accentColor: Color
 ) {
     val mono = LocalWaMonoFamily.current
     val pulseTransition = rememberInfiniteTransition(label = "callAura")
@@ -770,30 +910,39 @@ private fun VoiceCallBackdropContent(
             if (shouldPulse && !isInPip) {
                 Box(
                     modifier = Modifier
-                        .size(134.dp)
+                        .size(144.dp)
                         .scale(auraScale)
                         .clip(CircleShape)
-                        .background(Color(0x3325D366))
+                        .background(accentColor.copy(alpha = 0.20f))
                 )
             }
             WhatsAppAvatar(
                 jid = state.peerJid.ifBlank { "call" },
                 avatarPath = state.peerAvatarPath,
                 isGroup = state.isGroup,
-                size = if (isInPip) 68.dp else 116.dp
+                size = if (isInPip) 68.dp else 120.dp
             )
         }
         if (!isInPip) {
             Spacer(modifier = Modifier.height(22.dp))
             Text(
-                text = state.peerName.ifBlank { "WhatsApp Call" },
+                text = state.peerName.ifBlank { "Incoming Call" },
                 color = Color.White,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (state.peerPhoneDigits.isNotBlank()) {
+            if (state.isGroup && state.senderName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Started by ${state.senderName}",
+                    color = Color(0xCCD1D7DB),
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else if (state.peerPhoneDigits.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "+${state.peerPhoneDigits}",
@@ -805,7 +954,7 @@ private fun VoiceCallBackdropContent(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = state.statusText.ifBlank { "Calling…" },
-                color = if (state.phase == CallPhase.ACTIVE) Color(0xFF25D366) else Color(0xFFD1D7DB),
+                color = if (state.phase == CallPhase.ACTIVE) accentColor else Color(0xFFD1D7DB),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 fontFamily = if (state.phase == CallPhase.ACTIVE) mono else null
@@ -848,39 +997,26 @@ private fun CallRoundAction(
 }
 
 @Composable
-private fun CallPillToggle(
+private fun CallCircleControl(
     icon: ImageVector,
-    label: String,
+    contentDescription: String,
     active: Boolean,
+    activeContainer: Color = Color.White,
+    activeContent: Color = Color(0xFF0A1418),
     onClick: () -> Unit
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    IconButton(
+        onClick = onClick,
         modifier = Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .size(50.dp)
+            .clip(CircleShape)
+            .background(if (active) activeContainer else Color(0x2BFFFFFF))
     ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(CircleShape)
-                .background(if (active) Color.White else Color(0x33FFFFFF)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (active) Color(0xFF0A1418) else Color.White,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = label,
-            color = Color(0xFFE0E7EB),
-            fontSize = 11.sp,
-            maxLines = 1
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (active) activeContent else Color.White,
+            modifier = Modifier.size(23.dp)
         )
     }
 }
@@ -930,7 +1066,7 @@ private fun applyVideoTextureTransform(
 }
 
 private fun routeIcon(route: CallAudioRoute): ImageVector = when (route) {
-    CallAudioRoute.SPEAKER -> Icons.Rounded.VolumeUp
+    CallAudioRoute.SPEAKER -> Icons.AutoMirrored.Rounded.VolumeUp
     CallAudioRoute.BLUETOOTH -> Icons.Rounded.BluetoothAudio
     CallAudioRoute.WIRED_HEADSET -> Icons.Rounded.HeadsetMic
     CallAudioRoute.EARPIECE -> Icons.Rounded.PhoneInTalk

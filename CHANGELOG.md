@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.8-pre.6] - 2026-11-23
+
+### 🛠️ Fixes
+- 📞 Fixed incoming group calls showing as 1:1 chats instead of linking to the group.
+- 📹 Fixed outgoing video calls appearing rotated sideways when the camera already handles sensor orientation.
+
+### ✨ Features
+- 🎨 Redesigned the call screen with a cleaner top bar, rounded self-view, and single-row floating control dock.
+
 ## [0.3.8-pre.5] - 2026-11-23
 
 ### 🛠️ Fixes
