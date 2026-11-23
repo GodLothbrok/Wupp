@@ -3644,19 +3644,27 @@ private fun MessageBubbleRow(
 
                     // Photo / Video / GIF (auto-download images/GIFs; videos stay tap-to-download)
                     msg.msgType == "IMAGE" || msg.msgType == "VIDEO" || msg.msgType == "GIF" -> {
-                        val isVideo = msg.msgType == "VIDEO" || msg.msgType == "GIF" || msg.mimeType.startsWith("video/", ignoreCase = true)
-                        val isPureVideo = isVideo && msg.msgType != "GIF"
                         val localFile = remember(msg.localMediaPath) {
                             msg.localMediaPath?.takeIf { it.isNotBlank() }?.let { p ->
                                 File(p).takeIf { it.exists() && it.length() > 0L }
                             }
                         }
+                        val isImageGif = msg.mimeType.equals("image/gif", ignoreCase = true) ||
+                            localFile?.extension.equals("gif", ignoreCase = true) == true
+                        val isVideo = !isImageGif && (
+                            msg.msgType == "VIDEO" ||
+                                msg.msgType == "GIF" ||
+                                msg.mimeType.startsWith("video/", ignoreCase = true)
+                            )
+                        val isPureVideo = msg.msgType == "VIDEO" ||
+                            (msg.mimeType.startsWith("video/", ignoreCase = true) && msg.msgType != "GIF")
                         val bmp by produceState<ImageBitmap?>(
                             initialValue = null,
                             key1 = localFile?.absolutePath,
-                            key2 = isVideo
+                            key2 = isVideo,
+                            key3 = isImageGif
                         ) {
-                            value = if (localFile == null) {
+                            value = if (localFile == null || isImageGif) {
                                 null
                             } else if (!isVideo) {
                                 withContext(Dispatchers.IO) {
@@ -3687,7 +3695,16 @@ private fun MessageBubbleRow(
                         ) {
                             if (localFile != null) {
                                 val loadedBmp = bmp
-                                if (loadedBmp != null) {
+                                if (isImageGif) {
+                                    coil.compose.AsyncImage(
+                                        model = localFile,
+                                        contentDescription = msg.body.ifBlank { "GIF" },
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 120.dp, max = 260.dp)
+                                    )
+                                } else if (loadedBmp != null) {
                                     val ratio = if (loadedBmp.height > 0) {
                                         (loadedBmp.width.toFloat() / loadedBmp.height.toFloat()).coerceIn(0.55f, 1.85f)
                                     } else {

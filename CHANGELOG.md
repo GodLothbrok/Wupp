@@ -3,19 +3,19 @@
 ## [0.3.8-pre.4] - 2026-11-23
 
 ### ✨ Features
-- 🔒 Added a Secret Code for hidden chats so they stay invisible in Chats, search, badges, and Calls with notifications and incoming calls silenced until unlocked (#128).
+- 🔒 Added a Secret Code for hidden chats so they stay invisible in Chats, Updates, search, badges, and Calls with notifications and incoming calls silenced until unlocked (#128).
 - 📱 Added an optional iOS Style light theme under Settings → Theme (#99).
 - 📤 Added Android share target support so you can share photos, videos, audio, documents, and text from other apps into Wupp (#80).
 - ⭐ Tapping a received sticker now opens a preview dialog to add or remove it from favorites (#84).
 - 🔊 Added a Conversation Sounds switch under Alerts settings to mute incoming and outgoing message effects (#92).
-- 🎞️ Added animated GIF decoding support via Coil (#83).
+- 🎞️ Added animated GIF decoding via Coil in chat bubbles and the full-screen media viewer (#83).
 
 ### 🛠️ Fixes
 - 🔄 Fixed saved logins incorrectly resetting or prompting to re-link after app updates when sessions are already paired.
-- 📇 Added a toggle to disable Local Contact Names Fallback and optionally prioritize your phonebook names (#124, #126).
+- 📇 Added a toggle to disable Local Contact Names Fallback and optionally prioritize your phonebook names across chats and Updates (#124, #126).
 - 📹 Added H.264 encoder/decoder fallbacks and error recovery for budget devices, plus reduced voice call playout queue latency (#130, #127).
 - 💬 Fixed opening unread chats to jump to the oldest unread message (#90).
-- 🎨 Fixed button and badge text contrast across Dark, AMOLED, Synthwave, and light custom themes and enlarged cramped chat buttons.
+- 🎨 Fixed button and badge text contrast across Dark, AMOLED, Synthwave, iOS, and custom themes and enlarged cramped chat buttons.
 - 🛡️ Prevented startup crashes on unsupported 32-bit devices with a clear alert and normalized Meta AI's display name (#100, #97).
 
 ## [0.3.8-pre.3] - 2026-11-22

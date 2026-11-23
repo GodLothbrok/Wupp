@@ -458,7 +458,11 @@ private fun MediaLightboxPage(
             File(path).takeIf { it.exists() && it.length() > 0L }
         }
     }
-    val isVideo = msg.msgType.uppercase() == "VIDEO" || msg.mimeType.startsWith("video/", ignoreCase = true)
+    val isVideo = msg.mimeType.startsWith("video/", ignoreCase = true) ||
+        (msg.msgType.uppercase() == "VIDEO") ||
+        (msg.msgType.uppercase() == "GIF" && mediaFile != null && !mediaFile.extension.equals("gif", ignoreCase = true) && !msg.mimeType.equals("image/gif", ignoreCase = true))
+    val isImageGif = msg.mimeType.equals("image/gif", ignoreCase = true) ||
+        mediaFile?.extension.equals("gif", ignoreCase = true) == true
     val isAudio = msg.msgType.uppercase() == "PTT" || msg.msgType.uppercase() == "AUDIO" ||
         msg.mimeType.startsWith("audio/", ignoreCase = true)
 
@@ -474,6 +478,17 @@ private fun MediaLightboxPage(
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black))
             }
+        }
+
+        isImageGif && mediaFile != null -> {
+            coil.compose.AsyncImage(
+                model = mediaFile,
+                contentDescription = msg.body,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(onClick = onToggleChrome)
+            )
         }
 
         isVideo && mediaFile != null -> {

@@ -483,22 +483,22 @@ class MainActivity : FragmentActivity() {
                             val data = shareData
                             pendingShareData.value = null
                             if (data != null && targetJids.isNotEmpty()) {
-                                for (targetJid in targetJids) {
-                                    if (data.uris.isNotEmpty()) {
+                                if (data.uris.isNotEmpty()) {
+                                    lifecycleScope.launch {
                                         for (u in data.uris) {
-                                            lifecycleScope.launch {
-                                                val staged = vm.stageMediaForPreview(u, data.mimeType)
-                                                if (staged != null) {
-                                                    vm.sendStagedMedia(
-                                                        chatJid = targetJid,
-                                                        staged = staged,
-                                                        caption = data.text.orEmpty(),
-                                                        qualityMode = com.wa.beastclient.data.media.OutboundQualityMode.STANDARD
-                                                    )
-                                                }
+                                            val staged = vm.stageMediaForPreview(u, data.mimeType) ?: continue
+                                            for (targetJid in targetJids) {
+                                                vm.sendStagedMedia(
+                                                    chatJid = targetJid,
+                                                    staged = staged,
+                                                    caption = data.text.orEmpty(),
+                                                    qualityMode = com.wa.beastclient.data.media.OutboundQualityMode.STANDARD
+                                                )
                                             }
                                         }
-                                    } else if (!data.text.isNullOrBlank()) {
+                                    }
+                                } else if (!data.text.isNullOrBlank()) {
+                                    for (targetJid in targetJids) {
                                         vm.sendText(
                                             chatJid = targetJid,
                                             text = data.text,

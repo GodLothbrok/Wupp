@@ -1254,6 +1254,9 @@ fun HomeScreen(
                         statuses = statuses,
                         channels = channels,
                         allChats = allChats,
+                        allContacts = allContacts,
+                        hiddenLockedJids = hiddenLockedJids,
+                        preferPhonebookNames = stealth.preferPhonebookContactNames,
                         ownJid = bridgeStatus.ownJid,
                         searchQuery = searchQuery,
                         listState = updatesListState,
@@ -3245,6 +3248,9 @@ private fun UpdatesStatusTab(
     statuses: List<StatusEntity>,
     channels: List<ChatEntity>,
     allChats: List<ChatEntity>,
+    allContacts: List<ContactEntity> = emptyList(),
+    hiddenLockedJids: Set<String> = emptySet(),
+    preferPhonebookNames: Boolean = false,
     ownJid: String = "",
     searchQuery: String,
     listState: LazyListState,
@@ -3258,6 +3264,18 @@ private fun UpdatesStatusTab(
 ) {
     val colors = LocalWaColors.current
     val (chatsByJid, chatsByUser) = remember(allChats) { buildStatusChatLookup(allChats) }
+    val (contactsByJid, contactsByUser) = remember(allContacts) {
+        val byJid = HashMap<String, ContactEntity>(allContacts.size * 2)
+        val byUser = HashMap<String, ContactEntity>(allContacts.size * 2)
+        for (c in allContacts) {
+            val norm = normalizeStatusSenderJid(c.jid)
+            byJid[c.jid] = c
+            byJid[norm] = c
+            val user = norm.substringBefore("@").trim()
+            if (user.isNotBlank()) byUser[user] = c
+        }
+        byJid to byUser
+    }
     val (ownStatuses, contactStatuses) = remember(statuses, ownJid) {
         partitionOwnAndContactStatuses(statuses, ownJid, filterExpired = true)
     }
@@ -3265,14 +3283,21 @@ private fun UpdatesStatusTab(
     val ownAvatarPath = remember(ownJid, chatsByJid, chatsByUser) {
         if (ownJid.isBlank()) null else resolveStatusSenderChat(ownJid, chatsByJid, chatsByUser)?.avatarPath
     }
-    val groupedStatuses = remember(contactStatuses, allChats, searchQuery) {
+    val groupedStatuses = remember(contactStatuses, allChats, allContacts, hiddenLockedJids, preferPhonebookNames, searchQuery) {
+        val visibleStatuses = if (hiddenLockedJids.isEmpty()) contactStatuses else contactStatuses.filter { st ->
+            val norm = normalizeStatusSenderJid(st.senderJid)
+            val bare = norm.substringBefore("@").trim()
+            st.senderJid !in hiddenLockedJids && norm !in hiddenLockedJids && bare !in hiddenLockedJids
+        }
         val q = searchQuery.trim().lowercase()
-        val summaries = buildContactStatusSummaries(contactStatuses)
+        val summaries = buildContactStatusSummaries(visibleStatuses)
         if (q.isEmpty()) summaries
         else summaries.filter { summary ->
             val st = summary.representativeStatus
             val senderChat = resolveStatusSenderChat(st.senderJid, chatsByJid, chatsByUser)
-            val name = resolveStatusDisplayName(st.senderJid, st.senderName, senderChat)
+            val norm = normalizeStatusSenderJid(st.senderJid)
+            val senderContact = contactsByJid[st.senderJid] ?: contactsByJid[norm] ?: contactsByUser[norm.substringBefore("@").trim()]
+            val name = resolveStatusDisplayName(st.senderJid, st.senderName, senderChat, senderContact, preferPhonebookNames)
             name.lowercase().contains(q) || summary.items.any { it.caption.lowercase().contains(q) }
         }
     }
@@ -3410,7 +3435,9 @@ private fun UpdatesStatusTab(
                 items(groupedStatuses, key = { "status_vert_${it.senderKey}" }) { summary ->
                     val st = summary.representativeStatus
                     val senderChat = resolveStatusSenderChat(st.senderJid, chatsByJid, chatsByUser)
-                    val displayName = resolveStatusDisplayName(st.senderJid, st.senderName, senderChat)
+                    val norm = normalizeStatusSenderJid(st.senderJid)
+                    val senderContact = contactsByJid[st.senderJid] ?: contactsByJid[norm] ?: contactsByUser[norm.substringBefore("@").trim()]
+                    val displayName = resolveStatusDisplayName(st.senderJid, st.senderName, senderChat, senderContact, preferPhonebookNames)
                     val ringColor = when {
                         summary.hasRevoked -> colors.antiDeleteRed
                         summary.hasUnviewed -> colors.brightGreen
@@ -3493,9 +3520,13 @@ private fun UpdatesStatusTab(
                     items(groupedStatuses, key = { "status_card_${it.senderKey}" }) { summary ->
                         val st = summary.representativeStatus
                         val senderChat = resolveStatusSenderChat(st.senderJid, chatsByJid, chatsByUser)
+                        val norm = normalizeStatusSenderJid(st.senderJid)
+                        val senderContact = contactsByJid[st.senderJid] ?: contactsByJid[norm] ?: contactsByUser[norm.substringBefore("@").trim()]
                         StatusStoryCard(
                             status = st,
                             senderChat = senderChat,
+                            senderContact = senderContact,
+                            preferPhonebookNames = preferPhonebookNames,
                             hasUnviewed = summary.hasUnviewed,
                             hasRevoked = summary.hasRevoked,
                             onClick = { onOpenStatus(st) }
@@ -3756,15 +3787,19 @@ private fun resolveStatusSenderChat(
         ?: chatsByUser[norm.substringBefore("@").trim()]
 }
 
-private fun resolveStatusDisplayName(
+internal fun resolveStatusDisplayName(
     senderJid: String,
     storedName: String,
-    senderChat: ChatEntity?
+    senderChat: ChatEntity?,
+    senderContact: ContactEntity? = null,
+    preferPhonebookNames: Boolean = false
 ): String {
     val chatName = senderChat?.name?.trim().orEmpty()
+    val contactName = senderContact?.name?.trim().orEmpty()
     val norm = normalizeStatusSenderJid(senderJid)
     val user = norm.substringBefore("@")
     val chatUseful = chatName.isNotBlank() && chatName != senderJid && chatName != norm && chatName != user
+    val contactUseful = contactName.isNotBlank() && contactName != senderJid && contactName != norm && contactName != user
     val storedClean = storedName.trim()
     val storedUseful = storedClean.isNotBlank() &&
         storedClean != "Status" &&
@@ -3772,9 +3807,12 @@ private fun resolveStatusDisplayName(
         storedClean != norm &&
         storedClean != user
     return when {
+        preferPhonebookNames && contactUseful && !isPhoneLikeDisplayName(contactName) -> contactName
         chatUseful && !isPhoneLikeDisplayName(chatName) -> chatName
+        contactUseful && !isPhoneLikeDisplayName(contactName) -> contactName
         storedUseful && !isPhoneLikeDisplayName(storedClean) -> storedClean
         chatUseful -> chatName
+        contactUseful -> contactName
         storedUseful -> storedClean
         else -> user.ifBlank { "Status" }
     }
@@ -3784,6 +3822,8 @@ private fun resolveStatusDisplayName(
 private fun StatusStoryCard(
     status: StatusEntity,
     senderChat: ChatEntity?,
+    senderContact: ContactEntity? = null,
+    preferPhonebookNames: Boolean = false,
     hasUnviewed: Boolean,
     hasRevoked: Boolean,
     onClick: () -> Unit
@@ -3801,7 +3841,13 @@ private fun StatusStoryCard(
             WaRealtimeService.requestStatusMediaDownload(context, status, userInitiated = false)
         }
     }
-    val displayName = resolveStatusDisplayName(status.senderJid, status.senderName, senderChat)
+    val displayName = resolveStatusDisplayName(
+        senderJid = status.senderJid,
+        storedName = status.senderName,
+        senderChat = senderChat,
+        senderContact = senderContact,
+        preferPhonebookNames = preferPhonebookNames
+    )
 
     Box(
         modifier = Modifier
