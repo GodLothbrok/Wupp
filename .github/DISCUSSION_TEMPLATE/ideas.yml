@@ -1,0 +1,33 @@
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Pitch new features, UI improvements, or quality-of-life tweaks here so the community can upvote and discuss them before they become tracked Issues.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Chats & Messaging
+        - Calling (Voice / Video)
+        - Privacy, Stealth & App Lock
+        - Themes & UI
+        - Media & Vault
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What's your idea?
+      description: Describe how it should look or behave in simple terms.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would this help?
+      description: Share the problem it solves or how you'd use it daily.
+    validations:
+      required: false

@@ -1,0 +1,20 @@
+title: "[Showcase] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share your Wupp setup, Material 3 theme tweaks, or daily-driver experience. Blur phone numbers, names, and private messages before uploading screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: Wupp version & device
+      placeholder: e.g. v0.3.8-pre.4 on Pixel 8 (Android 15)
+    validations:
+      required: false
+  - type: textarea
+    id: showcase
+    attributes:
+      label: What are you sharing?
+      description: Drop screenshots, theme settings, or notes on how Wupp runs for you.
+    validations:
+      required: true

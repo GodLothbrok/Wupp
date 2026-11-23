@@ -2,7 +2,8 @@
 
 ## Reporting issues and requesting features
 
-You can file an issue from inside Wupp (**Settings > Updates & GitHub Support**) or directly from the GitHub issue forms. Include your Wupp version, Android version, device model, and steps to reproduce when reporting a bug.
+- **Questions, setup help, and open ideas:** Use [GitHub Discussions](https://github.com/hanzalaramz/Wupp/discussions) (`Q&A`, `Ideas`, `General`, or `Show and tell`).
+- **Bugs and confirmed feature requests:** File an issue from inside Wupp (**Settings > Updates & GitHub Support**) or through the GitHub issue forms. Include your Wupp version, Android version, device model, and steps to reproduce when reporting a bug.
 
 ## Pull requests
 

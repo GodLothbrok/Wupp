@@ -1,0 +1,20 @@
+title: ""
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hang out, share device test notes, or talk about anything Wupp-related. (For crashes or broken features, please open a Bug Report under Issues.)
+  - type: input
+    id: environment
+    attributes:
+      label: Device & Wupp version (optional)
+      placeholder: e.g. Redmi Note 12 / Android 14 / v0.3.8-pre.4
+    validations:
+      required: false
+  - type: textarea
+    id: message
+    attributes:
+      label: Your thoughts
+      description: Share device feedback, suggestions, or general discussion.
+    validations:
+      required: true

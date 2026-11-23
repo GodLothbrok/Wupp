@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions & Setup Help (Discussions Q&A)
+    url: https://github.com/hanzalaramz/Wupp/discussions/new?category=q-a
+    about: Ask how Wupp features work or get device setup help from the community
+  - name: Ideas, Device Reports & General Chat
+    url: https://github.com/hanzalaramz/Wupp/discussions
+    about: Share feature ideas, test results, or open feedback before filing an issue
   - name: Releases & APK Downloads
     url: https://github.com/hanzalaramz/Wupp/releases
     about: Check the latest official Wupp APK releases and changelogs

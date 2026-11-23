@@ -16,7 +16,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/hanzalaramz/Wupp/releases"><b>Download latest APK from Releases</b></a>
+  <a href="https://github.com/hanzalaramz/Wupp/releases"><b>Download latest APK from Releases</b></a> ·
+  <a href="https://github.com/hanzalaramz/Wupp/discussions"><b>Community Discussions</b></a>
 </p>
 
 Use your existing WhatsApp account, chats, groups, status updates, and channels in a native Jetpack Compose client, built with **connection and rate-limit safeguards**, per-feature privacy switches, and built-in GitHub updates.
@@ -80,7 +81,7 @@ Chats, decrypted media, session keys, and preferences remain on your device.
 
 ## Bugs, features, and feedback
 
-Inside Wupp, open **Settings > Updates & GitHub Support** or tap the top-right overflow menu and choose **Report bug / Feedback**. Submitting on GitHub requires a GitHub account in your browser, or you can copy the formatted report text directly from the dialog. You can also file an issue directly on [GitHub Issues](https://github.com/hanzalaramz/Wupp/issues).
+Inside Wupp, open **Settings > Updates & GitHub Support** or tap the top-right overflow menu and choose **Report bug / Feedback**. Submitting on GitHub requires a GitHub account in your browser, or you can copy the formatted report text directly from the dialog. Use [GitHub Discussions](https://github.com/hanzalaramz/Wupp/discussions) for setup questions, device reports, and feature ideas, or [GitHub Issues](https://github.com/hanzalaramz/Wupp/issues) for bugs.
 
 ## Disclaimer
 

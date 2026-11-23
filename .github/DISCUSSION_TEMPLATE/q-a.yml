@@ -1,0 +1,29 @@
+title: "[Q&A] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask setup, companion-link, calling, or usage questions here. If someone's reply solves your question, mark it as the answer so others can find it fast.
+  - type: input
+    id: version
+    attributes:
+      label: Wupp version
+      description: Example - v0.3.8-pre.4
+      placeholder: v0.3.8-pre.4
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone model & Android version
+      description: Example - Pixel 8 / Android 15
+      placeholder: Phone model, Android version
+    validations:
+      required: false
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      description: Explain what you're trying to do and what you already tried.
+    validations:
+      required: true
