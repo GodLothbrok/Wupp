@@ -2,20 +2,26 @@ package com.wa.beastclient.data.media
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.wa.beastclient.domain.accounts.AccountManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Manages locally favorited stickers with persistent SharedPreferences storage.
+ * Manages locally favorited stickers with persistent SharedPreferences storage scoped per active account.
  * Keys are matched against message SHA-256 hashes, local file paths, or message IDs.
  */
 class StickerFavoritesStore private constructor(context: Context) {
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("wupp_sticker_favorites", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs: SharedPreferences
+        get() = AccountManager.getScopedPreferences(appContext, "wupp_sticker_favorites")
 
     private val _favorites = MutableStateFlow<Set<String>>(loadFavorites())
     val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
+
+    fun reloadForActiveAccount() {
+        _favorites.value = loadFavorites()
+    }
 
     private fun loadFavorites(): Set<String> {
         val raw = prefs.getStringSet(KEY_FAVORITES, null) ?: emptySet()

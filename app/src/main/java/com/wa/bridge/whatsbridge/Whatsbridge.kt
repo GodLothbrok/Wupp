@@ -40,6 +40,9 @@ object Whatsbridge {
     fun disconnectClient() = nativeDisconnectClient()
 
     @JvmStatic
+    fun shutdownClient() = nativeShutdownClient()
+
+    @JvmStatic
     fun resetSocket() = nativeResetSocket()
 
     @JvmStatic
@@ -325,6 +328,7 @@ object Whatsbridge {
     private external fun nativeSetGhostPresence(enabled: Boolean)
     private external fun nativeConnectClient()
     private external fun nativeDisconnectClient()
+    private external fun nativeShutdownClient()
     private external fun nativeResetSocket()
     private external fun nativeIsLoggedIn(): Boolean
     private external fun nativeIsConnected(): Boolean

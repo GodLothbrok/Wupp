@@ -36,6 +36,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -175,6 +176,10 @@ class MainActivity : FragmentActivity() {
             val appLockConfig by vm.appLockConfig.collectAsState()
             val isAppLocked by vm.isAppLocked.collectAsState()
             val bridgeStatus by vm.bridgeStatus.collectAsState()
+            val accounts by vm.accounts.collectAsState()
+            val activeAccountId by vm.activeAccountId.collectAsState()
+            val accountGeneration by vm.accountGeneration.collectAsState()
+            val isSwitchingAccount by vm.isSwitchingAccount.collectAsState()
             val callUiState by CallStateManager.uiState.collectAsState()
             val updateState by vm.updateState.collectAsState()
             val showUpdatePrompt by vm.showUpdatePrompt.collectAsState()
@@ -197,6 +202,11 @@ class MainActivity : FragmentActivity() {
                 officialMuteConfirmed = stealth.officialCallMuteConfirmed,
                 suppressWhenOfficialInstalled = stealth.suppressIncomingRingWhenOfficialInstalled
             )
+
+            LaunchedEffect(accountGeneration) {
+                selectedChatJid = null
+                activeContactInfoJid = null
+            }
 
             LaunchedEffect(appLockConfig) {
                 AppLockManager.applyWindowSecureFlag(this@MainActivity, appLockConfig)
@@ -303,116 +313,125 @@ class MainActivity : FragmentActivity() {
                     LinkDeviceScreen(
                         bridgeStatus = bridgeStatus,
                         onPairPhone = { phone, onCode -> vm.pairWithPhoneNumber(phone, onCode) },
-                        onRefreshConnection = { vm.reconnectSocket() }
+                        onRefreshConnection = { vm.reconnectSocket() },
+                        accounts = accounts,
+                        activeAccountId = activeAccountId,
+                        isSwitchingAccount = isSwitchingAccount,
+                        onSwitchAccount = { vm.switchAccount(it) },
+                        onAddAccount = { vm.addAndSwitchAccount(it) },
+                        onRenameAccount = { id, label -> vm.renameAccount(id, label) },
+                        onRemoveAccount = { vm.removeInactiveAccount(it) }
                     )
                 } else {
-                    var homeTab by rememberSaveable { mutableIntStateOf(0) }
-                    val chatsListState = rememberLazyListState()
-                    val groupsListState = rememberLazyListState()
-                    val updatesListState = rememberLazyListState()
-                    val communitiesListState = rememberLazyListState()
-                    val callsListState = rememberLazyListState()
-                    val toolsListState = rememberLazyListState()
+                    key(activeAccountId, accountGeneration) {
+                        var homeTab by rememberSaveable { mutableIntStateOf(0) }
+                        val chatsListState = rememberLazyListState()
+                        val groupsListState = rememberLazyListState()
+                        val updatesListState = rememberLazyListState()
+                        val communitiesListState = rememberLazyListState()
+                        val callsListState = rememberLazyListState()
+                        val toolsListState = rememberLazyListState()
 
-                    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                    AnimatedContent(
-                        targetState = activeContactInfoJid,
-                        transitionSpec = {
-                            if (targetState != null) {
-                                (slideInHorizontally(
-                                    animationSpec = motionScheme.defaultSpatialSpec()
-                                ) { it / 3 } + scaleIn(
-                                    initialScale = 0.96f,
-                                    animationSpec = motionScheme.defaultSpatialSpec()
-                                ) + fadeIn(
-                                    animationSpec = motionScheme.fastEffectsSpec()
-                                )) togetherWith (slideOutHorizontally(
-                                    animationSpec = motionScheme.defaultSpatialSpec()
-                                ) { -it / 6 } + fadeOut(
-                                    animationSpec = motionScheme.fastEffectsSpec()
-                                ))
-                            } else {
-                                (slideInHorizontally(
-                                    animationSpec = motionScheme.defaultSpatialSpec()
-                                ) { -it / 6 } + fadeIn(
-                                    animationSpec = motionScheme.fastEffectsSpec()
-                                )) togetherWith (slideOutHorizontally(
-                                    animationSpec = motionScheme.defaultSpatialSpec()
-                                ) { it / 3 } + scaleOut(
-                                    targetScale = 0.96f,
-                                    animationSpec = motionScheme.defaultSpatialSpec()
-                                ) + fadeOut(
-                                    animationSpec = motionScheme.fastEffectsSpec()
-                                ))
-                            }
-                        },
-                        label = "contact_info_route"
-                    ) { infoJid ->
-                        if (infoJid != null) {
-                            ContactInfoScreen(
-                                chatJid = infoJid,
-                                viewModel = vm,
-                                onBack = { activeContactInfoJid = null },
-                                onOpenChat = { jid ->
-                                    activeContactInfoJid = null
-                                    selectedChatJid = jid
-                                }
-                            )
-                        } else {
-                            AnimatedContent(
-                                targetState = selectedChatJid,
-                                transitionSpec = {
-                                    if (targetState != null) {
-                                        (slideInHorizontally(
-                                            animationSpec = motionScheme.defaultSpatialSpec()
-                                        ) { it / 3 } + scaleIn(
-                                            initialScale = 0.96f,
-                                            animationSpec = motionScheme.defaultSpatialSpec()
-                                        ) + fadeIn(
-                                            animationSpec = motionScheme.fastEffectsSpec()
-                                        )) togetherWith (slideOutHorizontally(
-                                            animationSpec = motionScheme.defaultSpatialSpec()
-                                        ) { -it / 6 } + fadeOut(
-                                            animationSpec = motionScheme.fastEffectsSpec()
-                                        ))
-                                    } else {
-                                        (slideInHorizontally(
-                                            animationSpec = motionScheme.defaultSpatialSpec()
-                                        ) { -it / 6 } + fadeIn(
-                                            animationSpec = motionScheme.fastEffectsSpec()
-                                        )) togetherWith (slideOutHorizontally(
-                                            animationSpec = motionScheme.defaultSpatialSpec()
-                                        ) { it / 3 } + scaleOut(
-                                            targetScale = 0.96f,
-                                            animationSpec = motionScheme.defaultSpatialSpec()
-                                        ) + fadeOut(
-                                            animationSpec = motionScheme.fastEffectsSpec()
-                                        ))
-                                    }
-                                },
-                                label = "home_chat_route"
-                            ) { activeJid ->
-                                if (activeJid == null) {
-                                    HomeScreen(
-                                        viewModel = vm,
-                                        onOpenChat = { jid -> selectedChatJid = jid },
-                                        onOpenContactInfo = { jid -> activeContactInfoJid = jid },
-                                        currentTab = homeTab,
-                                        onSelectTab = { homeTab = it },
-                                        chatsListState = chatsListState,
-                                        groupsListState = groupsListState,
-                                        updatesListState = updatesListState,
-                                        communitiesListState = communitiesListState,
-                                        callsListState = callsListState,
-                                        toolsListState = toolsListState
-                                    )
+                        @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                        AnimatedContent(
+                            targetState = activeContactInfoJid,
+                            transitionSpec = {
+                                if (targetState != null) {
+                                    (slideInHorizontally(
+                                        animationSpec = motionScheme.defaultSpatialSpec()
+                                    ) { it / 3 } + scaleIn(
+                                        initialScale = 0.96f,
+                                        animationSpec = motionScheme.defaultSpatialSpec()
+                                    ) + fadeIn(
+                                        animationSpec = motionScheme.fastEffectsSpec()
+                                    )) togetherWith (slideOutHorizontally(
+                                        animationSpec = motionScheme.defaultSpatialSpec()
+                                    ) { -it / 6 } + fadeOut(
+                                        animationSpec = motionScheme.fastEffectsSpec()
+                                    ))
                                 } else {
-                                    ChatScreen(
-                                        chatJid = activeJid,
-                                        viewModel = vm,
-                                        onBack = { selectedChatJid = null },
-                                        onOpenContactInfo = { jid -> activeContactInfoJid = jid }
-                                    )
+                                    (slideInHorizontally(
+                                        animationSpec = motionScheme.defaultSpatialSpec()
+                                    ) { -it / 6 } + fadeIn(
+                                        animationSpec = motionScheme.fastEffectsSpec()
+                                    )) togetherWith (slideOutHorizontally(
+                                        animationSpec = motionScheme.defaultSpatialSpec()
+                                    ) { it / 3 } + scaleOut(
+                                        targetScale = 0.96f,
+                                        animationSpec = motionScheme.defaultSpatialSpec()
+                                    ) + fadeOut(
+                                        animationSpec = motionScheme.fastEffectsSpec()
+                                    ))
+                                }
+                            },
+                            label = "contact_info_route"
+                        ) { infoJid ->
+                            if (infoJid != null) {
+                                ContactInfoScreen(
+                                    chatJid = infoJid,
+                                    viewModel = vm,
+                                    onBack = { activeContactInfoJid = null },
+                                    onOpenChat = { jid ->
+                                        activeContactInfoJid = null
+                                        selectedChatJid = jid
+                                    }
+                                )
+                            } else {
+                                AnimatedContent(
+                                    targetState = selectedChatJid,
+                                    transitionSpec = {
+                                        if (targetState != null) {
+                                            (slideInHorizontally(
+                                                animationSpec = motionScheme.defaultSpatialSpec()
+                                            ) { it / 3 } + scaleIn(
+                                                initialScale = 0.96f,
+                                                animationSpec = motionScheme.defaultSpatialSpec()
+                                            ) + fadeIn(
+                                                animationSpec = motionScheme.fastEffectsSpec()
+                                            )) togetherWith (slideOutHorizontally(
+                                                animationSpec = motionScheme.defaultSpatialSpec()
+                                            ) { -it / 6 } + fadeOut(
+                                                animationSpec = motionScheme.fastEffectsSpec()
+                                            ))
+                                        } else {
+                                            (slideInHorizontally(
+                                                animationSpec = motionScheme.defaultSpatialSpec()
+                                            ) { -it / 6 } + fadeIn(
+                                                animationSpec = motionScheme.fastEffectsSpec()
+                                            )) togetherWith (slideOutHorizontally(
+                                                animationSpec = motionScheme.defaultSpatialSpec()
+                                            ) { it / 3 } + scaleOut(
+                                                targetScale = 0.96f,
+                                                animationSpec = motionScheme.defaultSpatialSpec()
+                                            ) + fadeOut(
+                                                animationSpec = motionScheme.fastEffectsSpec()
+                                            ))
+                                        }
+                                    },
+                                    label = "home_chat_route"
+                                ) { activeJid ->
+                                    if (activeJid == null) {
+                                        HomeScreen(
+                                            viewModel = vm,
+                                            onOpenChat = { jid -> selectedChatJid = jid },
+                                            onOpenContactInfo = { jid -> activeContactInfoJid = jid },
+                                            currentTab = homeTab,
+                                            onSelectTab = { homeTab = it },
+                                            chatsListState = chatsListState,
+                                            groupsListState = groupsListState,
+                                            updatesListState = updatesListState,
+                                            communitiesListState = communitiesListState,
+                                            callsListState = callsListState,
+                                            toolsListState = toolsListState
+                                        )
+                                    } else {
+                                        ChatScreen(
+                                            chatJid = activeJid,
+                                            viewModel = vm,
+                                            onBack = { selectedChatJid = null },
+                                            onOpenContactInfo = { jid -> activeContactInfoJid = jid }
+                                        )
+                                    }
                                 }
                             }
                         }

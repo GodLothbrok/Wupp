@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -237,10 +238,12 @@ fun ExpressiveSegmentedContainer(
 fun ExpressiveSegmentedSwitchRow(
     icon: ImageVector,
     title: String,
-    subtitle: String,
+    subtitle: String = "",
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    position: ExpressiveSegmentPosition = ExpressiveSegmentPosition.MIDDLE
+    position: ExpressiveSegmentPosition = ExpressiveSegmentPosition.MIDDLE,
+    enabled: Boolean = true,
+    onInfoClick: (() -> Unit)? = null
 ) {
     val colors = LocalWaColors.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -249,45 +252,76 @@ fun ExpressiveSegmentedSwitchRow(
     ExpressiveSegmentedContainer(
         position = position,
         highlighted = false,
-        modifier = Modifier.expressivePressScale(interactionSource)
+        modifier = Modifier
+            .then(if (enabled) Modifier.expressivePressScale(interactionSource) else Modifier)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.46f }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shape)
                 .clickable(
+                    enabled = enabled,
                     interactionSource = interactionSource,
                     indication = null,
                     onClick = { onCheckedChange(!checked) }
                 )
-                .padding(horizontal = 15.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = if (subtitle.isBlank()) 11.dp else 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             ExpressiveIconBadge(
                 icon = icon,
                 contentDescription = title,
-                active = checked
+                active = checked && enabled
             )
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = colors.textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    color = colors.textSecondary,
-                    fontSize = 12.5.sp,
-                    lineHeight = 16.5.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = colors.textPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (onInfoClick != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .clickable(onClick = onInfoClick),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Info,
+                                contentDescription = "Info about $title",
+                                tint = colors.textSecondary.copy(alpha = 0.75f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                if (subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        color = colors.textSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(10.dp))
             ExpressiveSwitch(
                 checked = checked,
-                onCheckedChange = onCheckedChange
+                onCheckedChange = { if (enabled) onCheckedChange(it) }
             )
         }
     }
@@ -298,31 +332,36 @@ fun ExpressiveSegmentedSwitchRow(
 fun ExpressiveSegmentedActionRow(
     icon: ImageVector,
     title: String,
-    subtitle: String,
+    subtitle: String = "",
     badgeText: String? = null,
     position: ExpressiveSegmentPosition = ExpressiveSegmentPosition.MIDDLE,
+    enabled: Boolean = true,
+    onInfoClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val colors = LocalWaColors.current
-    val highlighted = !badgeText.isNullOrBlank()
+    val highlighted = !badgeText.isNullOrBlank() && enabled
     val interactionSource = remember { MutableInteractionSource() }
     val shape = expressiveSegmentShape(position)
 
     ExpressiveSegmentedContainer(
         position = position,
         highlighted = false,
-        modifier = Modifier.expressivePressScale(interactionSource)
+        modifier = Modifier
+            .then(if (enabled) Modifier.expressivePressScale(interactionSource) else Modifier)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.46f }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shape)
                 .clickable(
+                    enabled = enabled,
                     interactionSource = interactionSource,
                     indication = null,
                     onClick = onClick
                 )
-                .padding(horizontal = 15.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = if (subtitle.isBlank()) 11.dp else 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             ExpressiveIconBadge(
@@ -330,23 +369,49 @@ fun ExpressiveSegmentedActionRow(
                 contentDescription = title,
                 active = highlighted
             )
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = colors.textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    color = colors.textSecondary,
-                    fontSize = 12.5.sp,
-                    lineHeight = 16.5.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = colors.textPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (onInfoClick != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .clickable(onClick = onInfoClick),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Info,
+                                contentDescription = "Info about $title",
+                                tint = colors.textSecondary.copy(alpha = 0.75f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                if (subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        color = colors.textSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             if (!badgeText.isNullOrBlank()) {
                 Spacer(modifier = Modifier.width(8.dp))
@@ -372,6 +437,72 @@ fun ExpressiveSegmentedActionRow(
                     modifier = Modifier.size(19.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun ExpressiveSegmentedSliderRow(
+    icon: ImageVector,
+    title: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    steps: Int = 0,
+    position: ExpressiveSegmentPosition = ExpressiveSegmentPosition.MIDDLE,
+    onClick: (() -> Unit)? = null
+) {
+    val colors = LocalWaColors.current
+    val shape = expressiveSegmentShape(position)
+    ExpressiveSegmentedContainer(position = position) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ExpressiveIconBadge(
+                    icon = icon,
+                    contentDescription = title,
+                    active = true
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        color = colors.textPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = valueLabel,
+                        color = colors.accentGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            androidx.compose.material3.Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                steps = steps,
+                colors = androidx.compose.material3.SliderDefaults.colors(
+                    thumbColor = colors.accentGreen,
+                    activeTrackColor = colors.accentGreen,
+                    inactiveTrackColor = colors.pillInactiveBg
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 54.dp)
+            )
         }
     }
 }

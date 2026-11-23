@@ -108,11 +108,13 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.VolumeUp
@@ -228,6 +230,7 @@ import com.wa.beastclient.ui.components.ExpressiveSegmentPosition
 import com.wa.beastclient.ui.components.ExpressiveSegmentedActionRow
 import com.wa.beastclient.ui.components.ExpressiveSegmentedContainer
 import com.wa.beastclient.ui.components.ExpressiveSegmentedGroup
+import com.wa.beastclient.ui.components.ExpressiveSegmentedSliderRow
 import com.wa.beastclient.ui.components.ExpressiveSegmentedSwitchRow
 import com.wa.beastclient.ui.components.FullScreenMediaViewer
 import com.wa.beastclient.ui.components.FullScreenStatusViewer
@@ -243,6 +246,8 @@ import com.wa.beastclient.ui.components.buildContactStatusSummaries
 import com.wa.beastclient.ui.components.formatFontScaleLabel
 import com.wa.beastclient.ui.components.isOwnStatusSender
 import com.wa.beastclient.ui.components.partitionOwnAndContactStatuses
+import androidx.compose.material.icons.rounded.ManageAccounts
+import com.wa.beastclient.ui.components.AccountSwitcherSheet
 import com.wa.beastclient.ui.components.GitHubFeedbackDialog
 import com.wa.beastclient.ui.components.GitHubFeedbackType
 import com.wa.beastclient.ui.MainViewModel
@@ -424,6 +429,7 @@ fun HomeScreen(
     var activeVaultViewer by remember { mutableStateOf<MessageEntity?>(null) }
     var activeFeedbackType by remember { mutableStateOf<GitHubFeedbackType?>(null) }
     var showThemePickerDialog by remember { mutableStateOf(false) }
+    var showAccountSwitcherSheet by remember { mutableStateOf(false) }
     var showMediaVaultSheet by remember { mutableStateOf(false) }
     var showMessageHistorySheet by remember { mutableStateOf(false) }
     var messageHistoryChatFilter by remember { mutableStateOf<String?>(null) }
@@ -901,6 +907,14 @@ fun HomeScreen(
                                 onClick = {
                                     overflowExpanded = false
                                     showPairingDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Switch account") },
+                                leadingIcon = { Icon(Icons.Rounded.ManageAccounts, null) },
+                                onClick = {
+                                    overflowExpanded = false
+                                    showAccountSwitcherSheet = true
                                 }
                             )
                             DropdownMenuItem(
@@ -1512,6 +1526,22 @@ fun HomeScreen(
             canSendNow = false,
             onSaveToPack = { bmp, label -> viewModel.saveCustomSticker(bmp, label) },
             onDismiss = { showStickerStudioDialog = false }
+        )
+    }
+
+    if (showAccountSwitcherSheet) {
+        val accounts by viewModel.accounts.collectAsState()
+        val activeAccountId by viewModel.activeAccountId.collectAsState()
+        val isSwitchingAccount by viewModel.isSwitchingAccount.collectAsState()
+        AccountSwitcherSheet(
+            accounts = accounts,
+            activeAccountId = activeAccountId,
+            isSwitching = isSwitchingAccount,
+            onSelectAccount = { viewModel.switchAccount(it) },
+            onAddAccount = { viewModel.addAndSwitchAccount(it) },
+            onRenameAccount = { id, label -> viewModel.renameAccount(id, label) },
+            onRemoveAccount = { viewModel.removeInactiveAccount(it) },
+            onDismiss = { showAccountSwitcherSheet = false }
         )
     }
 
@@ -4364,6 +4394,22 @@ private fun CommunityAvatarBox(
     }
 }
 
+private enum class SettingsCategory(
+    val label: String,
+    val icon: ImageVector
+) {
+    ALL("All", Icons.Rounded.Tune),
+    PRIVACY("Privacy", Icons.Rounded.VisibilityOff),
+    ACCOUNT("Account", Icons.Rounded.ManageAccounts),
+    CALLS("Calls", Icons.Rounded.Call),
+    VAULTS("Vaults", Icons.Rounded.Shield),
+    MEDIA("Media", Icons.Rounded.CloudDownload),
+    APPEARANCE("Appearance", Icons.Rounded.Palette),
+    LOOKS("Looks", Icons.Rounded.ViewAgenda),
+    ALERTS("Alerts", Icons.Rounded.Notifications),
+    UPDATES("Updates", Icons.Rounded.SystemUpdate)
+}
+
 @Composable
 private fun ToolsVaultTab(
     viewModel: MainViewModel,
@@ -4378,13 +4424,21 @@ private fun ToolsVaultTab(
 ) {
     val context = LocalContext.current
     val tabScope = rememberCoroutineScope()
+    val colors = LocalWaColors.current
     val stealth by viewModel.stealthConfig.collectAsState()
     val appLockConfig by viewModel.appLockConfig.collectAsState()
     val bridgeStatus by viewModel.bridgeStatus.collectAsState()
     val allChats by viewModel.allChats.collectAsState()
+    val accounts by viewModel.accounts.collectAsState()
+    val activeAccountId by viewModel.activeAccountId.collectAsState()
+    val isSwitchingAccount by viewModel.isSwitchingAccount.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val includePreReleases by viewModel.includePreReleases.collectAsState()
     var ownProfile by remember { mutableStateOf(OwnProfileUi()) }
+    var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.ALL) }
+    var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
+    var infoDialogContent by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showAccountSwitcherSheet by remember { mutableStateOf(false) }
     var showProfileEditorDialog by remember { mutableStateOf(false) }
     var showAccountPrivacyDialog by remember { mutableStateOf(false) }
     var showBlockedContactsDialog by remember { mutableStateOf(false) }
@@ -4442,803 +4496,1188 @@ private fun ToolsVaultTab(
         onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            top = 14.dp,
-            end = 16.dp,
-            bottom = bottomPadding + 16.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        item(key = "patch_section_profile_card") {
-            val ownAvatarPath = remember(bridgeStatus.ownJid, allChats) {
-                val ownUser = bridgeStatus.ownJid.substringBefore("@").substringBefore(":")
-                allChats.firstOrNull { ch ->
-                    !ch.avatarPath.isNullOrBlank() &&
-                        ownUser.isNotBlank() &&
-                        ch.jid.substringBefore("@").substringBefore(":") == ownUser
-                }?.avatarPath
-            }
-            SettingsProfileHeaderCard(
-                ownJid = bridgeStatus.ownJid,
-                profile = ownProfile,
-                avatarPath = ownAvatarPath,
-                onClick = { showProfileEditorDialog = true }
-            )
-        }
+    val normalizedQuery = settingsSearchQuery.trim().lowercase()
+    val isSearching = normalizedQuery.isNotEmpty()
+    fun matchesSearch(vararg fields: String): Boolean {
+        if (!isSearching) return true
+        return fields.any { it.lowercase().contains(normalizedQuery) }
+    }
+    fun showCategory(cat: SettingsCategory): Boolean =
+        isSearching || selectedCategory == SettingsCategory.ALL || selectedCategory == cat
 
-        item(key = "patch_section_account_privacy") {
-            ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_account_privacy)) {
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.AdminPanelSettings,
-                    title = stringResource(R.string.settings_wa_privacy_title),
-                    subtitle = stringResource(R.string.settings_wa_privacy_subtitle),
-                    position = ExpressiveSegmentPosition.TOP,
-                    onClick = { showAccountPrivacyDialog = true }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Block,
-                    title = stringResource(R.string.settings_blocked_contacts_title),
-                    subtitle = stringResource(R.string.settings_blocked_contacts_subtitle),
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { showBlockedContactsDialog = true }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Info,
-                    title = stringResource(R.string.settings_account_limits_title),
-                    subtitle = stringResource(R.string.settings_account_limits_subtitle),
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onClick = { showCompanionScopeDialog = true }
-                )
-            }
-        }
+    val privacyDotActive = stealth.offlineMode || stealth.ghostPresence || stealth.hideReadReceipts
+    val updatesDotActive = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
-        item(key = "patch_section_privacy") {
-            ExpressiveSegmentedGroup(title = "Privacy & Ghost Mode") {
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Flight,
-                    title = "Offline Mode (Pause Sync)",
-                    subtitle = "Disconnect WhatsApp sync while keeping internet active for other apps",
-                    checked = stealth.offlineMode,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onCheckedChange = {
-                        viewModel.setOfflineMode(it)
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.VisibilityOff,
-                    title = "Ghost Mode (Freeze Last Seen)",
-                    subtitle = "Hide online status and freeze last seen (auto-unfreezes safely when sending)",
-                    checked = stealth.ghostPresence,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(ghostPresence = it) }
-                    }
-                )
-                if (stealth.ghostPresence) {
-                    ExpressiveSegmentedSwitchRow(
-                        icon = Icons.Rounded.Shield,
-                        title = "Outbound Activity Confirmation",
-                        subtitle = "Prompt before unfreezing last seen when sending messages, media, or reactions",
-                        checked = stealth.ghostOutboundGuardPrompt,
-                        position = ExpressiveSegmentPosition.MIDDLE,
-                        onCheckedChange = {
-                            viewModel.updateGlobalStealth { c -> c.copy(ghostOutboundGuardPrompt = it) }
-                        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Sticky Search Bar + Category Filter Pills
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val searchShape = RoundedCornerShape(16.dp)
+            Surface(
+                shape = searchShape,
+                color = colors.elevatedBar.copy(alpha = if (colors.isDark) 0.92f else 0.98f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 0.75.dp,
+                        color = if (isSearching) colors.accentGreen.copy(alpha = 0.6f)
+                        else if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider,
+                        shape = searchShape
                     )
-                }
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.CheckCircle,
-                    title = "Hide Read Receipts",
-                    subtitle = "Read messages privately without sending blue ticks",
-                    checked = stealth.hideReadReceipts,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(hideReadReceipts = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Campaign,
-                    title = "Hide Played Receipts",
-                    subtitle = "Play voice notes and audio without marking them played",
-                    checked = stealth.hidePlayedReceipts,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(hidePlayedReceipts = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Shield,
-                    title = "Hide Typing & Recording",
-                    subtitle = "Suppress typing and recording audio indicators in chats",
-                    checked = stealth.hideTypingRecording,
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(hideTypingRecording = it) }
-                    }
-                )
-            }
-        }
-
-        item(key = "patch_section_calling") {
-            ExpressiveSegmentedGroup(title = "Voice & Video Calling") {
-                val nativeActive = stealth.callBackendMode != CallBackendMode.OFF
-                val linkBadge = if (nativeActive) "Native VoIP" else "Official App"
-                val statusSummary = when {
-                    stealth.offlineMode -> "Paused while Offline Mode is enabled"
-                    !nativeActive -> "Handing off calls to Official WhatsApp"
-                    else -> "Active backend: ${stealth.callBackendMode.title}"
-                }
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Call,
-                    title = "In-App Calling Setup & Mode",
-                    subtitle = statusSummary,
-                    badgeText = linkBadge,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onClick = { showCallingSetupDialog = true }
-                )
-                val orderedModes = listOf(CallBackendMode.ALWAYS_READY, CallBackendMode.SMART_WARM, CallBackendMode.OFF)
-                orderedModes.forEach { mode ->
-                    val selected = stealth.callBackendMode == mode
-                    ExpressiveSegmentedSwitchRow(
-                        icon = Icons.Rounded.Call,
-                        title = mode.title,
-                        subtitle = mode.subtitle,
-                        checked = selected,
-                        position = ExpressiveSegmentPosition.MIDDLE,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                viewModel.updateGlobalStealth { c -> c.copy(callBackendMode = mode) }
-                            } else if (selected && mode != CallBackendMode.OFF) {
-                                viewModel.updateGlobalStealth { c -> c.copy(callBackendMode = CallBackendMode.OFF) }
-                            }
-                        }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "Search settings",
+                        tint = if (isSearching) colors.accentGreen else colors.textSecondary,
+                        modifier = Modifier.size(19.dp)
                     )
-                }
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.NotificationsOff,
-                    title = "Let Official WhatsApp Ring Instead",
-                    subtitle = "Silence Wupp's incoming ringtone and popup when Official WhatsApp is installed on this phone",
-                    checked = stealth.suppressIncomingRingWhenOfficialInstalled,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = { enabled ->
-                        viewModel.updateGlobalStealth { c ->
-                            c.copy(
-                                suppressIncomingRingWhenOfficialInstalled = enabled,
-                                officialCallMuteConfirmed = if (enabled) false else c.officialCallMuteConfirmed
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (settingsSearchQuery.isEmpty()) {
+                            Text(
+                                text = "Search settings...",
+                                color = colors.textSecondary.copy(alpha = 0.75f),
+                                fontSize = 14.5.sp
                             )
                         }
-                        com.wa.beastclient.core.calling.CallStateManager.onConfigChanged(
-                            com.wa.beastclient.domain.stealth.StealthMatrixManager.config.value
+                        BasicTextField(
+                            value = settingsSearchQuery,
+                            onValueChange = { settingsSearchQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            cursorBrush = SolidColor(colors.accentGreen),
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Block,
-                    title = "Anti-Call Protection",
-                    subtitle = stealth.antiCallMode.subtitle,
-                    badgeText = stealth.antiCallMode.badgeLabel.ifBlank { null },
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { showAntiCallDialog = true }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.FiberManualRecord,
-                    title = "Auto-Record In-App Calls",
-                    subtitle = "Automatically save dual-sided call audio locally into your Media Vault",
-                    checked = stealth.autoRecordCalls,
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onCheckedChange = { viewModel.setAutoRecordCalls(it) }
-                )
-            }
-        }
-
-        item(key = "patch_section_vaults_studios") {
-            ExpressiveSegmentedGroup(title = "Vaults & Studio") {
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.History,
-                    title = "Deleted & Edited Message History",
-                    subtitle = "Search recovered deleted messages and full multi-revision edit timelines",
-                    badgeText = if (savedHistoryCount > 0) "$savedHistoryCount" else null,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onClick = onOpenMessageHistory
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Shield,
-                    title = "Media Vault & Call Recordings",
-                    subtitle = "Organized private folders for View Once, Statuses, Call Recordings & custom files",
-                    badgeText = if (stealth.vaultLockEnabled) "LOCKED" else "OPEN",
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = onOpenMediaVault
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.AutoFixHigh,
-                    title = "Sticker Studio",
-                    subtitle = "Turn photos, text, or drawings into crisp transparent WebP stickers",
-                    badgeText = if (customStickerCount > 0) "$customStickerCount" else null,
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onClick = onOpenStickerStudio
-                )
-            }
-        }
-
-        item(key = "patch_section_media") {
-            ExpressiveSegmentedGroup(title = "Message & Media Patches") {
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.DeleteSweep,
-                    title = "Anti-Delete Messages & Statuses",
-                    subtitle = "Keep messages, media, and statuses deleted by everyone",
-                    checked = stealth.antiDeleteEnabled,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(antiDeleteEnabled = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Lock,
-                    title = "Disappearing Message Immunity",
-                    subtitle = "Prevent ephemeral timers from expiring messages in chats",
-                    checked = stealth.disappearingImmunity,
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(disappearingImmunity = it) }
-                    }
-                )
-            }
-        }
-
-        item(key = "patch_section_storage_media") {
-            ExpressiveSegmentedGroup(title = "Storage & Media Auto-Download") {
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.CleaningServices,
-                    title = stringResource(R.string.settings_manage_storage_title),
-                    subtitle = stringResource(R.string.settings_manage_storage_subtitle),
-                    position = ExpressiveSegmentPosition.TOP,
-                    onClick = { showStorageUsageDialog = true }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.CloudDownload,
-                    title = "Media auto-download",
-                    subtitle = if (stealth.autoDownloadEnabled) {
-                        "Automatically download incoming photos, audio, videos, and files"
-                    } else {
-                        "Off — tap media items in chats to download manually"
-                    },
-                    checked = stealth.autoDownloadEnabled,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = { viewModel.setAutoDownloadEnabled(it) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.SignalCellularAlt,
-                    title = "When using mobile data",
-                    subtitle = if (stealth.autoDownloadEnabled) {
-                        StealthMatrixManager.formatAutoDownloadSummary(stealth.autoDownloadMobileMask)
-                    } else {
-                        "Disabled (auto-download is off)"
-                    },
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { editingAutoDlNetwork = AutoDownloadNetwork.MOBILE }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Wifi,
-                    title = "When connected on Wi-Fi",
-                    subtitle = if (stealth.autoDownloadEnabled) {
-                        StealthMatrixManager.formatAutoDownloadSummary(stealth.autoDownloadWifiMask)
-                    } else {
-                        "Disabled (auto-download is off)"
-                    },
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { editingAutoDlNetwork = AutoDownloadNetwork.WIFI }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Flight,
-                    title = "When roaming",
-                    subtitle = if (stealth.autoDownloadEnabled) {
-                        StealthMatrixManager.formatAutoDownloadSummary(stealth.autoDownloadRoamingMask)
-                    } else {
-                        "Disabled (auto-download is off)"
-                    },
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { editingAutoDlNetwork = AutoDownloadNetwork.ROAMING }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Collections,
-                    title = "Media visibility",
-                    subtitle = "Show newly downloaded media in your device's gallery",
-                    checked = stealth.mediaVisibilityInGallery,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = { viewModel.setMediaVisibilityInGallery(it) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.VisibilityOff,
-                    title = "Hide contact media from gallery",
-                    subtitle = if (stealth.hiddenGalleryJids.isEmpty()) {
-                        "Choose specific contacts or groups to keep out of gallery"
-                    } else {
-                        "${stealth.hiddenGalleryJids.size} contact(s)/group(s) hidden from gallery"
-                    },
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onClick = { showGalleryContactsDialog = true }
-                )
-            }
-        }
-
-        item(key = "patch_section_security") {
-            val lockSubtitle = when (appLockConfig.mode) {
-                AppLockMode.OFF -> stringResource(R.string.settings_applock_row_subtitle_off)
-                AppLockMode.DEVICE -> stringResource(R.string.settings_applock_row_subtitle_device)
-                AppLockMode.CUSTOM_PIN -> stringResource(R.string.settings_applock_row_subtitle_pin)
-            }
-            ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_security)) {
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Lock,
-                    title = stringResource(R.string.settings_applock_row_title),
-                    subtitle = lockSubtitle,
-                    badgeText = if (appLockConfig.mode != AppLockMode.OFF) {
-                        stringResource(R.string.common_enabled)
-                    } else null,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onClick = { showAppLockDialog = true }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Image,
-                    title = stringResource(R.string.settings_allow_screenshots_title),
-                    subtitle = stringResource(R.string.settings_allow_screenshots_subtitle),
-                    checked = appLockConfig.allowScreenshots,
-                    position = if (appLockConfig.mode != AppLockMode.OFF) {
-                        ExpressiveSegmentPosition.MIDDLE
-                    } else {
-                        ExpressiveSegmentPosition.BOTTOM
-                    },
-                    onCheckedChange = { AppLockManager.setAllowScreenshots(it) }
-                )
-                if (appLockConfig.mode != AppLockMode.OFF) {
-                    ExpressiveSegmentedActionRow(
-                        icon = Icons.Rounded.Shield,
-                        title = stringResource(R.string.settings_lock_now_title),
-                        subtitle = stringResource(R.string.settings_lock_now_subtitle),
-                        position = ExpressiveSegmentPosition.BOTTOM,
-                        onClick = { AppLockManager.lockNow() }
-                    )
-                }
-            }
-        }
-
-        item(key = "patch_section_appearance") {
-            ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_appearance)) {
-                val colors = LocalWaColors.current
-                val langSubtitle = when (stealth.appLanguage) {
-                    LocaleHelper.LANG_TR -> stringResource(R.string.language_turkish)
-                    LocaleHelper.LANG_EN -> stringResource(R.string.language_english)
-                    else -> stringResource(R.string.language_system)
-                }
-                val reactionPreview = stealth.quickReactionEmojis
-                    .ifEmpty { StealthMatrixManager.DEFAULT_QUICK_REACTIONS }
-                    .joinToString("  ")
-
-                ExpressiveSegmentedContainer(position = ExpressiveSegmentPosition.TOP) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 15.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    if (isSearching) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(colors.textSecondary.copy(alpha = 0.16f))
+                                .clickable { settingsSearchQuery = "" },
+                            contentAlignment = Alignment.Center
                         ) {
-                            ExpressiveIconBadge(
-                                icon = Icons.Rounded.Palette,
-                                contentDescription = stringResource(R.string.settings_theme_title),
-                                active = true
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Clear search",
+                                tint = colors.textPrimary,
+                                modifier = Modifier.size(14.dp)
                             )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.settings_theme_title),
-                                    color = colors.textPrimary,
-                                    fontSize = 15.5.sp,
-                                    fontWeight = FontWeight.SemiBold
+                        }
+                    }
+                }
+            }
+
+            if (!isSearching) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(end = 4.dp)
+                ) {
+                    items(SettingsCategory.entries) { category ->
+                        val selected = selectedCategory == category
+                        val showDot = when (category) {
+                            SettingsCategory.PRIVACY -> privacyDotActive
+                            SettingsCategory.UPDATES -> updatesDotActive
+                            else -> false
+                        }
+                        val pillShape = RoundedCornerShape(20.dp)
+                        Row(
+                            modifier = Modifier
+                                .clip(pillShape)
+                                .background(
+                                    if (selected) colors.accentGreen.copy(alpha = 0.16f)
+                                    else colors.elevatedBar.copy(alpha = if (colors.isDark) 0.85f else 0.96f)
                                 )
-                                Text(
-                                    text = buildString {
-                                        append(stealth.themeMode.label)
-                                        append(" — ")
-                                        append(stealth.themeMode.tagline)
-                                        if (stealth.dynamicMaterialYou) append(" · Material You")
-                                    },
-                                    color = colors.textSecondary,
-                                    fontSize = 12.5.sp
+                                .border(
+                                    width = if (selected) 1.35.dp else 0.75.dp,
+                                    color = if (selected) colors.accentGreen
+                                    else if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider,
+                                    shape = pillShape
+                                )
+                                .clickable {
+                                    selectedCategory = category
+                                    tabScope.launch { listState.scrollToItem(0) }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = category.icon,
+                                contentDescription = null,
+                                tint = if (selected) colors.accentGreen else colors.textSecondary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = category.label,
+                                color = if (selected) colors.textPrimary else colors.textSecondary,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
+                            if (showDot) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.accentGreen)
                                 )
                             }
                         }
-                        ThemeSelectorGrid(
-                            selectedTheme = stealth.themeMode,
-                            onSelectTheme = { viewModel.setThemeMode(it) },
-                            selectedAccent = stealth.accentColor,
-                            onSelectAccent = { viewModel.setAccentColor(it) },
-                            pureBlackOled = stealth.pureBlackOled,
-                            onTogglePureBlackOled = { viewModel.setPureBlackOled(it) },
-                            dynamicMaterialYou = stealth.dynamicMaterialYou,
-                            onToggleDynamicMaterialYou = { viewModel.setDynamicMaterialYou(it) },
-                            bubbleCornerRadiusDp = stealth.bubbleCornerRadiusDp,
-                            onBubbleCornerRadiusChange = { viewModel.setBubbleCornerRadiusDp(it) },
-                            customOutgoingBubbleArgb = stealth.customOutgoingBubbleArgb,
-                            customIncomingBubbleArgb = stealth.customIncomingBubbleArgb,
-                            onCustomBubbleColorsChange = { outArgb, inArgb -> viewModel.setCustomBubbleColors(outArgb, inArgb) },
-                            selectedFontStyle = stealth.fontStyle,
-                            hasImportedFont = stealth.customFontPath.isNotBlank(),
-                            onSelectFontStyle = { viewModel.setFontStyle(it) },
-                            onImportCustomFontUri = { viewModel.importCustomFontFromUri(it) }
+                    }
+                }
+            }
+        }
+
+        val showAccountSection = showCategory(SettingsCategory.ACCOUNT) && (
+            matchesSearch("switch", "add", "whatsapp", "account", "multi") ||
+                matchesSearch(stringResource(R.string.settings_wa_privacy_title), "privacy", "last seen", "profile photo") ||
+                matchesSearch(stringResource(R.string.settings_blocked_contacts_title), "blocked", "contacts") ||
+                matchesSearch(stringResource(R.string.settings_account_limits_title), "companion", "limits", "linked")
+            )
+        val showPrivacySection = showCategory(SettingsCategory.PRIVACY) && (
+            matchesSearch("offline mode", "pause sync", "disconnect") ||
+                matchesSearch("ghost mode", "freeze last seen", "online", "outbound") ||
+                matchesSearch("hide read receipts", "blue ticks", "seen") ||
+                matchesSearch("hide played receipts", "voice notes", "audio") ||
+                matchesSearch("hide typing", "recording") ||
+                matchesSearch("anti-delete", "deleted messages", "statuses") ||
+                matchesSearch("disappearing", "ephemeral", "immunity") ||
+                matchesSearch(stringResource(R.string.settings_applock_row_title), "app lock", "pin", "biometric") ||
+                matchesSearch(stringResource(R.string.settings_allow_screenshots_title), "screenshots", "screen")
+            )
+        val showCallingSection = showCategory(SettingsCategory.CALLS) && (
+            matchesSearch("calling", "voip", "voice", "video", "always ready", "smart warm", "official", "ring", "anti-call", "record")
+            )
+        val showVaultsSection = showCategory(SettingsCategory.VAULTS) && (
+            matchesSearch("deleted", "edited", "history", "vault", "call recordings", "view once", "sticker studio")
+            )
+        val showMediaSection = showCategory(SettingsCategory.MEDIA) && (
+            matchesSearch(stringResource(R.string.settings_manage_storage_title), "storage", "cache", "auto-download", "mobile data", "wifi", "roaming", "media visibility", "gallery", "hide contact media")
+            )
+        val showAppearanceSection = showCategory(SettingsCategory.APPEARANCE) && (
+            matchesSearch("theme", "oled", "material you", "accent", "bubble", "font", "wallpaper", "reactions", "emoji", "language", "enter sends")
+            )
+        val showLooksSection = showCategory(SettingsCategory.LOOKS) && (
+            matchesSearch("status", "vertical", "bio", "classic", "compact", "seconds", "time format", "clock", "camera", "badges", "separate groups", "channels", "local contact names", "fallback")
+            )
+        val showAlertsSection = showCategory(SettingsCategory.ALERTS) && (
+            matchesSearch("notifications", "dm", "group", "preview", "vibrate", "conversation sounds", "chat sounds", "sound", "sync banner", "battery", "unrestricted", "24/7")
+            )
+        val showUpdatesSection = showCategory(SettingsCategory.UPDATES) && (
+            matchesSearch("update", "pre-release", "bug", "feature", "feedback", "github", "version", "about")
+            )
+        val hasAnyVisibleSection = showAccountSection || showPrivacySection || showCallingSection ||
+            showVaultsSection || showMediaSection || showAppearanceSection ||
+            showLooksSection || showAlertsSection || showUpdatesSection
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 8.dp,
+                end = 16.dp,
+                bottom = bottomPadding + 16.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (!isSearching && (selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.ACCOUNT)) {
+                item(key = "patch_section_profile_card") {
+                    val ownAvatarPath = remember(bridgeStatus.ownJid, allChats) {
+                        val ownUser = bridgeStatus.ownJid.substringBefore("@").substringBefore(":")
+                        allChats.firstOrNull { ch ->
+                            !ch.avatarPath.isNullOrBlank() &&
+                                ownUser.isNotBlank() &&
+                                ch.jid.substringBefore("@").substringBefore(":") == ownUser
+                        }?.avatarPath
+                    }
+                    SettingsProfileHeaderCard(
+                        ownJid = bridgeStatus.ownJid,
+                        profile = ownProfile,
+                        avatarPath = ownAvatarPath,
+                        onClick = { showProfileEditorDialog = true }
+                    )
+                }
+            }
+
+            if (isSearching && !hasAnyVisibleSection) {
+                item(key = "patch_search_empty") {
+                    ExpressiveSegmentedContainer(position = ExpressiveSegmentPosition.SINGLE) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Text(
+                                text = "No settings match \"$settingsSearchQuery\"",
+                                color = colors.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Clear search",
+                                color = colors.accentGreen,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { settingsSearchQuery = "" }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (showAccountSection) {
+                item(key = "patch_section_account_privacy") {
+                    val activeAccount = accounts.firstOrNull { it.id == activeAccountId } ?: accounts.firstOrNull()
+                    val acctSubtitle = buildString {
+                        if (activeAccount != null) {
+                            append(activeAccount.displayTitle)
+                            val phone = activeAccount.displayPhone
+                            if (phone.isNotBlank()) {
+                                append(" (")
+                                append(phone)
+                                append(")")
+                            }
+                            append(" · ")
+                        }
+                        append(if (accounts.size == 1) "1 account · Tap to add" else "${accounts.size} accounts")
+                    }
+                    ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_account_privacy)) {
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.ManageAccounts,
+                            title = "Switch or add WhatsApp account",
+                            subtitle = acctSubtitle,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onClick = { showAccountSwitcherSheet = true }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.AdminPanelSettings,
+                            title = stringResource(R.string.settings_wa_privacy_title),
+                            subtitle = stringResource(R.string.settings_wa_privacy_subtitle),
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showAccountPrivacyDialog = true }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Block,
+                            title = stringResource(R.string.settings_blocked_contacts_title),
+                            subtitle = stringResource(R.string.settings_blocked_contacts_subtitle),
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showBlockedContactsDialog = true }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Info,
+                            title = stringResource(R.string.settings_account_limits_title),
+                            subtitle = stringResource(R.string.settings_account_limits_subtitle),
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onClick = { showCompanionScopeDialog = true }
                         )
                     }
                 }
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Image,
-                    title = stringResource(R.string.settings_wallpaper_title),
-                    subtitle = "${describeChatWallpaper(stealth.chatWallpaperUri)} · ${stringResource(R.string.settings_wallpaper_subtitle)}",
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { showWallpaperDialog = true }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.TextFields,
-                    title = stringResource(R.string.settings_system_font_title),
-                    subtitle = stringResource(R.string.settings_system_font_subtitle),
-                    checked = stealth.useSystemFont,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = { viewModel.setUseSystemFont(it) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.FormatSize,
-                    title = stringResource(R.string.settings_font_size_title),
-                    subtitle = formatFontScaleLabel(stealth.chatFontScale),
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { showFontSizeDialog = true }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.KeyboardReturn,
-                    title = stringResource(R.string.settings_enter_sends_title),
-                    subtitle = stringResource(R.string.settings_enter_sends_subtitle),
-                    checked = stealth.enterIsSend,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(enterIsSend = it) }
-                    }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.EmojiEmotions,
-                    title = stringResource(R.string.settings_reactions_title),
-                    subtitle = reactionPreview,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { showReactionDialog = true }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Translate,
-                    title = stringResource(R.string.settings_language_title),
-                    subtitle = langSubtitle,
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onClick = { showLanguageDialog = true }
-                )
             }
-        }
 
-        item(key = "patch_section_looks") {
-            ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_looks)) {
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.ViewAgenda,
-                    title = stringResource(R.string.settings_look_vertical_status_title),
-                    subtitle = stringResource(R.string.settings_look_vertical_status_subtitle),
-                    checked = stealth.statusVerticalLayout,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(statusVerticalLayout = it) }
+            if (showPrivacySection) {
+                item(key = "patch_section_privacy") {
+                    val lockSubtitle = when (appLockConfig.mode) {
+                        AppLockMode.OFF -> stringResource(R.string.settings_applock_row_subtitle_off)
+                        AppLockMode.DEVICE -> stringResource(R.string.settings_applock_row_subtitle_device)
+                        AppLockMode.CUSTOM_PIN -> stringResource(R.string.settings_applock_row_subtitle_pin)
                     }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Person,
-                    title = stringResource(R.string.settings_look_always_bio_title),
-                    subtitle = stringResource(R.string.settings_look_always_bio_subtitle),
-                    checked = stealth.alwaysShowContactBio,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(alwaysShowContactBio = it) }
+                    ExpressiveSegmentedGroup(title = "Privacy, Stealth & Security") {
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Flight,
+                            title = "Offline Mode (Pause Sync)",
+                            checked = stealth.offlineMode,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onInfoClick = {
+                                infoDialogContent = "Offline Mode (Pause Sync)" to
+                                    "Disconnects WhatsApp sync while keeping internet active for other apps on your phone."
+                            },
+                            onCheckedChange = { viewModel.setOfflineMode(it) }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VisibilityOff,
+                            title = "Ghost Mode (Freeze Last Seen)",
+                            checked = stealth.ghostPresence,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Ghost Mode (Freeze Last Seen)" to
+                                    "Hides your online status and freezes your last seen. Automatically unfreezes safely when sending."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(ghostPresence = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Shield,
+                            title = "Outbound Activity Confirmation",
+                            checked = stealth.ghostOutboundGuardPrompt,
+                            enabled = stealth.ghostPresence,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Outbound Activity Confirmation" to
+                                    "Prompts before unfreezing last seen when sending messages, media, or reactions while Ghost Mode is active."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(ghostOutboundGuardPrompt = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.CheckCircle,
+                            title = "Hide Read Receipts",
+                            checked = stealth.hideReadReceipts,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Hide Read Receipts" to
+                                    "Read incoming messages privately without sending blue ticks to the sender."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(hideReadReceipts = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Campaign,
+                            title = "Hide Played Receipts",
+                            checked = stealth.hidePlayedReceipts,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Hide Played Receipts" to
+                                    "Play voice notes and audio messages without marking them as played."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(hidePlayedReceipts = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Shield,
+                            title = "Hide Typing & Recording",
+                            checked = stealth.hideTypingRecording,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Hide Typing & Recording" to
+                                    "Suppresses typing and recording audio indicators in chats."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(hideTypingRecording = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.DeleteSweep,
+                            title = "Anti-Delete Messages & Statuses",
+                            checked = stealth.antiDeleteEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Anti-Delete Messages & Statuses" to
+                                    "Keeps messages, media, and statuses even after the sender deletes them for everyone."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(antiDeleteEnabled = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Lock,
+                            title = "Disappearing Message Immunity",
+                            checked = stealth.disappearingImmunity,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Disappearing Message Immunity" to
+                                    "Prevents ephemeral timers from expiring messages in your local chats."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(disappearingImmunity = it) }
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Lock,
+                            title = stringResource(R.string.settings_applock_row_title),
+                            subtitle = lockSubtitle,
+                            badgeText = if (appLockConfig.mode != AppLockMode.OFF) {
+                                stringResource(R.string.common_enabled)
+                            } else null,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showAppLockDialog = true }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Image,
+                            title = stringResource(R.string.settings_allow_screenshots_title),
+                            checked = appLockConfig.allowScreenshots,
+                            position = if (appLockConfig.mode != AppLockMode.OFF) {
+                                ExpressiveSegmentPosition.MIDDLE
+                            } else {
+                                ExpressiveSegmentPosition.BOTTOM
+                            },
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_allow_screenshots_title) to
+                                    context.getString(R.string.settings_allow_screenshots_subtitle)
+                            },
+                            onCheckedChange = { AppLockManager.setAllowScreenshots(it) }
+                        )
+                        if (appLockConfig.mode != AppLockMode.OFF) {
+                            ExpressiveSegmentedActionRow(
+                                icon = Icons.Rounded.Shield,
+                                title = stringResource(R.string.settings_lock_now_title),
+                                subtitle = stringResource(R.string.settings_lock_now_subtitle),
+                                position = ExpressiveSegmentPosition.BOTTOM,
+                                onClick = { AppLockManager.lockNow() }
+                            )
+                        }
                     }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.ViewAgenda,
-                    title = stringResource(R.string.settings_look_classic_ui_title),
-                    subtitle = stringResource(R.string.settings_look_classic_ui_subtitle),
-                    checked = stealth.classicWhatsAppLook,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(classicWhatsAppLook = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.ViewAgenda,
-                    title = stringResource(R.string.settings_look_compact_rows_title),
-                    subtitle = stringResource(R.string.settings_look_compact_rows_subtitle),
-                    checked = stealth.compactChatRows,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(compactChatRows = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Schedule,
-                    title = stringResource(R.string.settings_look_seconds_title),
-                    subtitle = stringResource(R.string.settings_look_seconds_subtitle),
-                    checked = stealth.showSecondsInTimestamps,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(showSecondsInTimestamps = it) }
-                    }
-                )
-                val clockFormatSubtitle = when (stealth.clockFormat) {
-                    WuppClockFormat.SYSTEM -> "Follow device setting (${if (LocalWuppUse24Hour.current) "24-hour" else "12-hour"})"
-                    WuppClockFormat.HOUR_24 -> "Always 24-hour (e.g. 14:30)"
-                    WuppClockFormat.HOUR_12 -> "Always 12-hour (e.g. 2:30 PM)"
                 }
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Schedule,
-                    title = "Time format",
-                    subtitle = clockFormatSubtitle,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { showClockFormatDialog = true }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.VisibilityOff,
-                    title = stringResource(R.string.settings_look_hide_camera_title),
-                    subtitle = stringResource(R.string.settings_look_hide_camera_subtitle),
-                    checked = stealth.hideHomeCameraShortcut,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(hideHomeCameraShortcut = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.VisibilityOff,
-                    title = stringResource(R.string.settings_look_hide_badges_title),
-                    subtitle = stringResource(R.string.settings_look_hide_badges_subtitle),
-                    checked = stealth.hideStealthStatusBadges,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(hideStealthStatusBadges = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Groups,
-                    title = stringResource(R.string.settings_look_separate_groups_title),
-                    subtitle = stringResource(R.string.settings_look_separate_groups_subtitle),
-                    checked = stealth.separateGroupsAndChats,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(separateGroupsAndChats = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Campaign,
-                    title = stringResource(R.string.settings_look_separate_channels_title),
-                    subtitle = stringResource(R.string.settings_look_separate_channels_subtitle),
-                    checked = stealth.separateChannelsTab,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = { enabled ->
-                        viewModel.updateGlobalStealth { c ->
-                            c.copy(
-                                separateChannelsTab = enabled,
-                                hideChannels = if (enabled) false else c.hideChannels
+            }
+
+            if (showCallingSection) {
+                item(key = "patch_section_calling") {
+                    ExpressiveSegmentedGroup(title = "Voice & Video Calling") {
+                        val nativeActive = stealth.callBackendMode != CallBackendMode.OFF
+                        val linkBadge = if (nativeActive) "Native VoIP" else "Official App"
+                        val statusSummary = when {
+                            stealth.offlineMode -> "Paused while Offline Mode is enabled"
+                            !nativeActive -> "Handing off calls to Official WhatsApp"
+                            else -> "Active backend: ${stealth.callBackendMode.title}"
+                        }
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Call,
+                            title = "In-App Calling Setup & Mode",
+                            subtitle = statusSummary,
+                            badgeText = linkBadge,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onClick = { showCallingSetupDialog = true }
+                        )
+                        val orderedModes = listOf(CallBackendMode.ALWAYS_READY, CallBackendMode.SMART_WARM, CallBackendMode.OFF)
+                        orderedModes.forEach { mode ->
+                            val selected = stealth.callBackendMode == mode
+                            ExpressiveSegmentedSwitchRow(
+                                icon = Icons.Rounded.Call,
+                                title = mode.title,
+                                subtitle = mode.subtitle,
+                                checked = selected,
+                                position = ExpressiveSegmentPosition.MIDDLE,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        viewModel.updateGlobalStealth { c -> c.copy(callBackendMode = mode) }
+                                    } else if (selected && mode != CallBackendMode.OFF) {
+                                        viewModel.updateGlobalStealth { c -> c.copy(callBackendMode = CallBackendMode.OFF) }
+                                    }
+                                }
                             )
                         }
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.NotificationsOff,
+                            title = "Let Official WhatsApp Ring Instead",
+                            checked = stealth.suppressIncomingRingWhenOfficialInstalled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Let Official WhatsApp Ring Instead" to
+                                    "Silences Wupp's incoming ringtone and popup when Official WhatsApp is installed on this phone."
+                            },
+                            onCheckedChange = { enabled ->
+                                viewModel.updateGlobalStealth { c ->
+                                    c.copy(
+                                        suppressIncomingRingWhenOfficialInstalled = enabled,
+                                        officialCallMuteConfirmed = if (enabled) false else c.officialCallMuteConfirmed
+                                    )
+                                }
+                                com.wa.beastclient.core.calling.CallStateManager.onConfigChanged(
+                                    com.wa.beastclient.domain.stealth.StealthMatrixManager.config.value
+                                )
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Block,
+                            title = "Anti-Call Protection",
+                            subtitle = stealth.antiCallMode.subtitle,
+                            badgeText = stealth.antiCallMode.badgeLabel.ifBlank { null },
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showAntiCallDialog = true }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.FiberManualRecord,
+                            title = "Auto-Record In-App Calls",
+                            checked = stealth.autoRecordCalls,
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onInfoClick = {
+                                infoDialogContent = "Auto-Record In-App Calls" to
+                                    "Automatically saves dual-sided call audio locally into your Media Vault."
+                            },
+                            onCheckedChange = { viewModel.setAutoRecordCalls(it) }
+                        )
                     }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Person,
-                    title = "Local Contact Names Fallback",
-                    subtitle = if (hasContactsPermission) {
-                        "Active · Uses phonebook names only when no server name exists (Tap to refresh)"
-                    } else {
-                        "Tap to allow phonebook names when WhatsApp sends only numbers"
-                    },
-                    badgeText = if (hasContactsPermission) stringResource(R.string.common_enabled) else null,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = {
-                        if (DeviceContactFallbackResolver.hasReadContactsPermission(context)) {
-                            hasContactsPermission = true
-                            viewModel.syncDeviceContactFallbacks(forceRefresh = true, notifyUser = true)
-                        } else {
-                            contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                        }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.VisibilityOff,
-                    title = stringResource(R.string.settings_look_hide_channels_title),
-                    subtitle = stringResource(R.string.settings_look_hide_channels_subtitle),
-                    checked = stealth.hideChannels,
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(hideChannels = it) }
-                    }
-                )
-            }
-        }
-
-        item(key = "patch_section_notifications_sync") {
-            ExpressiveSegmentedGroup(title = "Notifications & Background Sync") {
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Notifications,
-                    title = stringResource(R.string.settings_notify_dm_title),
-                    subtitle = stringResource(R.string.settings_notify_dm_subtitle),
-                    checked = stealth.notifyDmEnabled,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(notifyDmEnabled = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Groups,
-                    title = stringResource(R.string.settings_notify_group_title),
-                    subtitle = stringResource(R.string.settings_notify_group_subtitle),
-                    checked = stealth.notifyGroupEnabled,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(notifyGroupEnabled = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.VisibilityOff,
-                    title = stringResource(R.string.settings_notify_preview_title),
-                    subtitle = stringResource(R.string.settings_notify_preview_subtitle),
-                    checked = stealth.notifyShowPreview,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(notifyShowPreview = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.Vibration,
-                    title = stringResource(R.string.settings_notify_vibrate_title),
-                    subtitle = stringResource(R.string.settings_notify_vibrate_subtitle),
-                    checked = stealth.notifyVibrateEnabled,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(notifyVibrateEnabled = it) }
-                    }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.VolumeUp,
-                    title = "Conversation Sounds",
-                    subtitle = "Play audio effects for incoming and outgoing chat messages",
-                    checked = stealth.chatSoundsEnabled,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = {
-                        viewModel.updateGlobalStealth { c -> c.copy(chatSoundsEnabled = it) }
-                    }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = if (isSyncNotifHidden) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
-                    title = if (isSyncNotifHidden) "Persistent Sync Banner" else "Hide Persistent Sync Banner",
-                    subtitle = if (isSyncNotifHidden) {
-                        "Hidden — 24/7 background sync & message alerts are still active"
-                    } else {
-                        "Remove the constant notification from your shade without breaking real-time sync or message alerts"
-                    },
-                    badgeText = if (isSyncNotifHidden) "HIDDEN" else "1-TAP GUIDE",
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = {
-                        if (isSyncNotifHidden) {
-                            WaRealtimeService.openNotificationChannelSettings(
-                                context = context,
-                                channelId = WaRealtimeService.CHANNEL_ID
-                            )
-                        } else {
-                            showHideNotifGuide = true
-                        }
-                    }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.BatteryChargingFull,
-                    title = "Unrestricted Battery (24/7 Sync)",
-                    subtitle = if (isBatteryUnrestricted) {
-                        "Allowed — Android won't kill Wupp sync while your phone is locked"
-                    } else {
-                        "Allow unrestricted background use so real-time sync and alerts never stop"
-                    },
-                    badgeText = if (isBatteryUnrestricted) "ACTIVE" else "ALLOW",
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onClick = {
-                        WaRealtimeService.openBatteryOptimizationSettings(context)
-                    }
-                )
-            }
-        }
-
-        item(key = "patch_section_updates_support") {
-            val updateSubtitle = when (val st = updateState) {
-                is UpdateUiState.Checking -> "Checking GitHub Releases..."
-                is UpdateUiState.UpToDate -> "Up to date (v${st.currentVersion})"
-                is UpdateUiState.UpdateAvailable -> "New update available: ${st.release.tagName}"
-                is UpdateUiState.Downloading -> {
-                    if (st.progressPercent >= 0) "Downloading ${st.release.tagName} (${st.progressPercent}%)"
-                    else "Downloading ${st.release.tagName}..."
                 }
-                is UpdateUiState.ReadyToInstall -> "${st.release.tagName} ready — tap to install"
-                is UpdateUiState.Error -> if (!st.silent) st.message else "Installed v${BuildConfig.VERSION_NAME}"
-                UpdateUiState.Idle -> "Installed v${BuildConfig.VERSION_NAME}"
-            }
-            val updateBadge = when (updateState) {
-                is UpdateUiState.UpdateAvailable -> "NEW"
-                is UpdateUiState.ReadyToInstall -> "INSTALL"
-                else -> null
             }
 
-            ExpressiveSegmentedGroup(title = "Updates & GitHub Support") {
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.SystemUpdate,
-                    title = "Check for Updates",
-                    subtitle = updateSubtitle,
-                    badgeText = updateBadge,
-                    position = ExpressiveSegmentPosition.TOP,
-                    onClick = {
-                        when (updateState) {
-                            is UpdateUiState.UpdateAvailable,
-                            is UpdateUiState.Downloading,
-                            is UpdateUiState.ReadyToInstall -> viewModel.openUpdatePrompt()
-                            else -> viewModel.checkForUpdates(silent = false)
-                        }
+            if (showVaultsSection) {
+                item(key = "patch_section_vaults_studios") {
+                    ExpressiveSegmentedGroup(title = "Vaults & Studio") {
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.History,
+                            title = "Deleted & Edited Message History",
+                            subtitle = "Recovered deleted messages and edit timelines",
+                            badgeText = if (savedHistoryCount > 0) "$savedHistoryCount" else null,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onClick = onOpenMessageHistory
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Shield,
+                            title = "Media Vault & Call Recordings",
+                            subtitle = "Private folders for View Once, Statuses & Calls",
+                            badgeText = if (stealth.vaultLockEnabled) "LOCKED" else "OPEN",
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = onOpenMediaVault
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.AutoFixHigh,
+                            title = "Sticker Studio",
+                            subtitle = "Create transparent WebP stickers",
+                            badgeText = if (customStickerCount > 0) "$customStickerCount" else null,
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onClick = onOpenStickerStudio
+                        )
                     }
-                )
-                ExpressiveSegmentedSwitchRow(
-                    icon = Icons.Rounded.SystemUpdate,
-                    title = "Receive Pre-release Updates",
-                    subtitle = "Tester channel — fetch GitHub pre-releases before public rollout",
-                    checked = includePreReleases,
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onCheckedChange = { viewModel.setIncludePreReleases(it) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.BugReport,
-                    title = "Report a Bug / Issue",
-                    subtitle = "Open a pre-filled bug report on GitHub Issues",
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { onOpenFeedback(GitHubFeedbackType.BUG) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Lightbulb,
-                    title = "Request a Feature",
-                    subtitle = "Suggest improvements or new capabilities",
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { onOpenFeedback(GitHubFeedbackType.FEATURE) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.ChatBubbleOutline,
-                    title = "Give Feedback",
-                    subtitle = "Share general thoughts directly to GitHub",
-                    position = ExpressiveSegmentPosition.MIDDLE,
-                    onClick = { onOpenFeedback(GitHubFeedbackType.FEEDBACK) }
-                )
-                ExpressiveSegmentedActionRow(
-                    icon = Icons.Rounded.Code,
-                    title = "GitHub Repository",
-                    subtitle = "${BuildConfig.GITHUB_REPO} • v${BuildConfig.VERSION_NAME}",
-                    position = ExpressiveSegmentPosition.BOTTOM,
-                    onClick = {
-                        val repo = BuildConfig.GITHUB_REPO.trim().trim('/')
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$repo"))
-                            )
-                        }
+                }
+            }
+
+            if (showMediaSection) {
+                item(key = "patch_section_storage_media") {
+                    ExpressiveSegmentedGroup(title = "Storage & Media Auto-Download") {
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.CleaningServices,
+                            title = stringResource(R.string.settings_manage_storage_title),
+                            subtitle = stringResource(R.string.settings_manage_storage_subtitle),
+                            position = ExpressiveSegmentPosition.TOP,
+                            onClick = { showStorageUsageDialog = true }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.CloudDownload,
+                            title = "Media auto-download",
+                            checked = stealth.autoDownloadEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Media auto-download" to
+                                    "Automatically downloads incoming photos, audio, videos, and files according to the network rules below."
+                            },
+                            onCheckedChange = { viewModel.setAutoDownloadEnabled(it) }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.SignalCellularAlt,
+                            title = "When using mobile data",
+                            subtitle = if (stealth.autoDownloadEnabled) {
+                                StealthMatrixManager.formatAutoDownloadSummary(stealth.autoDownloadMobileMask)
+                            } else {
+                                "Turn on Media auto-download to configure"
+                            },
+                            enabled = stealth.autoDownloadEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { editingAutoDlNetwork = AutoDownloadNetwork.MOBILE }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Wifi,
+                            title = "When connected on Wi-Fi",
+                            subtitle = if (stealth.autoDownloadEnabled) {
+                                StealthMatrixManager.formatAutoDownloadSummary(stealth.autoDownloadWifiMask)
+                            } else {
+                                "Turn on Media auto-download to configure"
+                            },
+                            enabled = stealth.autoDownloadEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { editingAutoDlNetwork = AutoDownloadNetwork.WIFI }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Flight,
+                            title = "When roaming",
+                            subtitle = if (stealth.autoDownloadEnabled) {
+                                StealthMatrixManager.formatAutoDownloadSummary(stealth.autoDownloadRoamingMask)
+                            } else {
+                                "Turn on Media auto-download to configure"
+                            },
+                            enabled = stealth.autoDownloadEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { editingAutoDlNetwork = AutoDownloadNetwork.ROAMING }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Collections,
+                            title = "Media visibility",
+                            checked = stealth.mediaVisibilityInGallery,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Media visibility" to
+                                    "Shows newly downloaded media in your device's gallery app."
+                            },
+                            onCheckedChange = { viewModel.setMediaVisibilityInGallery(it) }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.VisibilityOff,
+                            title = "Hide contact media from gallery",
+                            subtitle = if (!stealth.mediaVisibilityInGallery) {
+                                "All media is already hidden from gallery"
+                            } else if (stealth.hiddenGalleryJids.isEmpty()) {
+                                "Keep specific contacts or groups out of gallery"
+                            } else {
+                                "${stealth.hiddenGalleryJids.size} contact(s)/group(s) hidden"
+                            },
+                            enabled = stealth.mediaVisibilityInGallery,
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onClick = { showGalleryContactsDialog = true }
+                        )
                     }
-                )
+                }
+            }
+
+            if (showAppearanceSection) {
+                item(key = "patch_section_appearance") {
+                    ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_appearance)) {
+                        val langSubtitle = when (stealth.appLanguage) {
+                            LocaleHelper.LANG_TR -> stringResource(R.string.language_turkish)
+                            LocaleHelper.LANG_EN -> stringResource(R.string.language_english)
+                            else -> stringResource(R.string.language_system)
+                        }
+                        val reactionPreview = stealth.quickReactionEmojis
+                            .ifEmpty { StealthMatrixManager.DEFAULT_QUICK_REACTIONS }
+                            .joinToString("  ")
+
+                        ExpressiveSegmentedContainer(position = ExpressiveSegmentPosition.TOP) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 15.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    ExpressiveIconBadge(
+                                        icon = Icons.Rounded.Palette,
+                                        contentDescription = stringResource(R.string.settings_theme_title),
+                                        active = true
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = stringResource(R.string.settings_theme_title),
+                                            color = colors.textPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = buildString {
+                                                append(stealth.themeMode.label)
+                                                append(" — ")
+                                                append(stealth.themeMode.tagline)
+                                                if (stealth.dynamicMaterialYou) append(" · Material You")
+                                            },
+                                            color = colors.textSecondary,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                                ThemeSelectorGrid(
+                                    selectedTheme = stealth.themeMode,
+                                    onSelectTheme = { viewModel.setThemeMode(it) },
+                                    selectedAccent = stealth.accentColor,
+                                    onSelectAccent = { viewModel.setAccentColor(it) },
+                                    pureBlackOled = stealth.pureBlackOled,
+                                    onTogglePureBlackOled = { viewModel.setPureBlackOled(it) },
+                                    dynamicMaterialYou = stealth.dynamicMaterialYou,
+                                    onToggleDynamicMaterialYou = { viewModel.setDynamicMaterialYou(it) },
+                                    bubbleCornerRadiusDp = stealth.bubbleCornerRadiusDp,
+                                    onBubbleCornerRadiusChange = { viewModel.setBubbleCornerRadiusDp(it) },
+                                    customOutgoingBubbleArgb = stealth.customOutgoingBubbleArgb,
+                                    customIncomingBubbleArgb = stealth.customIncomingBubbleArgb,
+                                    onCustomBubbleColorsChange = { outArgb, inArgb -> viewModel.setCustomBubbleColors(outArgb, inArgb) },
+                                    selectedFontStyle = stealth.fontStyle,
+                                    hasImportedFont = stealth.customFontPath.isNotBlank(),
+                                    onSelectFontStyle = { viewModel.setFontStyle(it) },
+                                    onImportCustomFontUri = { viewModel.importCustomFontFromUri(it) }
+                                )
+                            }
+                        }
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Image,
+                            title = stringResource(R.string.settings_wallpaper_title),
+                            subtitle = describeChatWallpaper(stealth.chatWallpaperUri),
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showWallpaperDialog = true }
+                        )
+                        ExpressiveSegmentedSliderRow(
+                            icon = Icons.Rounded.FormatSize,
+                            title = stringResource(R.string.settings_font_size_title),
+                            valueLabel = formatFontScaleLabel(stealth.chatFontScale),
+                            value = stealth.chatFontScale.coerceIn(0.80f, 1.45f),
+                            valueRange = 0.80f..1.45f,
+                            steps = 12,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onValueChange = { scale ->
+                                viewModel.updateGlobalStealth { c -> c.copy(chatFontScale = scale) }
+                            },
+                            onClick = { showFontSizeDialog = true }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.TextFields,
+                            title = stringResource(R.string.settings_system_font_title),
+                            checked = stealth.useSystemFont,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_system_font_title) to
+                                    context.getString(R.string.settings_system_font_subtitle)
+                            },
+                            onCheckedChange = { viewModel.setUseSystemFont(it) }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.KeyboardReturn,
+                            title = stringResource(R.string.settings_enter_sends_title),
+                            checked = stealth.enterIsSend,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_enter_sends_title) to
+                                    context.getString(R.string.settings_enter_sends_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(enterIsSend = it) }
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.EmojiEmotions,
+                            title = stringResource(R.string.settings_reactions_title),
+                            subtitle = reactionPreview,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showReactionDialog = true }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Translate,
+                            title = stringResource(R.string.settings_language_title),
+                            subtitle = langSubtitle,
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onClick = { showLanguageDialog = true }
+                        )
+                    }
+                }
+            }
+
+            if (showLooksSection) {
+                item(key = "patch_section_looks") {
+                    ExpressiveSegmentedGroup(title = stringResource(R.string.settings_section_looks)) {
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.ViewAgenda,
+                            title = stringResource(R.string.settings_look_vertical_status_title),
+                            checked = stealth.statusVerticalLayout,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_vertical_status_title) to
+                                    context.getString(R.string.settings_look_vertical_status_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(statusVerticalLayout = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Person,
+                            title = stringResource(R.string.settings_look_always_bio_title),
+                            checked = stealth.alwaysShowContactBio,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_always_bio_title) to
+                                    context.getString(R.string.settings_look_always_bio_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(alwaysShowContactBio = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.ViewAgenda,
+                            title = stringResource(R.string.settings_look_classic_ui_title),
+                            checked = stealth.classicWhatsAppLook,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_classic_ui_title) to
+                                    context.getString(R.string.settings_look_classic_ui_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(classicWhatsAppLook = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.ViewAgenda,
+                            title = stringResource(R.string.settings_look_compact_rows_title),
+                            checked = stealth.compactChatRows,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_compact_rows_title) to
+                                    context.getString(R.string.settings_look_compact_rows_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(compactChatRows = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Schedule,
+                            title = stringResource(R.string.settings_look_seconds_title),
+                            checked = stealth.showSecondsInTimestamps,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_seconds_title) to
+                                    context.getString(R.string.settings_look_seconds_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(showSecondsInTimestamps = it) }
+                            }
+                        )
+                        val clockFormatSubtitle = when (stealth.clockFormat) {
+                            WuppClockFormat.SYSTEM -> "Follow device (${if (LocalWuppUse24Hour.current) "24-hour" else "12-hour"})"
+                            WuppClockFormat.HOUR_24 -> "24-hour (14:30)"
+                            WuppClockFormat.HOUR_12 -> "12-hour (2:30 PM)"
+                        }
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Schedule,
+                            title = "Time format",
+                            subtitle = clockFormatSubtitle,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { showClockFormatDialog = true }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VisibilityOff,
+                            title = stringResource(R.string.settings_look_hide_camera_title),
+                            checked = stealth.hideHomeCameraShortcut,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_hide_camera_title) to
+                                    context.getString(R.string.settings_look_hide_camera_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(hideHomeCameraShortcut = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VisibilityOff,
+                            title = stringResource(R.string.settings_look_hide_badges_title),
+                            checked = stealth.hideStealthStatusBadges,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_hide_badges_title) to
+                                    context.getString(R.string.settings_look_hide_badges_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(hideStealthStatusBadges = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Groups,
+                            title = stringResource(R.string.settings_look_separate_groups_title),
+                            checked = stealth.separateGroupsAndChats,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_separate_groups_title) to
+                                    context.getString(R.string.settings_look_separate_groups_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(separateGroupsAndChats = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Campaign,
+                            title = stringResource(R.string.settings_look_separate_channels_title),
+                            checked = stealth.separateChannelsTab,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_separate_channels_title) to
+                                    context.getString(R.string.settings_look_separate_channels_subtitle)
+                            },
+                            onCheckedChange = { enabled ->
+                                viewModel.updateGlobalStealth { c ->
+                                    c.copy(
+                                        separateChannelsTab = enabled,
+                                        hideChannels = if (enabled) false else c.hideChannels
+                                    )
+                                }
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Person,
+                            title = "Local Contact Names Fallback",
+                            subtitle = if (hasContactsPermission) {
+                                "Active · Tap to refresh phonebook names"
+                            } else {
+                                "Tap to allow phonebook names"
+                            },
+                            badgeText = if (hasContactsPermission) stringResource(R.string.common_enabled) else null,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = {
+                                if (DeviceContactFallbackResolver.hasReadContactsPermission(context)) {
+                                    hasContactsPermission = true
+                                    viewModel.syncDeviceContactFallbacks(forceRefresh = true, notifyUser = true)
+                                } else {
+                                    contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VisibilityOff,
+                            title = stringResource(R.string.settings_look_hide_channels_title),
+                            checked = stealth.hideChannels,
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_look_hide_channels_title) to
+                                    context.getString(R.string.settings_look_hide_channels_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(hideChannels = it) }
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (showAlertsSection) {
+                item(key = "patch_section_notifications_sync") {
+                    ExpressiveSegmentedGroup(title = "Notifications & Background Sync") {
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Notifications,
+                            title = stringResource(R.string.settings_notify_dm_title),
+                            checked = stealth.notifyDmEnabled,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_notify_dm_title) to
+                                    context.getString(R.string.settings_notify_dm_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(notifyDmEnabled = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Groups,
+                            title = stringResource(R.string.settings_notify_group_title),
+                            checked = stealth.notifyGroupEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_notify_group_title) to
+                                    context.getString(R.string.settings_notify_group_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(notifyGroupEnabled = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VisibilityOff,
+                            title = stringResource(R.string.settings_notify_preview_title),
+                            checked = stealth.notifyShowPreview,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_notify_preview_title) to
+                                    context.getString(R.string.settings_notify_preview_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(notifyShowPreview = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.Vibration,
+                            title = stringResource(R.string.settings_notify_vibrate_title),
+                            checked = stealth.notifyVibrateEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = context.getString(R.string.settings_notify_vibrate_title) to
+                                    context.getString(R.string.settings_notify_vibrate_subtitle)
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(notifyVibrateEnabled = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VolumeUp,
+                            title = "Conversation Sounds",
+                            subtitle = "Play audio effects for incoming and outgoing chat messages",
+                            checked = stealth.chatSoundsEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Conversation Sounds" to
+                                    "Play audio effects for incoming and outgoing chat messages."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(chatSoundsEnabled = it) }
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = if (isSyncNotifHidden) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
+                            title = if (isSyncNotifHidden) "Persistent Sync Banner" else "Hide Persistent Sync Banner",
+                            subtitle = if (isSyncNotifHidden) {
+                                "Hidden · 24/7 sync & alerts active"
+                            } else {
+                                "Hide constant notification without breaking sync"
+                            },
+                            badgeText = if (isSyncNotifHidden) "HIDDEN" else "1-TAP GUIDE",
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = {
+                                if (isSyncNotifHidden) {
+                                    WaRealtimeService.openNotificationChannelSettings(
+                                        context = context,
+                                        channelId = WaRealtimeService.CHANNEL_ID
+                                    )
+                                } else {
+                                    showHideNotifGuide = true
+                                }
+                            }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.BatteryChargingFull,
+                            title = "Unrestricted Battery (24/7 Sync)",
+                            subtitle = if (isBatteryUnrestricted) {
+                                "Allowed · Android won't kill background sync"
+                            } else {
+                                "Allow unrestricted background use"
+                            },
+                            badgeText = if (isBatteryUnrestricted) "ACTIVE" else "ALLOW",
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onClick = {
+                                WaRealtimeService.openBatteryOptimizationSettings(context)
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (showUpdatesSection) {
+                item(key = "patch_section_updates_support") {
+                    val updateSubtitle = when (val st = updateState) {
+                        is UpdateUiState.Checking -> "Checking GitHub Releases..."
+                        is UpdateUiState.UpToDate -> "Up to date (v${st.currentVersion})"
+                        is UpdateUiState.UpdateAvailable -> "New update available: ${st.release.tagName}"
+                        is UpdateUiState.Downloading -> {
+                            if (st.progressPercent >= 0) "Downloading ${st.release.tagName} (${st.progressPercent}%)"
+                            else "Downloading ${st.release.tagName}..."
+                        }
+                        is UpdateUiState.ReadyToInstall -> "${st.release.tagName} ready — tap to install"
+                        is UpdateUiState.Error -> if (!st.silent) st.message else "Installed v${BuildConfig.VERSION_NAME}"
+                        UpdateUiState.Idle -> "Installed v${BuildConfig.VERSION_NAME}"
+                    }
+                    val updateBadge = when (updateState) {
+                        is UpdateUiState.UpdateAvailable -> "NEW"
+                        is UpdateUiState.ReadyToInstall -> "INSTALL"
+                        else -> null
+                    }
+
+                    ExpressiveSegmentedGroup(title = "Updates & GitHub Support") {
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.SystemUpdate,
+                            title = "Check for Updates",
+                            subtitle = updateSubtitle,
+                            badgeText = updateBadge,
+                            position = ExpressiveSegmentPosition.TOP,
+                            onClick = {
+                                when (updateState) {
+                                    is UpdateUiState.UpdateAvailable,
+                                    is UpdateUiState.Downloading,
+                                    is UpdateUiState.ReadyToInstall -> viewModel.openUpdatePrompt()
+                                    else -> viewModel.checkForUpdates(silent = false)
+                                }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.SystemUpdate,
+                            title = "Receive Pre-release Updates",
+                            checked = includePreReleases,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Receive Pre-release Updates" to
+                                    "Tester channel — fetches GitHub pre-releases before public rollout."
+                            },
+                            onCheckedChange = { viewModel.setIncludePreReleases(it) }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.BugReport,
+                            title = "Report a Bug / Issue",
+                            subtitle = "Open a pre-filled bug report on GitHub",
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { onOpenFeedback(GitHubFeedbackType.BUG) }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Lightbulb,
+                            title = "Request a Feature",
+                            subtitle = "Suggest improvements on GitHub",
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { onOpenFeedback(GitHubFeedbackType.FEATURE) }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.ChatBubbleOutline,
+                            title = "Give Feedback",
+                            subtitle = "Share thoughts on GitHub",
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onClick = { onOpenFeedback(GitHubFeedbackType.FEEDBACK) }
+                        )
+                        ExpressiveSegmentedActionRow(
+                            icon = Icons.Rounded.Code,
+                            title = "GitHub Repository",
+                            subtitle = "${BuildConfig.GITHUB_REPO} • v${BuildConfig.VERSION_NAME}",
+                            position = ExpressiveSegmentPosition.BOTTOM,
+                            onClick = {
+                                val repo = BuildConfig.GITHUB_REPO.trim().trim('/')
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$repo"))
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            item(key = "patch_bottom_spacer") {
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
 
-        item(key = "patch_bottom_spacer") {
-            Spacer(modifier = Modifier.height(16.dp))
-        }
+    infoDialogContent?.let { (infoTitle, infoBody) ->
+        AlertDialog(
+            onDismissRequest = { infoDialogContent = null },
+            containerColor = colors.elevatedBar,
+            title = {
+                Text(
+                    text = infoTitle,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = infoBody,
+                    color = colors.textSecondary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { infoDialogContent = null }) {
+                    Text("Got it", color = colors.accentGreen, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        )
     }
 
     editingAutoDlNetwork?.let { net ->
@@ -5380,6 +5819,19 @@ private fun ToolsVaultTab(
 
     if (showCompanionScopeDialog) {
         CompanionScopeInfoDialog(onDismiss = { showCompanionScopeDialog = false })
+    }
+
+    if (showAccountSwitcherSheet) {
+        AccountSwitcherSheet(
+            accounts = accounts,
+            activeAccountId = activeAccountId,
+            isSwitching = isSwitchingAccount,
+            onSelectAccount = { viewModel.switchAccount(it) },
+            onAddAccount = { viewModel.addAndSwitchAccount(it) },
+            onRenameAccount = { id, label -> viewModel.renameAccount(id, label) },
+            onRemoveAccount = { viewModel.removeInactiveAccount(it) },
+            onDismiss = { showAccountSwitcherSheet = false }
+        )
     }
 
     if (showWallpaperDialog) {

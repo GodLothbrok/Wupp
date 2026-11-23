@@ -16,6 +16,23 @@
 - Prevented startup crashes on unsupported 32-bit devices with a clear architecture alert (#100).
 - Normalized Meta AI contact display and added companion device advisory (#97).
 
+## [0.3.8-pre.3] - 2026-11-22
+
+### ✨ Features
+- ⚙️ Redesigned Settings with a search bar, quick category pills, info popups, and an inline chat font-size slider.
+
+## [0.3.8-pre.2] - 2026-11-23
+
+### ✨ Features
+- 👥 Added a WhatsApp account switcher so you can link and switch between multiple accounts with separate chats, media, and settings.
+
+## [0.3.8-pre.1] - 2026-11-22
+
+### 🛠️ Fixes
+- 📞 Fixed video call controls, camera preview rotation, audio route switching, and ongoing call notification updates.
+- 🖼️ Fixed reaction emojis, date separator text, background pause, and retry handling in the full-screen media viewer (#118).
+- 🔒 Hid message notification previews and quick actions for locked chats and when App Lock is active, and required a linked session for notification quick replies.
+
 ## [0.3.7] - 2026-11-22
 
 ### ✨ Features

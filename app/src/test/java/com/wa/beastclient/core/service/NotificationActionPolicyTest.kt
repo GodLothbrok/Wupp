@@ -29,6 +29,18 @@ class NotificationActionPolicyTest {
     }
 
     @Test
+    fun privateChatHidesBothActionsEvenWhenPreviewsAreEnabled() {
+        val policy = resolveNotificationActionPolicy(
+            notifyShowPreview = true,
+            isChannel = false,
+            isAnnounceLocked = false,
+            isPrivateConversation = true
+        )
+        assertFalse(policy.showReplyAction)
+        assertFalse(policy.showMarkReadAction)
+    }
+
+    @Test
     fun announceLockedGroupHidesReplyButAllowsMarkRead() {
         val policy = resolveNotificationActionPolicy(
             notifyShowPreview = true,

@@ -116,6 +116,62 @@ pub async fn disconnect_client(runtime: &BridgeRuntime) {
     runtime.connected.store(false, Ordering::SeqCst);
 }
 
+/// Cleanly halts the active account's Bot loop and releases SQLite handles so another account
+/// directory can be opened inside the same process without restarting the app.
+pub async fn shutdown_client(runtime: &BridgeRuntime) {
+    runtime.shutting_down.store(true, Ordering::SeqCst);
+    if let Some(abort) = runtime
+        .bot_abort
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
+        abort.abort();
+    }
+    if let Some(client) = runtime
+        .client
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
+        client.pause().await;
+    }
+    let _ = runtime
+        .shared_db
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    *runtime.files_dir.write().unwrap_or_else(|e| e.into_inner()) = String::new();
+    runtime.voip.clear_all();
+    runtime.connected.store(false, Ordering::SeqCst);
+    runtime.logged_in.store(false, Ordering::SeqCst);
+    runtime.terminal_stop.store(false, Ordering::SeqCst);
+    runtime.rate_limit_until_unix.store(0, Ordering::SeqCst);
+    runtime.contact_sync_active.store(false, Ordering::SeqCst);
+    runtime.last_sync_unix.store(0, Ordering::SeqCst);
+    runtime.last_verify_unix.store(0, Ordering::SeqCst);
+    runtime
+        .download_inflight
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    runtime
+        .wanted_media_ids
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    runtime
+        .peer_media_req_ms
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    runtime
+        .chat_ephemeral
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
 pub async fn reset_socket(runtime: &BridgeRuntime) {
     if runtime.terminal_stop.load(Ordering::Acquire) {
         return;

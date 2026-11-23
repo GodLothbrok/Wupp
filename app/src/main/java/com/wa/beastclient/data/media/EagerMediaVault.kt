@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.wa.beastclient.data.db.WaDao
+import com.wa.beastclient.domain.accounts.AccountManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,7 +54,7 @@ object EagerMediaVault {
     private val vaultScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun ensureDirectories(context: Context) {
-        val base = context.filesDir
+        val base = AccountManager.dataDir(context)
         listOf(
             File(base, "media"),
             File(base, "vault/viewonce"),
@@ -62,19 +63,19 @@ object EagerMediaVault {
             File(base, "vault/calls"),
             File(base, "vault/custom"),
             File(base, "stickers/custom"),
-            File(base, "models")
+            File(context.filesDir, "models")
         ).forEach { dir ->
             if (!dir.exists()) dir.mkdirs()
         }
     }
 
-    fun mediaDir(context: Context): File = File(context.filesDir, "media").apply { mkdirs() }
-    fun viewOnceVaultDir(context: Context): File = File(context.filesDir, "vault/viewonce").apply { mkdirs() }
-    fun statusVaultDir(context: Context): File = File(context.filesDir, "vault/status").apply { mkdirs() }
-    fun avatarVaultDir(context: Context): File = File(context.filesDir, "vault/avatars").apply { mkdirs() }
-    fun callRecordingsVaultDir(context: Context): File = File(context.filesDir, "vault/calls").apply { mkdirs() }
-    fun customVaultRootDir(context: Context): File = File(context.filesDir, "vault/custom").apply { mkdirs() }
-    fun customStickersDir(context: Context): File = File(context.filesDir, "stickers/custom").apply { mkdirs() }
+    fun mediaDir(context: Context): File = File(AccountManager.dataDir(context), "media").apply { mkdirs() }
+    fun viewOnceVaultDir(context: Context): File = File(AccountManager.dataDir(context), "vault/viewonce").apply { mkdirs() }
+    fun statusVaultDir(context: Context): File = File(AccountManager.dataDir(context), "vault/status").apply { mkdirs() }
+    fun avatarVaultDir(context: Context): File = File(AccountManager.dataDir(context), "vault/avatars").apply { mkdirs() }
+    fun callRecordingsVaultDir(context: Context): File = File(AccountManager.dataDir(context), "vault/calls").apply { mkdirs() }
+    fun customVaultRootDir(context: Context): File = File(AccountManager.dataDir(context), "vault/custom").apply { mkdirs() }
+    fun customStickersDir(context: Context): File = File(AccountManager.dataDir(context), "stickers/custom").apply { mkdirs() }
 
     /** Sanitizes user-supplied custom vault folder names so paths stay strictly inside vault/custom. */
     fun sanitizeVaultFolderName(raw: String): String {
