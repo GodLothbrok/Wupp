@@ -593,6 +593,7 @@ object CallStateManager {
     }
 
     fun flipCamera() {
+        _uiState.update { it.copy(isFrontCamera = !it.isFrontCamera) }
         videoPipeline?.switchCamera()
     }
 

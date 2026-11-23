@@ -71,10 +71,56 @@ import com.wa.beastclient.ui.screens.LinkDeviceScreen
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocaleHelper
 import com.wa.beastclient.ui.theme.WhatsAppTheme
+import com.wa.beastclient.ui.components.ForwardMessageDialog
+import com.wa.bridge.whatsbridge.Whatsbridge
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import kotlinx.coroutines.launch
+
+data class IncomingShareData(
+    val text: String? = null,
+    val uris: List<android.net.Uri> = emptyList(),
+    val mimeType: String? = null
+)
 
 class MainActivity : FragmentActivity() {
     private val pendingOpenChatJid = MutableStateFlow<String?>(null)
+    private val pendingShareData = MutableStateFlow<IncomingShareData?>(null)
+
+    private fun handleIncomingShareIntent(targetIntent: Intent?) {
+        if (targetIntent == null) return
+        val action = targetIntent.action ?: return
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
+
+        val mimeType = targetIntent.type
+        val text = targetIntent.getStringExtra(Intent.EXTRA_TEXT)
+        val uris = when (action) {
+            Intent.ACTION_SEND -> {
+                val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    targetIntent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    targetIntent.getParcelableExtra(Intent.EXTRA_STREAM) as? android.net.Uri
+                }
+                listOfNotNull(uri)
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val list = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    targetIntent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    targetIntent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                }
+                list.orEmpty()
+            }
+            else -> emptyList()
+        }
+
+        if (!text.isNullOrBlank() || uris.isNotEmpty()) {
+            pendingShareData.value = IncomingShareData(text = text, uris = uris, mimeType = mimeType)
+        }
+    }
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(LocaleHelper.wrapContext(newBase))
@@ -87,6 +133,7 @@ class MainActivity : FragmentActivity() {
             pendingOpenChatJid.value = jid
             intent?.removeExtra("open_chat_jid")
         }
+        handleIncomingShareIntent(intent)
 
         val setupPrefs = getSharedPreferences("wupp_setup_prefs", Context.MODE_PRIVATE)
         val initialSetupDone = setupPrefs.getBoolean("setup_completed_v1", false)
@@ -96,6 +143,34 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
+            val isNativeLoaded = remember { Whatsbridge.isNativeLoaded }
+            if (!isNativeLoaded) {
+                WhatsAppTheme(
+                    themeMode = com.wa.beastclient.ui.theme.WuppThemeMode.DARK,
+                    assetManager = assets
+                ) {
+                    val colors = LocalWaColors.current
+                    Box(modifier = Modifier.fillMaxSize().background(colors.appSurface), contentAlignment = Alignment.Center) {
+                        AlertDialog(
+                            onDismissRequest = { finish() },
+                            containerColor = colors.elevatedBar,
+                            title = { Text("Unsupported Architecture", color = colors.textPrimary) },
+                            text = {
+                                Text(
+                                    "This device runs a 32-bit CPU (armeabi-v7a). Wupp requires a 64-bit device (arm64-v8a) to load its native engine.",
+                                    color = colors.textSecondary
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { finish() }) {
+                                    Text("Exit", color = colors.accentGreen)
+                                }
+                            }
+                        )
+                    }
+                }
+                return@setContent
+            }
             val vm: MainViewModel = viewModel()
             val stealth by vm.stealthConfig.collectAsState()
             val appLockConfig by vm.appLockConfig.collectAsState()
@@ -388,6 +463,50 @@ class MainActivity : FragmentActivity() {
                 if (setupDone && isAppLocked) {
                     AppLockOverlay(config = appLockConfig)
                 }
+
+                val shareData by pendingShareData.collectAsState()
+                if (shareData != null && setupDone && bridgeStatus.isLoggedIn && !isAppLocked) {
+                    val allChatsList by vm.allChats.collectAsState()
+                    val colors = LocalWaColors.current
+                    ForwardMessageDialog(
+                        allChats = allChatsList,
+                        announceLockedGroups = emptySet(),
+                        currentChatJid = "",
+                        colors = colors,
+                        onDismiss = { pendingShareData.value = null },
+                        onConfirmForward = { targetJids ->
+                            val data = shareData
+                            pendingShareData.value = null
+                            if (data != null && targetJids.isNotEmpty()) {
+                                for (targetJid in targetJids) {
+                                    if (data.uris.isNotEmpty()) {
+                                        for (u in data.uris) {
+                                            lifecycleScope.launch {
+                                                val staged = vm.stageMediaForPreview(u, data.mimeType)
+                                                if (staged != null) {
+                                                    vm.sendStagedMedia(
+                                                        chatJid = targetJid,
+                                                        staged = staged,
+                                                        caption = data.text.orEmpty(),
+                                                        qualityMode = com.wa.beastclient.data.media.OutboundQualityMode.STANDARD
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else if (!data.text.isNullOrBlank()) {
+                                        vm.sendText(
+                                            chatJid = targetJid,
+                                            text = data.text,
+                                            quoted = null,
+                                            ghostMentionEveryone = false
+                                        )
+                                    }
+                                }
+                                selectedChatJid = targetJids.first()
+                            }
+                        }
+                    )
+                }
                 }
             }
         }
@@ -403,6 +522,7 @@ class MainActivity : FragmentActivity() {
             pendingOpenChatJid.value = jid
             intent.removeExtra("open_chat_jid")
         }
+        handleIncomingShareIntent(intent)
     }
 
     override fun onStart() {

@@ -103,6 +103,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.SentimentSatisfiedAlt
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Warning
@@ -537,7 +539,11 @@ fun ChatScreen(
         val prevId = lastLatestMsgId
         lastLatestMsgId = newest.id
         if (prevId == null) {
-            if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+            val unread = chat?.unreadCount ?: 0
+            if (unread > 1) {
+                val targetIndex = (unread - 1).coerceAtMost(pagedItems.itemCount - 1).coerceAtLeast(0)
+                listState.scrollToItem(targetIndex)
+            } else if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
                 listState.scrollToItem(0)
             }
             scrollToBottomPending = false
@@ -716,6 +722,7 @@ fun ChatScreen(
     var showMoreReactionEmojis by remember { mutableStateOf(false) }
     var editMessageDialogTarget by remember { mutableStateOf<MessageEntity?>(null) }
     var mediaLightboxTarget by remember { mutableStateOf<MessageEntity?>(null) }
+    var activeStickerActionMsg by remember { mutableStateOf<MessageEntity?>(null) }
     var pdfViewerTarget by remember { mutableStateOf<Pair<File, String>?>(null) }
     var pendingOutboundPreview by remember { mutableStateOf<StagedOutboundMedia?>(null) }
     var showProfilePhotoLightbox by remember { mutableStateOf(false) }
@@ -1354,6 +1361,38 @@ fun ChatScreen(
                         }
                     )
                 }
+
+                val isMetaAiChat = remember(chatJid, chat?.name) {
+                    chatJid.contains("13135550002") || chat?.name.equals("Meta AI", ignoreCase = true)
+                }
+                if (isMetaAiChat) {
+                    Surface(
+                        color = colors.pillActiveBg.copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Info,
+                                contentDescription = null,
+                                tint = colors.accentGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Meta AI chats are managed directly in official WhatsApp. Companion devices cannot message Meta AI directly.",
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
             }
         }
     ) { innerPadding ->
@@ -1588,6 +1627,7 @@ fun ChatScreen(
                                         onAutoRequestDownload = { viewModel.requestMediaDownload(msg, userInitiated = false) },
                                         onRequestDownload = { viewModel.requestMediaDownload(msg, userInitiated = true) },
                                         onOpenMedia = { mediaLightboxTarget = msg },
+                                        onOpenSticker = { activeStickerActionMsg = msg },
                                         onOpenDocument = handleOpenDocument,
                                         onSaveDocument = handleSaveDocument,
                                         onLongPress = {
@@ -1618,6 +1658,7 @@ fun ChatScreen(
                                             onAutoRequestDownload = { viewModel.requestMediaDownload(msg, userInitiated = false) },
                                             onRequestDownload = { viewModel.requestMediaDownload(msg, userInitiated = true) },
                                             onOpenMedia = { mediaLightboxTarget = msg },
+                                            onOpenSticker = { activeStickerActionMsg = msg },
                                             onOpenDocument = handleOpenDocument,
                                             onSaveDocument = handleSaveDocument,
                                             onLongPress = {
@@ -2426,6 +2467,69 @@ fun ChatScreen(
         )
     }
 
+    activeStickerActionMsg?.let { stickerMsg ->
+        val file = stickerMsg.localMediaPath?.let { File(it) }?.takeIf { it.exists() }
+        val isFav = (stickerMsg.mediaSha256 != null && favoriteStickerKeys.contains(stickerMsg.mediaSha256)) ||
+            (stickerMsg.localMediaPath != null && favoriteStickerKeys.contains(stickerMsg.localMediaPath)) ||
+            favoriteStickerKeys.contains(stickerMsg.id)
+
+        AlertDialog(
+            onDismissRequest = { activeStickerActionMsg = null },
+            title = {
+                Text(
+                    text = "Sticker",
+                    color = colors.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (file != null) {
+                        AnimatedStickerImage(
+                            file = file,
+                            contentDescription = "Sticker Preview",
+                            maxDecodeDimPx = 512,
+                            modifier = Modifier.size(160.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            viewModel.toggleFavoriteSticker(stickerMsg)
+                            activeStickerActionMsg = null
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.pillActiveBg,
+                            contentColor = colors.brightGreen
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = if (isFav) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                            contentDescription = null,
+                            tint = if (isFav) colors.brightGreen else colors.textSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isFav) "Remove from Favorites" else "Add to Favorites",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { activeStickerActionMsg = null }) {
+                    Text("Close", color = colors.accentGreen, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        )
+    }
+
     if (showChatHistorySheet) {
         MessageHistorySheet(
             deletedMessages = deletedHistory,
@@ -3019,6 +3123,7 @@ private fun MessageBubbleRow(
     onAutoRequestDownload: () -> Unit = {},
     onRequestDownload: () -> Unit = {},
     onOpenMedia: () -> Unit,
+    onOpenSticker: () -> Unit = {},
     onOpenDocument: () -> Unit = {},
     onSaveDocument: () -> Unit = {},
     onLongPress: () -> Unit
@@ -3774,6 +3879,7 @@ private fun MessageBubbleRow(
                             mediaDownloadError = mediaDownloadError,
                             onAutoRequestDownload = onAutoRequestDownload,
                             onRequestDownload = onRequestDownload,
+                            onOpenSticker = onOpenSticker,
                             onLongPress = onLongPress
                         )
                     }
@@ -4125,6 +4231,7 @@ private fun StickerMessageBubbleItem(
     mediaDownloadError: String?,
     onAutoRequestDownload: () -> Unit,
     onRequestDownload: () -> Unit,
+    onOpenSticker: () -> Unit = {},
     onLongPress: () -> Unit
 ) {
     val localFile = remember(msg.localMediaPath) {
@@ -4145,7 +4252,12 @@ private fun StickerMessageBubbleItem(
             .sizeIn(minWidth = 120.dp, minHeight = 120.dp, maxWidth = 160.dp, maxHeight = 160.dp)
             .combinedClickable(
                 onClick = {
-                    if (localFile == null) onRequestDownload() else replayNonce++
+                    if (localFile == null) {
+                        onRequestDownload()
+                    } else {
+                        replayNonce++
+                        onOpenSticker()
+                    }
                 },
                 onLongClick = onLongPress
             )

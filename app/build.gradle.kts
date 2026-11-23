@@ -8,14 +8,14 @@ plugins {
 }
 
 val detectedGithubRepo: String = runCatching {
-    val process = ProcessBuilder("git", "remote", "get-url", "origin")
-        .directory(rootProject.projectDir)
-        .redirectErrorStream(true)
-        .start()
-    val url = process.inputStream.bufferedReader().readText().trim()
-    val exited = process.waitFor()
-    if (exited == 0 && url.contains("github.com", ignoreCase = true)) {
-        url
+    val output = providers.exec {
+        workingDir = rootProject.projectDir
+        commandLine("git", "remote", "get-url", "origin")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+
+    if (output.contains("github.com", ignoreCase = true)) {
+        output
             .replace(Regex("^https?://github\\.com/"), "")
             .replace(Regex("^git@github\\.com:"), "")
             .removeSuffix(".git")
@@ -189,6 +189,7 @@ dependencies {
 
     implementation("com.airbnb.android:lottie-compose:6.4.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-gif:2.7.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("io.github.kyant0:backdrop:2.0.1")
     implementation("io.github.kyant0:shapes:1.2.1")

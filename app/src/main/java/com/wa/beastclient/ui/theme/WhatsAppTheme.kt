@@ -47,7 +47,8 @@ enum class WuppThemeMode(
     NOIR_GOLD("noir_gold", "Noir & Gold", "Obsidian black & warm 24k gold"),
     PAPER_INK("paper_ink", "Paper & Ink", "Warm editorial cream & forest"),
     MATCHA("matcha", "Matcha", "Botanical sage green daylight"),
-    GLACIER("glacier", "Glacier", "Arctic frost slate & ice cyan");
+    GLACIER("glacier", "Glacier", "Arctic frost slate & ice cyan"),
+    IOS("ios", "iOS Style", "Apple iOS blue accents & clean light layout");
 
     companion object {
         fun fromStorageKey(key: String?, legacyDarkFallback: Boolean): WuppThemeMode {
@@ -448,6 +449,31 @@ val WaGlacierColors = WaColors(
     doodleTintAlpha = 0.07f
 )
 
+val WaiOSColors = WaColors(
+    themeMode = WuppThemeMode.IOS,
+    isDark = false,
+    chatCanvas = Color(0xFFF2F2F7),
+    appSurface = Color(0xFFFFFFFF),
+    elevatedBar = Color(0xFFF6F6F6),
+    outgoingBubble = Color(0xFFDCF7C5),
+    incomingBubble = Color(0xFFFFFFFF),
+    accentGreen = Color(0xFF007AFF),
+    brightGreen = Color(0xFF007AFF),
+    blueTick = Color(0xFF34C759),
+    textPrimary = Color(0xFF000000),
+    textSecondary = Color(0xFF8E8E93),
+    pillActiveBg = Color(0xFFE5F1FF),
+    pillActiveText = Color(0xFF007AFF),
+    pillInactiveBg = Color(0xFFE5E5EA),
+    antiDeleteRed = Color(0xFFFF3B30),
+    warningAmber = Color(0xFFFF9500),
+    quotedBg = Color(0x14000000),
+    divider = Color(0xFFC6C6C8),
+    mediaScrim = Color(0x66000000),
+    doodleColor = Color(0xFF8E8E93),
+    doodleTintAlpha = 0.10f
+)
+
 fun colorsForTheme(
     mode: WuppThemeMode,
     accent: WuppAccentColor = WuppAccentColor.DEFAULT,
@@ -467,6 +493,7 @@ fun colorsForTheme(
         WuppThemeMode.PAPER_INK -> WaPaperInkColors
         WuppThemeMode.MATCHA -> WaMatchaColors
         WuppThemeMode.GLACIER -> WaGlacierColors
+        WuppThemeMode.IOS -> WaiOSColors
     }
     var resolved = when {
         dynamicScheme != null -> applyDynamicColorSchemeToWaColors(base, dynamicScheme)

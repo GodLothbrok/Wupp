@@ -299,7 +299,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         appLockConfig,
         lockedChatsRevealed
     ) { chats, lockCfg, revealed ->
-        if (!lockCfg.hideLockedChatsBehindLock || revealed) 0
+        if (revealed) 0
         else chats.count {
             it.isLocked &&
                 !it.isCommunityParent &&
@@ -317,7 +317,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         appLockConfig,
         lockedChatsRevealed
     ) { chats, query, lockCfg, revealed ->
-        QuadFilterState(chats, query, lockCfg.hideLockedChatsBehindLock && !revealed)
+        if (!revealed && AppLockManager.matchesSecretCodeOrPin(query)) {
+            _lockedChatsRevealed.value = true
+        }
+        val isRevealed = revealed || _lockedChatsRevealed.value
+        QuadFilterState(chats, query, !isRevealed)
     }
 
     private data class QuadFilterState(

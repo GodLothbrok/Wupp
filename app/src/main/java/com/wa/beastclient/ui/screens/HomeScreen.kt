@@ -117,6 +117,7 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -1213,6 +1214,7 @@ fun HomeScreen(
                             includeArchived = includeArchived,
                             hiddenLockedCount = hiddenLockedCount,
                             hideLockedBehindLock = appLockConfig.hideLockedChatsBehindLock,
+                            hideLockedFolder = appLockConfig.hideLockedFolder,
                             lockedChatsRevealed = lockedChatsRevealed,
                             compactRows = stealth.compactChatRows,
                             showSeconds = showSeconds,
@@ -2364,6 +2366,7 @@ private fun ChatsTabContent(
     includeArchived: Boolean = false,
     hiddenLockedCount: Int = 0,
     hideLockedBehindLock: Boolean = false,
+    hideLockedFolder: Boolean = false,
     lockedChatsRevealed: Boolean = false,
     compactRows: Boolean = false,
     showSeconds: Boolean = false,
@@ -2692,7 +2695,7 @@ private fun ChatsTabContent(
             }
         }
 
-        if (tabHiddenLockedCount > 0) {
+        if (tabHiddenLockedCount > 0 && !hideLockedFolder) {
             item(key = "locked_chats_hidden_banner") {
                 Row(
                     modifier = Modifier
@@ -4674,7 +4677,7 @@ private fun ToolsVaultTab(
             matchesSearch("status", "vertical", "bio", "classic", "compact", "seconds", "time format", "clock", "camera", "badges", "separate groups", "channels", "local contact names", "fallback")
             )
         val showAlertsSection = showCategory(SettingsCategory.ALERTS) && (
-            matchesSearch("notifications", "dm", "group", "preview", "vibrate", "sync banner", "battery", "unrestricted", "24/7")
+            matchesSearch("notifications", "dm", "group", "preview", "vibrate", "conversation sounds", "chat sounds", "sound", "sync banner", "battery", "unrestricted", "24/7")
             )
         val showUpdatesSection = showCategory(SettingsCategory.UPDATES) && (
             matchesSearch("update", "pre-release", "bug", "feature", "feedback", "github", "version", "about")
@@ -5502,6 +5505,20 @@ private fun ToolsVaultTab(
                             },
                             onCheckedChange = {
                                 viewModel.updateGlobalStealth { c -> c.copy(notifyVibrateEnabled = it) }
+                            }
+                        )
+                        ExpressiveSegmentedSwitchRow(
+                            icon = Icons.Rounded.VolumeUp,
+                            title = "Conversation Sounds",
+                            subtitle = "Play audio effects for incoming and outgoing chat messages",
+                            checked = stealth.chatSoundsEnabled,
+                            position = ExpressiveSegmentPosition.MIDDLE,
+                            onInfoClick = {
+                                infoDialogContent = "Conversation Sounds" to
+                                    "Play audio effects for incoming and outgoing chat messages."
+                            },
+                            onCheckedChange = {
+                                viewModel.updateGlobalStealth { c -> c.copy(chatSoundsEnabled = it) }
                             }
                         )
                         ExpressiveSegmentedActionRow(

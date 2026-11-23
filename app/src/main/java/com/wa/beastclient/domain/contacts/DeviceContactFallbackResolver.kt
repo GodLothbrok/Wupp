@@ -16,6 +16,11 @@ internal class DeviceContactIndex private constructor(
 ) {
     fun lookup(vararg candidates: String): String? {
         for (raw in candidates) {
+            if (raw.contains("13135550002") || raw.startsWith("meta-ai", ignoreCase = true)) {
+                return "Meta AI"
+            }
+        }
+        for (raw in candidates) {
             if (raw.isBlank()) continue
             val bare = raw.trim().substringBefore("@").substringBefore(":")
             if (bare.endsWith("lid", ignoreCase = true) || raw.contains("@lid")) continue
@@ -257,6 +262,11 @@ object DeviceContactFallbackResolver {
 
         for (chat in chats) {
             if (chat.isGroup || chat.isCommunityParent || chat.jid.endsWith("@newsletter") || chat.jid.endsWith("@broadcast")) {
+                continue
+            }
+            if (chat.jid.contains("13135550002")) {
+                dao.updateChatName(chat.jid, "Meta AI", overwrite = true)
+                updatedCount++
                 continue
             }
             if (!isServerNameMissing(chat.name, chat.jid)) continue
