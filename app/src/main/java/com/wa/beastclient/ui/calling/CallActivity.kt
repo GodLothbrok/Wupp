@@ -1,6 +1,9 @@
 package com.wa.beastclient.ui.calling
 
 import android.Manifest
+import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
 import android.graphics.Matrix
@@ -405,13 +408,13 @@ private fun CallScreenContent(
                             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                                     st.setDefaultBufferSize(640, 480)
-                                    applyLocalPreviewTransform(this@apply, w, h)
+                                    applyLocalPreviewTransform(this@apply, w, h, state.isFrontCamera)
                                     val s = Surface(st)
                                     boundSurface = s
                                     CallStateManager.attachLocalVideoSurface(s)
                                 }
                                 override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
-                                    applyLocalPreviewTransform(this@apply, w, h)
+                                    applyLocalPreviewTransform(this@apply, w, h, state.isFrontCamera)
                                 }
                                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
                                 override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
@@ -425,7 +428,7 @@ private fun CallScreenContent(
                     },
                     update = { tv ->
                         if (tv.width > 0 && tv.height > 0) {
-                            applyLocalPreviewTransform(tv, tv.width, tv.height)
+                            applyLocalPreviewTransform(tv, tv.width, tv.height, state.isFrontCamera)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
@@ -885,15 +888,52 @@ private fun CallPillToggle(
     }
 }
 
-private fun applyLocalPreviewTransform(view: TextureView, width: Int, height: Int) {
-    // Camera2 supplies the sensor transform to TextureView. Compensate for screen rotation.
-    val degrees = when (view.display?.rotation) {
-        Surface.ROTATION_90 -> 270
+private fun applyLocalPreviewTransform(
+    view: TextureView,
+    width: Int,
+    height: Int,
+    isFrontCamera: Boolean
+) {
+    val context = view.context
+    val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+    val targetFacing = if (isFrontCamera) {
+        CameraCharacteristics.LENS_FACING_FRONT
+    } else {
+        CameraCharacteristics.LENS_FACING_BACK
+    }
+    val camId = cm?.cameraIdList?.firstOrNull { id ->
+        runCatching {
+            cm?.getCameraCharacteristics(id)?.get(CameraCharacteristics.LENS_FACING) == targetFacing
+        }.getOrDefault(false)
+    } ?: cm?.cameraIdList?.firstOrNull()
+
+    val sensorDeg = camId?.let { id ->
+        runCatching {
+            cm?.getCameraCharacteristics(id)?.get(CameraCharacteristics.SENSOR_ORIENTATION)
+        }.getOrNull()
+    } ?: if (isFrontCamera) 270 else 90
+
+    val displayDeg = when (view.display?.rotation) {
+        Surface.ROTATION_90 -> 90
         Surface.ROTATION_180 -> 180
-        Surface.ROTATION_270 -> 90
+        Surface.ROTATION_270 -> 270
         else -> 0
     }
-    applyVideoTextureTransform(view, width, height, 480, 640, degrees, fillCrop = true)
+    val degrees = if (isFrontCamera) {
+        (sensorDeg + displayDeg) % 360
+    } else {
+        (sensorDeg - displayDeg + 360) % 360
+    }
+    applyVideoTextureTransform(
+        textureView = view,
+        viewWidth = width,
+        viewHeight = height,
+        videoWidth = 640,
+        videoHeight = 480,
+        cwRotationDeg = degrees,
+        fillCrop = true,
+        mirrorHorizontal = isFrontCamera
+    )
 }
 
 private fun applyVideoTextureTransform(
@@ -903,7 +943,8 @@ private fun applyVideoTextureTransform(
     videoWidth: Int,
     videoHeight: Int,
     cwRotationDeg: Int,
-    fillCrop: Boolean
+    fillCrop: Boolean,
+    mirrorHorizontal: Boolean = false
 ) {
     if (viewWidth <= 0 || viewHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return
     val vw = viewWidth.toFloat()
@@ -925,7 +966,8 @@ private fun applyVideoTextureTransform(
     } else {
         minOf(vw / rotatedW, vh / rotatedH)
     }
-    matrix.postScale(uniformScale, uniformScale, cx, cy)
+    val scaleX = if (mirrorHorizontal) -uniformScale else uniformScale
+    matrix.postScale(scaleX, uniformScale, cx, cy)
     textureView.setTransform(matrix)
 }
 

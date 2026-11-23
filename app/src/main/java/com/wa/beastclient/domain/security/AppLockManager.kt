@@ -40,9 +40,11 @@ data class AppLockConfig(
     val mode: AppLockMode = AppLockMode.OFF,
     val timeout: AppLockTimeout = AppLockTimeout.IMMEDIATE,
     val hideInRecents: Boolean = true,
-    val hideLockedChatsBehindLock: Boolean = false,
+    val hideLockedChatsBehindLock: Boolean = true,
     val allowScreenshots: Boolean = true,
-    val hasCustomPin: Boolean = false
+    val hasCustomPin: Boolean = false,
+    val secretCode: String? = null,
+    val hideLockedFolder: Boolean = false
 )
 
 internal data class WindowPrivacyPolicy(
@@ -63,6 +65,8 @@ object AppLockManager {
     private const val KEY_ALLOW_SCREENSHOTS = "applock_allow_screenshots"
     private const val KEY_PIN_SALT = "applock_pin_salt"
     private const val KEY_PIN_HASH = "applock_pin_hash"
+    private const val KEY_SECRET_CODE = "applock_secret_code"
+    private const val KEY_HIDE_LOCKED_FOLDER = "applock_hide_locked_folder"
 
     private lateinit var prefs: SharedPreferences
     private val _config = MutableStateFlow(AppLockConfig())
@@ -97,9 +101,11 @@ object AppLockManager {
                 mode = effectiveMode,
                 timeout = AppLockTimeout.fromStorageKey(prefs.getString(KEY_TIMEOUT, null)),
                 hideInRecents = prefs.getBoolean(KEY_HIDE_RECENTS, true),
-                hideLockedChatsBehindLock = prefs.getBoolean(KEY_HIDE_LOCKED_CHATS, false),
+                hideLockedChatsBehindLock = prefs.getBoolean(KEY_HIDE_LOCKED_CHATS, true),
                 allowScreenshots = prefs.getBoolean(KEY_ALLOW_SCREENSHOTS, true),
-                hasCustomPin = hasPin
+                hasCustomPin = hasPin,
+                secretCode = prefs.getString(KEY_SECRET_CODE, null),
+                hideLockedFolder = prefs.getBoolean(KEY_HIDE_LOCKED_FOLDER, false)
             )
             _config.value = loaded
             _isLocked.value = loaded.mode != AppLockMode.OFF
@@ -252,6 +258,32 @@ object AppLockManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             runCatching { activity.setRecentsScreenshotEnabled(policy.allowRecentsScreenshot) }
         }
+    }
+
+    fun setSecretCode(code: String?) {
+        if (!initialized) return
+        val clean = code?.trim()?.takeIf { it.isNotBlank() }
+        prefs.edit().putString(KEY_SECRET_CODE, clean).apply()
+        _config.value = _config.value.copy(secretCode = clean)
+    }
+
+    fun setHideLockedFolder(hide: Boolean) {
+        if (!initialized) return
+        prefs.edit().putBoolean(KEY_HIDE_LOCKED_FOLDER, hide).apply()
+        _config.value = _config.value.copy(hideLockedFolder = hide)
+    }
+
+    fun matchesSecretCodeOrPin(query: String): Boolean {
+        val q = query.trim()
+        if (q.isBlank()) return false
+        val cfg = _config.value
+        if (!cfg.secretCode.isNullOrBlank() && (q.equals(cfg.secretCode, ignoreCase = true) || q == "#${cfg.secretCode}")) {
+            return true
+        }
+        if (cfg.hasCustomPin && verifyCustomPin(q)) {
+            return true
+        }
+        return false
     }
 
     private fun hashPin(salt: ByteArray, pin: String): ByteArray {

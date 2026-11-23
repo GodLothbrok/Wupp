@@ -41,6 +41,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -627,6 +628,111 @@ fun AppLockConfigDialog(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = colors.accentGreen
                         )
+                    )
+                }
+
+                HorizontalDivider(color = colors.divider.copy(alpha = 0.5f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "Hide locked chats folder",
+                            color = colors.textPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Hide the folder completely. Access locked chats by typing your secret code or PIN into the search bar.",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Switch(
+                        checked = config.hideLockedFolder,
+                        onCheckedChange = { AppLockManager.setHideLockedFolder(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = colors.accentGreen
+                        )
+                    )
+                }
+
+                var showSecretCodeDialog by remember { mutableStateOf(false) }
+                var secretCodeInput by remember(config.secretCode) { mutableStateOf(config.secretCode.orEmpty()) }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showSecretCodeDialog = true }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "Secret code",
+                            color = colors.textPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = if (config.secretCode.isNullOrBlank()) "Not set (uses PIN by default)" else "Code set (${config.secretCode?.length} characters)",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Text(
+                        text = if (config.secretCode.isNullOrBlank()) "Set" else "Change",
+                        color = colors.accentGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                if (showSecretCodeDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showSecretCodeDialog = false },
+                        title = { Text("Secret code for locked chats", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                        text = {
+                            Column {
+                                Text(
+                                    text = "Enter a secret word, emoji, or PIN. Typing this in the chat list search bar reveals your locked chats.",
+                                    color = colors.textSecondary,
+                                    fontSize = 12.5.sp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = secretCodeInput,
+                                    onValueChange = { secretCodeInput = it },
+                                    label = { Text("Secret code") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                AppLockManager.setSecretCode(secretCodeInput.trim())
+                                showSecretCodeDialog = false
+                            }) {
+                                Text("Save", color = colors.accentGreen, fontWeight = FontWeight.SemiBold)
+                            }
+                        },
+                        dismissButton = {
+                            if (!config.secretCode.isNullOrBlank()) {
+                                TextButton(onClick = {
+                                    AppLockManager.setSecretCode(null)
+                                    secretCodeInput = ""
+                                    showSecretCodeDialog = false
+                                }) {
+                                    Text("Clear", color = colors.antiDeleteRed)
+                                }
+                            }
+                        }
                     )
                 }
             }

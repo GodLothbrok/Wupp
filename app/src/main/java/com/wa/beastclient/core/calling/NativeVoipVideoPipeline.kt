@@ -41,8 +41,8 @@ class NativeVoipVideoPipeline(
         private const val CAM_HEIGHT = 480
         private const val ENC_WIDTH = 480
         private const val ENC_HEIGHT = 640
-        private const val BITRATE = 800_000
-        private const val FPS = 24
+        private const val BITRATE = 1_200_000
+        private const val FPS = 30
         private const val I_FRAME_INTERVAL_SEC = 2
     }
 
@@ -428,7 +428,7 @@ class NativeVoipVideoPipeline(
                 if (inIdx >= 0) {
                     val inBuf = dec.getInputBuffer(inIdx)
                     inBuf?.clear()
-                    val ptsUs = (ts90k * 1_000L) / 90L
+                    val ptsUs = System.nanoTime() / 1_000L
                     if (inBuf != null && payload.size <= inBuf.remaining()) {
                         inBuf.put(payload)
                         val decFlags = if (isKey) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0

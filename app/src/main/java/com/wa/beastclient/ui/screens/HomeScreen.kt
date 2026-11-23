@@ -115,6 +115,7 @@ import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -1199,6 +1200,7 @@ fun HomeScreen(
                             includeArchived = includeArchived,
                             hiddenLockedCount = hiddenLockedCount,
                             hideLockedBehindLock = appLockConfig.hideLockedChatsBehindLock,
+                            hideLockedFolder = appLockConfig.hideLockedFolder,
                             lockedChatsRevealed = lockedChatsRevealed,
                             compactRows = stealth.compactChatRows,
                             showSeconds = showSeconds,
@@ -2334,6 +2336,7 @@ private fun ChatsTabContent(
     includeArchived: Boolean = false,
     hiddenLockedCount: Int = 0,
     hideLockedBehindLock: Boolean = false,
+    hideLockedFolder: Boolean = false,
     lockedChatsRevealed: Boolean = false,
     compactRows: Boolean = false,
     showSeconds: Boolean = false,
@@ -2662,7 +2665,7 @@ private fun ChatsTabContent(
             }
         }
 
-        if (tabHiddenLockedCount > 0) {
+        if (tabHiddenLockedCount > 0 && !hideLockedFolder) {
             item(key = "locked_chats_hidden_banner") {
                 Row(
                     modifier = Modifier
@@ -5102,6 +5105,16 @@ private fun ToolsVaultTab(
                     position = ExpressiveSegmentPosition.MIDDLE,
                     onCheckedChange = {
                         viewModel.updateGlobalStealth { c -> c.copy(notifyVibrateEnabled = it) }
+                    }
+                )
+                ExpressiveSegmentedSwitchRow(
+                    icon = Icons.Rounded.VolumeUp,
+                    title = "Conversation Sounds",
+                    subtitle = "Play audio effects for incoming and outgoing chat messages",
+                    checked = stealth.chatSoundsEnabled,
+                    position = ExpressiveSegmentPosition.MIDDLE,
+                    onCheckedChange = {
+                        viewModel.updateGlobalStealth { c -> c.copy(chatSoundsEnabled = it) }
                     }
                 )
                 ExpressiveSegmentedActionRow(

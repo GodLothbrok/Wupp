@@ -226,7 +226,7 @@ class NativeVoipAudioPipeline(
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(FRAME_SAMPLES * 2)
-        val recBufBytes = (minBufBytes * 2).coerceAtLeast(FRAME_SAMPLES * 2 * 4)
+        val recBufBytes = minBufBytes.coerceAtLeast(FRAME_SAMPLES * 2 * 2)
 
         var recorder: AudioRecord? = null
         var aec: AcousticEchoCanceler? = null
@@ -299,7 +299,7 @@ class NativeVoipAudioPipeline(
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(FRAME_SAMPLES * 2)
-        val trackBufBytes = (minBufBytes * 2).coerceAtLeast(FRAME_SAMPLES * 2 * 4)
+        val trackBufBytes = minBufBytes.coerceAtLeast(FRAME_SAMPLES * 2 * 2)
 
         var track: AudioTrack? = null
         try {

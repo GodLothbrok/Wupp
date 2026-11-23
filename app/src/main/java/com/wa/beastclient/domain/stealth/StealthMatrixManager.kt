@@ -140,7 +140,8 @@ data class GlobalStealthConfig(
     val customOutgoingBubbleArgb: Long = 0L,
     val customIncomingBubbleArgb: Long = 0L,
     val vaultLockEnabled: Boolean = false,
-    val autoRecordCalls: Boolean = false
+    val autoRecordCalls: Boolean = false,
+    val chatSoundsEnabled: Boolean = true
 )
 
 data class EffectiveChatPrivacy(
@@ -234,6 +235,7 @@ object StealthMatrixManager {
     private const val KEY_CUSTOM_INCOMING_BUBBLE_ARGB = "custom_incoming_bubble_argb"
     private const val KEY_VAULT_LOCK_ENABLED = "vault_lock_enabled"
     private const val KEY_AUTO_RECORD_CALLS = "auto_record_calls"
+    private const val KEY_CHAT_SOUNDS_ENABLED = "chat_sounds_enabled"
 
     private const val FOURTEEN_DAYS_MS = 14L * 24L * 60L * 60L * 1000L
     private const val WARNING_THRESHOLD_DAYS = 10
@@ -339,7 +341,8 @@ object StealthMatrixManager {
                 customOutgoingBubbleArgb = prefs.getLong(KEY_CUSTOM_OUTGOING_BUBBLE_ARGB, 0L),
                 customIncomingBubbleArgb = prefs.getLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, 0L),
                 vaultLockEnabled = prefs.getBoolean(KEY_VAULT_LOCK_ENABLED, false),
-                autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false)
+                autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false),
+                chatSoundsEnabled = prefs.getBoolean(KEY_CHAT_SOUNDS_ENABLED, true)
             )
             initialized = true
         }
@@ -410,6 +413,7 @@ object StealthMatrixManager {
                 .putLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, updated.customIncomingBubbleArgb)
                 .putBoolean(KEY_VAULT_LOCK_ENABLED, updated.vaultLockEnabled)
                 .putBoolean(KEY_AUTO_RECORD_CALLS, updated.autoRecordCalls)
+                .putBoolean(KEY_CHAT_SOUNDS_ENABLED, updated.chatSoundsEnabled)
                 .apply()
         }
     }

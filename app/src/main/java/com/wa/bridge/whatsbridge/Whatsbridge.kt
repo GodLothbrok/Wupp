@@ -7,8 +7,23 @@ package com.wa.bridge.whatsbridge
  * helpers inside `WaRealtimeService` resolve without extra wrappers.
  */
 object Whatsbridge {
+    @Volatile
+    var isNativeLoaded: Boolean = false
+        private set
+
+    @Volatile
+    var nativeLoadError: Throwable? = null
+        private set
+
     init {
-        System.loadLibrary("whatsbridge_rs")
+        try {
+            System.loadLibrary("whatsbridge_rs")
+            isNativeLoaded = true
+        } catch (t: Throwable) {
+            nativeLoadError = t
+            isNativeLoaded = false
+            android.util.Log.e("Whatsbridge", "Failed to load native library whatsbridge_rs: ${t.message}", t)
+        }
     }
 
     @JvmStatic

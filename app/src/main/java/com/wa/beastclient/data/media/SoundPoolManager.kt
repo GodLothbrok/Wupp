@@ -43,8 +43,16 @@ object SoundPoolManager {
         }
     }
 
-    fun playSend() = play(sendId)
-    fun playIncoming() = play(incomingId)
+    fun playSend() {
+        if (com.wa.beastclient.domain.stealth.StealthMatrixManager.config.value.chatSoundsEnabled) {
+            play(sendId)
+        }
+    }
+    fun playIncoming() {
+        if (com.wa.beastclient.domain.stealth.StealthMatrixManager.config.value.chatSoundsEnabled) {
+            play(incomingId)
+        }
+    }
     fun playPttStart() = play(pttStartId)
     fun playPttEnd() = play(pttEndId)
     fun playPttCancel() = play(pttCancelId)

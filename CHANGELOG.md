@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### ✨ Features
+- Added secret code support to hide locked chats completely and unlock them from the search bar (#74, #128, #97).
+- Added an interactive sticker action dialog to view and favorite received stickers (#84).
+- Added share target support to share photos, videos, audio, and documents directly into Wupp (#80).
+- Added an option in settings to disable in-app conversation sounds (#92).
+- Added animated GIF playback and decoding support (#83).
+
+### 🛠️ Fixes
+- Fixed video call orientation, front camera mirroring, aspect ratios, and eliminated the 5–7s speech latency delay (#127).
+- Fixed unread message navigation to scroll directly to the oldest unread message (#90).
+- Prevented startup crashes on unsupported 32-bit devices with a clear architecture alert (#100).
+- Normalized Meta AI contact display and added companion device advisory (#97).
+
 ## [0.3.7] - 2026-11-22
 
 ### ✨ Features
