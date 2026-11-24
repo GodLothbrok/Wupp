@@ -72,8 +72,34 @@ internal fun extractPhoneFromVCardOrMessage(msg: MessageEntity): String? {
 }
 
 /**
+ * Resolves contact display name and phone number from message body and attached vCard.
+ */
+internal fun resolveContactNameAndPhone(msg: MessageEntity): Pair<String, String?> {
+    var displayName = "Contact"
+    var phoneNumber: String? = null
+
+    val body = msg.body.trim()
+    if (body.contains('\n')) {
+        val firstLine = body.substringBefore('\n').trim()
+        val secondLine = body.substringAfter('\n').trim()
+        if (firstLine.isNotBlank()) displayName = firstLine
+        if (secondLine.isNotBlank() && (secondLine.contains('+') || secondLine.any { it.isDigit() })) {
+            phoneNumber = secondLine
+        }
+    } else if (body.isNotBlank()) {
+        displayName = body.removeSuffix(".vcf").removeSuffix(".VCF").trim()
+    }
+
+    if (phoneNumber.isNullOrBlank()) {
+        phoneNumber = extractPhoneFromVCardOrMessage(msg)
+    }
+
+    return displayName.ifBlank { "Contact" } to phoneNumber
+}
+
+/**
  * Renders a contact attachment as a small card: avatar placeholder, display name,
- * optional phone number, a divider, and an "Add to contacts" action button.
+ * phone number, a divider, and an "Add to contacts" action button.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -83,10 +109,8 @@ internal fun ContactMessageCard(
     onLongClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val rawName = msg.body.trim().removeSuffix(".vcf").removeSuffix(".VCF").ifBlank { "Unknown Contact" }
-    val displayName = rawName
-    val phoneNumber = remember(msg.localMediaPath, msg.body) {
-        extractPhoneFromVCardOrMessage(msg)
+    val (displayName, phoneNumber) = remember(msg.body, msg.localMediaPath) {
+        resolveContactNameAndPhone(msg)
     }
 
     val openAddContact = {
@@ -141,8 +165,10 @@ internal fun ContactMessageCard(
                 )
                 Text(
                     text = phoneNumber?.ifBlank { null } ?: "Contact",
-                    color = colors.textSecondary,
-                    fontSize = 12.sp
+                    color = if (phoneNumber.isNullOrBlank()) colors.textSecondary else colors.textPrimary.copy(alpha = 0.75f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

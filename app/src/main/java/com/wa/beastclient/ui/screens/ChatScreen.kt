@@ -1,13 +1,16 @@
 package com.wa.beastclient.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.provider.ContactsContract
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -252,6 +255,8 @@ import com.wa.beastclient.ui.components.resolveDocumentDisplayName
 import com.wa.beastclient.ui.components.resolveDocumentMimeType
 import com.wa.beastclient.ui.components.ContactMessageCard
 import com.wa.beastclient.ui.components.ContactSharingHelper
+import com.wa.beastclient.ui.components.SendContactPreviewDialog
+import com.wa.beastclient.ui.components.SharedContactPreview
 import com.wa.beastclient.ui.components.isContactMessage
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
@@ -799,28 +804,38 @@ fun ChatScreen(
         }
     }
 
+    var pendingShareContact by remember { mutableStateOf<SharedContactPreview?>(null) }
+
     val pickContactLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickContact()
-    ) { uri ->
-        if (uri != null) {
-            val contactData = ContactSharingHelper.processPickedContact(context, uri)
-            if (contactData != null) {
-                runWithOutboundGuard {
-                    scrollToBottomPending = true
-                    viewModel.sendPickedMedia(
-                        chatJid = chatJid,
-                        uri = Uri.fromFile(contactData.vcardFile),
-                        mimeType = "text/vcard",
-                        caption = contactData.displayName,
-                        qualityMode = OutboundQualityMode.ORIGINAL
-                    )
-                    draftValue = TextFieldValue("")
-                    scope.launch { listState.animateScrollToItem(0) }
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                val preview = ContactSharingHelper.processPickedContact(context, uri)
+                if (preview != null) {
+                    pendingShareContact = preview
+                } else {
+                    Toast.makeText(context, "Could not read contact details", Toast.LENGTH_SHORT).show()
                 }
-            } else {
-                Toast.makeText(context, "Could not read selected contact", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    val launchPhoneContactPicker: () -> Unit = {
+        val phoneIntent = Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
+        runCatching {
+            pickContactLauncher.launch(phoneIntent)
+        }.onFailure {
+            val fallbackIntent = Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI)
+            runCatching { pickContactLauncher.launch(fallbackIntent) }
+        }
+    }
+
+    val contactPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        launchPhoneContactPicker()
     }
 
     val pickStickerVisualLauncher = rememberLauncherForActivityResult(
@@ -2075,7 +2090,11 @@ fun ChatScreen(
                                     onClick = {
                                         AppLockManager.suspendNextBackgroundLock()
                                         showAttachTray = false
-                                        pickContactLauncher.launch(null)
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                                            launchPhoneContactPicker()
+                                        } else {
+                                            contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                        }
                                     },
                                     interactionSource = contactInteraction,
                                     shape = RoundedCornerShape(16.dp),
@@ -2714,6 +2733,34 @@ fun ChatScreen(
             onResumeMessage = { viewModel.resumeScheduledMessage(it) },
             onDeleteMessage = { viewModel.deleteScheduledMessage(it) },
             onRetryMessage = { viewModel.retryScheduledMessage(it) }
+        )
+    }
+
+    pendingShareContact?.let { contact ->
+        SendContactPreviewDialog(
+            contact = contact,
+            colors = colors,
+            onDismiss = { pendingShareContact = null },
+            onSend = { confirmedContact ->
+                pendingShareContact = null
+                runWithOutboundGuard {
+                    scrollToBottomPending = true
+                    val caption = if (confirmedContact.phoneNumber.isNotBlank()) {
+                        "${confirmedContact.displayName}\n${confirmedContact.phoneNumber}"
+                    } else {
+                        confirmedContact.displayName
+                    }
+                    viewModel.sendPickedMedia(
+                        chatJid = chatJid,
+                        uri = Uri.fromFile(confirmedContact.vcfFile),
+                        mimeType = "text/vcard",
+                        caption = caption,
+                        qualityMode = OutboundQualityMode.ORIGINAL
+                    )
+                    draftValue = androidx.compose.ui.text.input.TextFieldValue("")
+                    scope.launch { listState.animateScrollToItem(0) }
+                }
+            }
         )
     }
 
