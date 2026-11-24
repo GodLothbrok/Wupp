@@ -1,5 +1,7 @@
 package com.wa.beastclient.ui.components
 
+import androidx.compose.foundation.shape.CircleShape
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -271,7 +273,7 @@ fun ExpressiveSegmentedSwitchRow(
         ) {
             ExpressiveIconBadge(
                 icon = icon,
-                contentDescription = title,
+                contentDescription = null,
                 active = checked && enabled
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -292,8 +294,8 @@ fun ExpressiveSegmentedSwitchRow(
                     if (onInfoClick != null) {
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
-                                .clip(RoundedCornerShape(11.dp))
+                                .size(48.dp)
+                                .clip(CircleShape)
                                 .clickable(onClick = onInfoClick),
                             contentAlignment = Alignment.Center
                         ) {
@@ -301,7 +303,7 @@ fun ExpressiveSegmentedSwitchRow(
                                 imageVector = Icons.Rounded.Info,
                                 contentDescription = "Info about $title",
                                 tint = colors.textSecondary.copy(alpha = 0.75f),
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -366,7 +368,7 @@ fun ExpressiveSegmentedActionRow(
         ) {
             ExpressiveIconBadge(
                 icon = icon,
-                contentDescription = title,
+                contentDescription = null,
                 active = highlighted
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -387,8 +389,8 @@ fun ExpressiveSegmentedActionRow(
                     if (onInfoClick != null) {
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
-                                .clip(RoundedCornerShape(11.dp))
+                                .size(48.dp)
+                                .clip(CircleShape)
                                 .clickable(onClick = onInfoClick),
                             contentAlignment = Alignment.Center
                         ) {
@@ -396,7 +398,7 @@ fun ExpressiveSegmentedActionRow(
                                 imageVector = Icons.Rounded.Info,
                                 contentDescription = "Info about $title",
                                 tint = colors.textSecondary.copy(alpha = 0.75f),
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }

@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,6 +46,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -176,12 +183,11 @@ fun VoiceNoteBubble(
     }
 
     val showSeconds = LocalWuppShowSeconds.current
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // 42.dp avatar with vector mic badge
             Box(modifier = Modifier.size(44.dp)) {
                 Box(
                     modifier = Modifier
@@ -200,7 +206,7 @@ fun VoiceNoteBubble(
                 }
                 Image(
                     painter = painterResource(R.drawable.msg_status_mic),
-                    contentDescription = "PTT Mic",
+                    contentDescription = null,
                     colorFilter = ColorFilter.tint(
                         if (msg.deliveryStatus == "PLAYED") colors.blueTick else colors.brightGreen
                     ),
@@ -210,7 +216,7 @@ fun VoiceNoteBubble(
                 )
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             // Play/Pause / Download Button
             IconButton(
@@ -234,7 +240,16 @@ fun VoiceNoteBubble(
                         onRequestDownload()
                     }
                 },
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics {
+                        contentDescription = when {
+                            isDownloading -> "Downloading voice message"
+                            isPlaying -> "Pause voice message"
+                            exoPlayer == null -> "Download voice message"
+                            else -> "Play voice message"
+                        }
+                    }
             ) {
                 if (isDownloading && exoPlayer == null) {
                     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -245,19 +260,31 @@ fun VoiceNoteBubble(
                 } else {
                     Icon(
                         imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(28.dp)
+                        contentDescription = null,
+                        tint = colors.accentGreen,
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }
 
-            // 40-bar interactive Canvas waveform + duration row
             Column(modifier = Modifier.weight(1f)) {
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(28.dp)
+                        .height(48.dp)
+                        .semantics {
+                            contentDescription = "Voice message playback position"
+                            progressBarRangeInfo = ProgressBarRangeInfo(playbackFraction, 0f..1f)
+                            setProgress { target ->
+                                val player = exoPlayer
+                                if (player != null && player.duration > 0L) {
+                                    val fraction = target.coerceIn(0f, 1f)
+                                    player.seekTo((player.duration * fraction).toLong())
+                                    playbackFraction = fraction
+                                    true
+                                } else false
+                            }
+                        }
                         .pointerInput(exoPlayer, peaks) {
                             detectTapGestures { offset ->
                                 val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -280,7 +307,7 @@ fun VoiceNoteBubble(
                         val x = idx * slotW + (slotW - barW) / 2f
                         val active = ratio <= playbackFraction
                         drawRoundRect(
-                            color = if (active) colors.blueTick else colors.textSecondary.copy(alpha = 0.65f),
+                            color = if (active) colors.accentGreen else colors.textSecondary.copy(alpha = 0.55f),
                             topLeft = Offset(x, centerY - barH / 2f),
                             size = Size(barW, barH),
                             cornerRadius = CornerRadius(barW / 2f, barW / 2f)
@@ -297,7 +324,7 @@ fun VoiceNoteBubble(
                     val durationText = "%d:%02d".format(shownSec / 60, shownSec % 60)
                     Text(
                         text = durationText,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontFamily = mono,
                         color = colors.textSecondary,
                         maxLines = 1,
@@ -314,18 +341,20 @@ fun VoiceNoteBubble(
                 }
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // 1x / 1.5x / 2x Speed Pill
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(colors.quotedBg)
+                    .background(colors.pillInactiveBg)
+                    .heightIn(min = 48.dp)
+                    .widthIn(min = 48.dp)
                     .clickable {
                         speedIndex = (speedIndex + 1) % speeds.size
                         exoPlayer?.playbackParameters = PlaybackParameters(speeds[speedIndex])
                     }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .semantics { contentDescription = "Playback speed. Tap to change." }
+                    .padding(horizontal = 9.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -334,7 +363,7 @@ fun VoiceNoteBubble(
                         2 -> "2x"
                         else -> "1x"
                     },
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = mono,
                     color = colors.textPrimary

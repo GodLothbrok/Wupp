@@ -108,6 +108,8 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SignalCellularAlt
@@ -905,6 +907,7 @@ fun HomeScreen(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("New chat") },
+                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
                                 onClick = {
                                     overflowExpanded = false
                                     showQuickContactPicker = true
@@ -928,6 +931,7 @@ fun HomeScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Starred messages") },
+                                leadingIcon = { Icon(Icons.Rounded.Star, null) },
                                 onClick = {
                                     overflowExpanded = false
                                     viewModel.selectFilter(HomeFilterChip.FAVORITES)
@@ -949,6 +953,7 @@ fun HomeScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.nav_settings)) },
+                                leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                                 onClick = {
                                     overflowExpanded = false
                                     onSelectTab(3)
@@ -1073,7 +1078,7 @@ fun HomeScreen(
                         )
                     ) {
                         Icon(
-                            painter = painterResource(R.drawable.vec_ic_chat_filled),
+                            imageVector = Icons.Rounded.ChatBubbleOutline,
                             contentDescription = "New Chat",
                             modifier = Modifier.size(23.dp)
                         )
@@ -2850,7 +2855,7 @@ private fun ChatsTabContent(
         if (searchQuery.trim().length >= 2 && ftsHits.isNotEmpty()) {
             item(key = "fts_header") {
                 Text(
-                    text = "FTS4 Message Matches (${ftsHits.size})",
+                    text = "Message matches (${ftsHits.size})",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.accentGreen,
@@ -2928,7 +2933,7 @@ private fun ChatsTabContent(
                             text = when {
                                 syncingNow -> "Syncing your conversations..."
                                 bridgeStatus.connectionState == "CONNECTED" -> "No chats yet"
-                                else -> "Start chatting on Wupp"
+                                else -> "Your chats will appear here"
                             },
                             color = colors.textPrimary,
                             fontWeight = FontWeight.Bold,
@@ -4527,16 +4532,14 @@ private enum class SettingsCategory(
     val label: String,
     val icon: ImageVector
 ) {
-    ALL("All", Icons.Rounded.Tune),
-    PRIVACY("Privacy", Icons.Rounded.VisibilityOff),
+    ALL("All settings", Icons.Rounded.Tune),
     ACCOUNT("Account", Icons.Rounded.ManageAccounts),
+    PRIVACY("Privacy", Icons.Rounded.VisibilityOff),
     CALLS("Calls", Icons.Rounded.Call),
-    VAULTS("Vaults", Icons.Rounded.Shield),
-    MEDIA("Media", Icons.Rounded.CloudDownload),
+    MEDIA("Media & storage", Icons.Rounded.CloudDownload),
     APPEARANCE("Appearance", Icons.Rounded.Palette),
-    LOOKS("Looks", Icons.Rounded.ViewAgenda),
-    ALERTS("Alerts", Icons.Rounded.Notifications),
-    UPDATES("Updates", Icons.Rounded.SystemUpdate)
+    ALERTS("Notifications", Icons.Rounded.Notifications),
+    UPDATES("Help & updates", Icons.Rounded.SystemUpdate)
 }
 
 @Composable
@@ -4639,11 +4642,10 @@ private fun ToolsVaultTab(
     val updatesDotActive = updateState is UpdateUiState.UpdateAvailable || updateState is UpdateUiState.ReadyToInstall
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Sticky Search Bar + Category Filter Pills
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             val searchShape = RoundedCornerShape(16.dp)
@@ -4662,7 +4664,7 @@ private fun ToolsVaultTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -4675,7 +4677,7 @@ private fun ToolsVaultTab(
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                         if (settingsSearchQuery.isEmpty()) {
                             Text(
-                                text = "Search settings...",
+                                text = "Search settings",
                                 color = colors.textSecondary.copy(alpha = 0.75f),
                                 fontSize = 14.5.sp
                             )
@@ -4730,6 +4732,7 @@ private fun ToolsVaultTab(
                         Row(
                             modifier = Modifier
                                 .clip(pillShape)
+                                .height(48.dp)
                                 .background(
                                     if (selected) colors.accentGreen.copy(alpha = 0.16f)
                                     else colors.elevatedBar.copy(alpha = if (colors.isDark) 0.85f else 0.96f)
@@ -4744,7 +4747,7 @@ private fun ToolsVaultTab(
                                     selectedCategory = category
                                     tabScope.launch { listState.scrollToItem(0) }
                                 }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                .padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -4757,7 +4760,7 @@ private fun ToolsVaultTab(
                             Text(
                                 text = category.label,
                                 color = if (selected) colors.textPrimary else colors.textSecondary,
-                                fontSize = 12.5.sp,
+                                fontSize = 13.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                             )
                             if (showDot) {
@@ -4794,7 +4797,7 @@ private fun ToolsVaultTab(
         val showCallingSection = showCategory(SettingsCategory.CALLS) && (
             matchesSearch("calling", "voip", "voice", "video", "always ready", "smart warm", "official", "ring", "anti-call", "record")
             )
-        val showVaultsSection = showCategory(SettingsCategory.VAULTS) && (
+        val showVaultsSection = showCategory(SettingsCategory.MEDIA) && (
             matchesSearch("deleted", "edited", "history", "vault", "call recordings", "view once", "sticker studio")
             )
         val showMediaSection = showCategory(SettingsCategory.MEDIA) && (
@@ -4803,7 +4806,7 @@ private fun ToolsVaultTab(
         val showAppearanceSection = showCategory(SettingsCategory.APPEARANCE) && (
             matchesSearch("theme", "oled", "material you", "accent", "bubble", "font", "wallpaper", "reactions", "emoji", "language", "enter sends")
             )
-        val showLooksSection = showCategory(SettingsCategory.LOOKS) && (
+        val showLooksSection = showCategory(SettingsCategory.APPEARANCE) && (
             matchesSearch("status", "vertical", "bio", "classic", "compact", "seconds", "time format", "clock", "camera", "badges", "separate groups", "channels", "local contact names", "fallback", "phonebook", "prefer")
             )
         val showAlertsSection = showCategory(SettingsCategory.ALERTS) && (
@@ -5084,7 +5087,7 @@ private fun ToolsVaultTab(
 
             if (showCallingSection) {
                 item(key = "patch_section_calling") {
-                    ExpressiveSegmentedGroup(title = "Voice & Video Calling") {
+                    ExpressiveSegmentedGroup(title = "Calls") {
                         val nativeActive = stealth.callBackendMode != CallBackendMode.OFF
                         val linkBadge = if (nativeActive) "Native VoIP" else "Official App"
                         val statusSummary = when {
@@ -5164,7 +5167,7 @@ private fun ToolsVaultTab(
 
             if (showVaultsSection) {
                 item(key = "patch_section_vaults_studios") {
-                    ExpressiveSegmentedGroup(title = "Vaults & Studio") {
+                    ExpressiveSegmentedGroup(title = "Saved items") {
                         ExpressiveSegmentedActionRow(
                             icon = Icons.Rounded.History,
                             title = "Deleted & Edited Message History",
@@ -5195,7 +5198,7 @@ private fun ToolsVaultTab(
 
             if (showMediaSection) {
                 item(key = "patch_section_storage_media") {
-                    ExpressiveSegmentedGroup(title = "Storage & Media Auto-Download") {
+                    ExpressiveSegmentedGroup(title = "Storage & media") {
                         ExpressiveSegmentedActionRow(
                             icon = Icons.Rounded.CleaningServices,
                             title = stringResource(R.string.settings_manage_storage_title),
