@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -373,7 +373,10 @@ fun InAppContactPickerSheet(
                         }
                     }
 
-                    items(filteredContacts, key = { it.jid.ifBlank { "${it.displayName}_${it.phoneNumber}" } }) { item ->
+                    itemsIndexed(
+                        items = filteredContacts,
+                        key = { index, item -> "${item.jid}_${item.displayName}_${item.phoneNumber}_$index" }
+                    ) { _, item ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

@@ -2739,16 +2739,16 @@ fun ChatScreen(
                 pendingShareContact = null
                 runWithOutboundGuard {
                     scrollToBottomPending = true
-                    val vcard = confirmedContact.vcardText.ifBlank {
-                        val phones = if (confirmedContact.allPhones.isNotEmpty()) {
-                            confirmedContact.allPhones
-                        } else if (confirmedContact.phoneNumber.isNotBlank()) {
-                            listOf(confirmedContact.phoneNumber to confirmedContact.phoneTypeLabel)
-                        } else {
-                            emptyList()
-                        }
-                        ContactSharingHelper.buildVCard(confirmedContact.displayName, phones)
+                    val phones = if (confirmedContact.allPhones.isNotEmpty()) {
+                        val chosen = confirmedContact.allPhones.firstOrNull { it.first == confirmedContact.phoneNumber }
+                        val rest = confirmedContact.allPhones.filter { it.first != confirmedContact.phoneNumber }
+                        if (chosen != null) listOf(chosen) + rest else confirmedContact.allPhones
+                    } else if (confirmedContact.phoneNumber.isNotBlank()) {
+                        listOf(confirmedContact.phoneNumber to confirmedContact.phoneTypeLabel)
+                    } else {
+                        emptyList()
                     }
+                    val vcard = ContactSharingHelper.buildVCard(confirmedContact.displayName, phones)
                     viewModel.sendContact(
                         chatJid = chatJid,
                         displayName = confirmedContact.displayName,
