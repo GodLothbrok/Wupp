@@ -434,6 +434,21 @@ fn pick_direct_path(dp: Option<&String>, static_url: Option<&String>, url: Optio
         .to_string()
 }
 
+fn extract_phone_from_vcard_str(vcard: &str) -> String {
+    for line in vcard.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("TEL") || trimmed.starts_with("tel") {
+            if let Some((_, num)) = trimmed.split_once(':') {
+                let cleaned = num.trim();
+                if !cleaned.is_empty() {
+                    return cleaned.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
 fn classify_message(
     base: &wa::Message,
     msg_id: &str,
@@ -677,11 +692,20 @@ fn classify_message(
             None,
         );
     }
+
     if let Some(contact) = base.contact_message.as_option() {
+        let display_name = contact.display_name.clone().unwrap_or_else(|| "Contact".into());
+        let vcard = contact.vcard.clone().unwrap_or_default();
+        let phone = extract_phone_from_vcard_str(&vcard);
+        let body = if !phone.is_empty() {
+            format!("{display_name}\n{phone}")
+        } else {
+            display_name
+        };
         return (
             "CONTACT".into(),
-            contact.display_name.clone().unwrap_or_else(|| "Contact".into()),
-            String::new(),
+            body,
+            vcard,
             "text/vcard".into(),
             String::new(),
             0,
@@ -1423,6 +1447,61 @@ pub async fn send_text_message(
         .send(SendRequest::new(&to, message).with_options(opts))
         .await
         .map_err(|e| format!("send text failed: {e}"))?;
+    Ok(result.message_id.to_string())
+}
+
+pub async fn send_contact_message(
+    runtime: &BridgeRuntime,
+    chat_jid_str: &str,
+    display_name: &str,
+    vcard: &str,
+    quoted_id: &str,
+    quoted_sender: &str,
+    quoted_body: &str,
+) -> Result<String, String> {
+    let client = runtime
+        .client_arc()
+        .ok_or_else(|| "client not connected".to_string())?;
+    let to = parse_jid_flexible(chat_jid_str)?;
+
+    if !runtime.ghost_presence.load(std::sync::atomic::Ordering::Relaxed) {
+        let _ = client.chatstate().send_paused(&to).await;
+    }
+
+    let mut contact = wa::message::ContactMessage::default();
+    contact.display_name = Some(display_name.to_string());
+    contact.vcard = Some(vcard.to_string());
+
+    if !quoted_id.is_empty() {
+        let mut ctx = wa::ContextInfo::default();
+        ctx.stanza_id = Some(quoted_id.to_string());
+        if !quoted_sender.is_empty() {
+            ctx.participant = Some(canonical_jid_str(quoted_sender));
+        }
+        let mut qm = wa::Message::default();
+        qm.conversation = Some(if quoted_body.is_empty() {
+            "Contact".to_string()
+        } else {
+            quoted_body.to_string()
+        });
+        ctx.quoted_message = buffa::MessageField::from_box(Box::new(qm));
+        contact.context_info = buffa::MessageField::some(ctx);
+    }
+
+    let mut message = wa::Message::default();
+    message.contact_message = buffa::MessageField::some(contact);
+
+    let canonical_to = canonical_jid_str(&to.to_string());
+    let eph_secs = runtime.chat_ephemeral_secs(&canonical_to);
+    let mut opts = SendOptions::default();
+    if eph_secs > 0 {
+        opts = opts.with_ephemeral_expiration(eph_secs);
+    }
+
+    let result = client
+        .send(SendRequest::new(&to, message).with_options(opts))
+        .await
+        .map_err(|e| format!("send contact failed: {e}"))?;
     Ok(result.message_id.to_string())
 }
 

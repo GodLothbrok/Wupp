@@ -3407,6 +3407,65 @@ class WaRealtimeService : Service() {
             }
         }
 
+        suspend fun sendContactMessage(
+            context: Context,
+            chatJid: String,
+            displayName: String,
+            phoneNumber: String,
+            vcard: String,
+            quoted: MessageEntity? = null,
+            requireLinkedSession: Boolean = false
+        ): Result<MessageEntity> = withContext(Dispatchers.IO) {
+            runCatching {
+                ensureOnlineForOutbound()
+                val dao = WaUiDatabase.getInstance(context).waDao()
+                val effectiveChatJid = resolveCanonicalOutboundChatJid(context, dao, chatJid)
+                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, effectiveChatJid, _bridgeStatus.value.ownJid)) {
+                    error("ERROR_463_GUARD: First message to unsaved contact blocked to protect companion Error 463 ban. Start chat on primary phone first.")
+                }
+                val ownJid = _bridgeStatus.value.ownJid.ifBlank { "me@s.whatsapp.net" }
+                val stanzaId = if (runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) {
+                    Whatsbridge.sendContactMessage(
+                        effectiveChatJid,
+                        displayName,
+                        vcard,
+                        quoted?.id ?: "",
+                        quoted?.senderJid ?: "",
+                        quoted?.body ?: ""
+                    )
+                } else if (requireLinkedSession) {
+                    error("Open Wupp and reconnect before sending contact")
+                } else {
+                    "LOCAL_${UUID.randomUUID().toString().take(12).uppercase()}"
+                }
+
+                val bodyText = if (phoneNumber.isNotBlank()) "$displayName\n$phoneNumber" else displayName
+                val entity = MessageEntity(
+                    id = stanzaId,
+                    chatJid = effectiveChatJid,
+                    senderJid = ownJid,
+                    senderName = "You",
+                    isFromMe = true,
+                    timestamp = System.currentTimeMillis(),
+                    body = bodyText,
+                    msgType = "CONTACT",
+                    mimeType = "text/vcard",
+                    deliveryStatus = if (runCatching { Whatsbridge.isConnected() }.getOrDefault(false)) "SENT" else "LOCAL_SENT",
+                    quotedId = quoted?.id,
+                    quotedSender = quoted?.senderName ?: quoted?.senderJid,
+                    quotedBody = quoted?.body?.ifBlank { WaDao.previewTextFor(quoted) }
+                )
+                dao.upsertIncomingMessageAndRefreshChat(
+                    message = entity,
+                    chatNameHint = "",
+                    isGroup = effectiveChatJid.endsWith("@g.us"),
+                    incrementUnread = false
+                )
+                SoundPoolManager.playSend()
+                entity
+            }
+        }
+
         suspend fun sendStatusReply(
             context: Context,
             status: StatusEntity,
@@ -3561,6 +3620,20 @@ class WaRealtimeService : Service() {
                             quoted = null,
                             ghostMentionEveryone = false
                         ).map { Unit }
+                        "CONTACT" -> {
+                            val bodyLines = msg.body.trim().lines()
+                            val name = bodyLines.firstOrNull()?.trim()?.ifBlank { "Contact" } ?: "Contact"
+                            val phone = if (bodyLines.size > 1) bodyLines[1].trim() else ""
+                            val vcard = "BEGIN:VCARD\nVERSION:3.0\nFN:$name\nTEL;TYPE=CELL:$phone\nEND:VCARD"
+                            sendContactMessage(
+                                context = context,
+                                chatJid = targetJid,
+                                displayName = name,
+                                phoneNumber = phone,
+                                vcard = vcard,
+                                quoted = null
+                            ).map { Unit }
+                        }
                         "STICKER" -> sendMediaMessage(
                             context = context,
                             chatJid = targetJid,

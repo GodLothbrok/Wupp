@@ -206,6 +206,43 @@ pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeSendText
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeSendContactMessage<'a>(
+    mut env: JNIEnv<'a>,
+    _cls: JClass<'a>,
+    chat_jid: JString<'a>,
+    display_name: JString<'a>,
+    vcard: JString<'a>,
+    quoted_id: JString<'a>,
+    quoted_sender: JString<'a>,
+    quoted_body: JString<'a>,
+) -> jstring {
+    let c = jstr(&mut env, &chat_jid);
+    let dn = jstr(&mut env, &display_name);
+    let vc = jstr(&mut env, &vcard);
+    let qid = jstr(&mut env, &quoted_id);
+    let qs = jstr(&mut env, &quoted_sender);
+    let qb = jstr(&mut env, &quoted_body);
+    let Some(rt) = get_rt(&mut env) else {
+        return std::ptr::null_mut();
+    };
+    match rt.rt.block_on(messaging::send_contact_message(
+        &rt,
+        &c,
+        &dn,
+        &vc,
+        &qid,
+        &qs,
+        &qb,
+    )) {
+        Ok(id) => new_jstr(&mut env, &id),
+        Err(e) => {
+            throw_rt(&mut env, &e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeSendMediaMessage<'a>(
     mut env: JNIEnv<'a>,
     _cls: JClass<'a>,

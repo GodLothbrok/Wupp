@@ -444,7 +444,8 @@ class MainActivity : FragmentActivity() {
                                             chatJid = activeJid,
                                             viewModel = vm,
                                             onBack = { selectedChatJid = null },
-                                            onOpenContactInfo = { jid -> activeContactInfoJid = jid }
+                                            onOpenContactInfo = { jid -> activeContactInfoJid = jid },
+                                            onNavigateToChat = { jid -> selectedChatJid = jid }
                                         )
                                     }
                                 }

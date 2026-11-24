@@ -77,6 +77,23 @@ object Whatsbridge {
     ).orEmpty()
 
     @JvmStatic
+    fun sendContactMessage(
+        chatJid: String,
+        displayName: String,
+        vcard: String,
+        quotedId: String = "",
+        quotedSender: String = "",
+        quotedBody: String = ""
+    ): String = nativeSendContactMessage(
+        chatJid,
+        displayName,
+        vcard,
+        quotedId,
+        quotedSender,
+        quotedBody
+    ).orEmpty()
+
+    @JvmStatic
     fun sendMediaMessage(
         chatJid: String,
         filePath: String,
@@ -352,6 +369,14 @@ object Whatsbridge {
         quotedBody: String,
         mentionsCsv: String,
         ghostTyping: Boolean
+    ): String?
+    private external fun nativeSendContactMessage(
+        chatJid: String,
+        displayName: String,
+        vcard: String,
+        quotedId: String,
+        quotedSender: String,
+        quotedBody: String
     ): String?
     private external fun nativeSendMediaMessage(
         chatJid: String,

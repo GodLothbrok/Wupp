@@ -1257,6 +1257,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendContact(
+        chatJid: String,
+        displayName: String,
+        phoneNumber: String,
+        vcard: String,
+        quoted: MessageEntity? = null
+    ) {
+        viewModelScope.launch {
+            WaRealtimeService.sendContactMessage(
+                context = appContext,
+                chatJid = chatJid,
+                displayName = displayName,
+                phoneNumber = phoneNumber,
+                vcard = vcard,
+                quoted = quoted
+            ).onFailure { err ->
+                showToast(err.message ?: "Failed to send contact")
+            }
+        }
+    }
+
     fun scheduleMessage(item: ScheduledMessage) {
         ScheduledMessageManager.scheduleMessage(appContext, item)
     }
