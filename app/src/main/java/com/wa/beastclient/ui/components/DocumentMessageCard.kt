@@ -109,7 +109,7 @@ internal fun isDocumentMessage(msg: MessageEntity): Boolean {
     ) {
         return true
     }
-    if (upper in setOf("TEXT", "IMAGE", "VIDEO", "AUDIO", "PTT", "STICKER", "CALL", "SYSTEM")) {
+    if (upper in setOf("TEXT", "IMAGE", "VIDEO", "AUDIO", "PTT", "STICKER", "CALL", "SYSTEM", "CONTACT")) {
         if (upper != "TEXT" || (msg.fileSize <= 0L && msg.localMediaPath.isNullOrBlank())) {
             return false
         }

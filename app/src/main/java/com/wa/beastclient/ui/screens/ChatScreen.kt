@@ -244,6 +244,8 @@ import com.wa.beastclient.ui.components.openDocumentNatively
 import com.wa.beastclient.ui.components.rememberWuppBackdropState
 import com.wa.beastclient.ui.components.resolveDocumentDisplayName
 import com.wa.beastclient.ui.components.resolveDocumentMimeType
+import com.wa.beastclient.ui.components.ContactMessageCard
+import com.wa.beastclient.ui.components.isContactMessage
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
 import com.wa.beastclient.ui.theme.LocalWuppBubbleRadiusDp
@@ -3168,6 +3170,9 @@ private fun MessageBubbleRow(
     val isDocCard = remember(msg.id, msg.msgType, msg.mimeType, msg.body, msg.isViewOnce, msg.isDeletedBySender) {
         isDocumentMessage(msg)
     }
+    val isContactCard = remember(msg.id, msg.msgType, msg.isDeletedBySender) {
+        isContactMessage(msg)
+    }
     val isMediaCard = (msg.msgType == "IMAGE" || msg.msgType == "VIDEO" || msg.msgType == "GIF") &&
         !msg.isViewOnce &&
         msg.msgType != "VIEW_ONCE_STRIPPED" &&
@@ -3176,24 +3181,25 @@ private fun MessageBubbleRow(
     val sideStartPad = when {
         isSticker -> 0.dp
         isMediaCard -> if (!isChannel && showTail && !effectiveOutgoing) 9.dp else 3.dp
-        isDocCard -> if (!isChannel && showTail && !effectiveOutgoing) 10.dp else 6.dp
+        isDocCard || isContactCard -> if (!isChannel && showTail && !effectiveOutgoing) 10.dp else 6.dp
         else -> if (!isChannel && showTail && !effectiveOutgoing) 15.dp else 12.dp
     }
     val sideEndPad = when {
         isSticker -> 0.dp
         isMediaCard -> if (!isChannel && showTail && effectiveOutgoing) 9.dp else 3.dp
-        isDocCard -> if (!isChannel && showTail && effectiveOutgoing) 10.dp else 6.dp
+        isDocCard || isContactCard -> if (!isChannel && showTail && effectiveOutgoing) 10.dp else 6.dp
         else -> if (!isChannel && showTail && effectiveOutgoing) 15.dp else 12.dp
     }
     val topBottomPad = when {
         isSticker -> 0.dp
         isMediaCard -> 3.dp
-        isDocCard -> 5.dp
+        isDocCard || isContactCard -> 5.dp
         else -> 8.dp
     }
     val bubbleMaxW = when {
         isSticker -> 160.dp
         isMediaCard -> 256.dp
+        isContactCard -> 270.dp
         isDocCard -> 285.dp
         else -> 305.dp
     }
@@ -3857,6 +3863,30 @@ private fun MessageBubbleRow(
                                     mentionDisplayResolver = mentionDisplayResolver
                                 )
                             }
+                        }
+                    }
+
+                    // Contact card (vCard attachment)
+                    isContactCard -> {
+                        ContactMessageCard(
+                            msg = msg,
+                            colors = colors,
+                            onLongClick = onLongPress
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(horizontal = 4.dp)
+                        ) {
+                            MessageMetaCluster(
+                                timeText = formatMessageClock(msg.timestamp, includeSeconds = showSeconds, use24Hour = use24Hour),
+                                isEdited = msg.isEdited,
+                                isEphemeral = msg.isEphemeral,
+                                isFromMe = msg.isFromMe,
+                                deliveryStatus = msg.deliveryStatus,
+                                isPinned = msg.isPinned
+                            )
                         }
                     }
 
