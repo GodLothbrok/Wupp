@@ -32,8 +32,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +64,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,7 +90,6 @@ import com.kyant.backdrop.isRenderEffectSupported
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
-import com.wa.beastclient.R
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWuppClassicUi
 import com.wa.beastclient.ui.theme.WaColors
@@ -291,32 +295,32 @@ fun WuppGlassNavBar(
         settingsLabel
     ) {
         buildList {
-            add(GlassNavTab(0, chatsLabel, drawableRes = R.drawable.vec_ic_chat_filled, badgeCount = unreadChatsCount))
+            add(GlassNavTab(0, chatsLabel, imageVector = Icons.Rounded.ChatBubble, badgeCount = unreadChatsCount))
             if (separateGroupsAndChats) {
                 add(GlassNavTab(4, groupsLabel, imageVector = Icons.Rounded.Groups, badgeCount = unreadGroupsCount))
             }
-            add(GlassNavTab(1, updatesLabel, drawableRes = R.drawable.vec_ic_status))
+            add(GlassNavTab(1, updatesLabel, imageVector = Icons.Rounded.DataUsage))
             if (separateChannelsTab) {
                 add(GlassNavTab(6, channelsLabel, imageVector = Icons.Rounded.Campaign))
             }
-            add(GlassNavTab(2, communitiesLabel, drawableRes = R.drawable.vec_ic_avatar_community))
+            add(GlassNavTab(2, communitiesLabel, imageVector = Icons.Rounded.Hub))
             add(GlassNavTab(5, callsLabel, imageVector = Icons.Rounded.Call))
-            add(GlassNavTab(3, settingsLabel, imageVector = Icons.Rounded.Shield))
+            add(GlassNavTab(3, settingsLabel, imageVector = Icons.Rounded.Settings))
         }
     }
     val fiveTabs = tabs.size >= 5
     val sixTabs = tabs.size >= 6
     val sevenTabs = tabs.size >= 7
     val labelFontSize = when {
-        sevenTabs -> 7.8.sp
-        sixTabs -> 8.8.sp
-        fiveTabs -> 9.5.sp
-        else -> 10.5.sp
+        sevenTabs -> 9.sp
+        sixTabs -> 9.5.sp
+        fiveTabs -> 10.sp
+        else -> 11.sp
     }
     val classicLabelFontSize = when {
-        sevenTabs -> 7.8.sp
-        sixTabs -> 8.8.sp
-        fiveTabs -> 9.5.sp
+        sevenTabs -> 9.sp
+        sixTabs -> 9.5.sp
+        fiveTabs -> 10.sp
         else -> 11.sp
     }
 
@@ -341,6 +345,7 @@ fun WuppGlassNavBar(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
+                                .semantics { contentDescription = tab.label }
                                 .clickable { onSelectTab(tab.index) },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
@@ -355,14 +360,14 @@ fun WuppGlassNavBar(
                                 if (tab.drawableRes != null) {
                                     Icon(
                                         painter = painterResource(tab.drawableRes),
-                                        contentDescription = tab.label,
+                                        contentDescription = null,
                                         tint = if (selected) colors.pillActiveText else colors.textSecondary,
                                         modifier = Modifier.size(21.dp)
                                     )
                                 } else if (tab.imageVector != null) {
                                     Icon(
                                         imageVector = tab.imageVector,
-                                        contentDescription = tab.label,
+                                        contentDescription = null,
                                         tint = if (selected) colors.pillActiveText else colors.textSecondary,
                                         modifier = Modifier.size(21.dp)
                                     )
@@ -630,6 +635,7 @@ fun WuppGlassNavBar(
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(CircleShape)
+                            .semantics { contentDescription = tab.label }
                             .clickable(
                                 interactionSource = interactionSource,
                                 indication = null,
@@ -645,7 +651,7 @@ fun WuppGlassNavBar(
                             if (tab.drawableRes != null) {
                                 Icon(
                                     painter = painterResource(tab.drawableRes),
-                                    contentDescription = tab.label,
+                                    contentDescription = null,
                                     tint = tintColor,
                                     modifier = Modifier
                                         .size(21.dp)
@@ -654,7 +660,7 @@ fun WuppGlassNavBar(
                             } else if (tab.imageVector != null) {
                                 Icon(
                                     imageVector = tab.imageVector,
-                                    contentDescription = tab.label,
+                                    contentDescription = null,
                                     tint = tintColor,
                                     modifier = Modifier
                                         .size(21.dp)

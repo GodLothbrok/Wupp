@@ -108,10 +108,12 @@ import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.SentimentSatisfiedAlt
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -1265,6 +1267,7 @@ fun ChatScreen(
                         DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
                             DropdownMenuItem(
                                 text = { Text("Quick controls & privacy") },
+                                leadingIcon = { Icon(Icons.Rounded.Shield, null) },
                                 onClick = {
                                     showOverflow = false
                                     showGhostOverrideSheet = true
@@ -1272,6 +1275,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("View contact info") },
+                                leadingIcon = { Icon(Icons.Rounded.Person, null) },
                                 onClick = {
                                     showOverflow = false
                                     onOpenContactInfo(chatJid)
@@ -1279,6 +1283,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Search") },
+                                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                                 onClick = {
                                     showOverflow = false
                                     showSearchInChat = !showSearchInChat
@@ -1286,6 +1291,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Mark as read") },
+                                leadingIcon = { Icon(Icons.Rounded.Visibility, null) },
                                 onClick = {
                                     showOverflow = false
                                     viewModel.markChatReadExplicitly(chatJid)
@@ -1298,6 +1304,7 @@ fun ChatScreen(
                                         else stringResource(R.string.chat_action_pin)
                                     )
                                 },
+                                leadingIcon = { Icon(Icons.Rounded.PushPin, null) },
                                 onClick = {
                                     showOverflow = false
                                     chat?.let { viewModel.togglePinChat(it) }
@@ -1310,6 +1317,7 @@ fun ChatScreen(
                                         else stringResource(R.string.chat_action_mute)
                                     )
                                 },
+                                leadingIcon = { Icon(if (chat?.isMuted == true) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
                                 onClick = {
                                     showOverflow = false
                                     viewModel.muteChats(listOf(chatJid), chat?.isMuted != true)
@@ -1317,6 +1325,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text(if (chat?.isFavorite == true) "Remove from Favorites" else "Add to Favorites") },
+                                leadingIcon = { Icon(if (chat?.isFavorite == true) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) },
                                 onClick = {
                                     showOverflow = false
                                     chat?.let { viewModel.toggleFavoriteChat(it) }
@@ -1324,6 +1333,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Chat wallpaper") },
+                                leadingIcon = { Icon(Icons.Rounded.Image, null) },
                                 onClick = {
                                     showOverflow = false
                                     showWallpaperDialog = true
