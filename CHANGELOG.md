@@ -1,13 +1,12 @@
 # Changelog
 
-## [0.3.8-pre.7] - 2026-11-24
+## [0.3.9-pre.1] - 2026-11-24
 
 ### ✨ Features
 - Added scheduled and recurring messages with repeat options and dedicated management (#144).
 - Added per-chat media auto-download overrides in Chat Info (#145).
-
-### 🛠️ Fixes
-- Fixed contact attachments displaying as plain text with a new contact card (#146).
+- Added contact sharing from the attachment menu and contact card preview (#146).
+- Moved the message scheduler to the chat menu and long-press on Send.
 
 ## [0.3.8] - 2026-11-23
 

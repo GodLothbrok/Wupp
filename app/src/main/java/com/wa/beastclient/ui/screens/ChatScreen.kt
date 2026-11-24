@@ -97,6 +97,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.EventRepeat
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -249,6 +251,7 @@ import com.wa.beastclient.ui.components.rememberWuppBackdropState
 import com.wa.beastclient.ui.components.resolveDocumentDisplayName
 import com.wa.beastclient.ui.components.resolveDocumentMimeType
 import com.wa.beastclient.ui.components.ContactMessageCard
+import com.wa.beastclient.ui.components.ContactSharingHelper
 import com.wa.beastclient.ui.components.isContactMessage
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
@@ -796,6 +799,30 @@ fun ChatScreen(
         }
     }
 
+    val pickContactLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickContact()
+    ) { uri ->
+        if (uri != null) {
+            val contactData = ContactSharingHelper.processPickedContact(context, uri)
+            if (contactData != null) {
+                runWithOutboundGuard {
+                    scrollToBottomPending = true
+                    viewModel.sendPickedMedia(
+                        chatJid = chatJid,
+                        uri = Uri.fromFile(contactData.vcardFile),
+                        mimeType = "text/vcard",
+                        caption = contactData.displayName,
+                        qualityMode = OutboundQualityMode.ORIGINAL
+                    )
+                    draftValue = TextFieldValue("")
+                    scope.launch { listState.animateScrollToItem(0) }
+                }
+            } else {
+                Toast.makeText(context, "Could not read selected contact", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val pickStickerVisualLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -1289,8 +1316,17 @@ fun ChatScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Scheduled messages") },
+                                text = { Text("Schedule message") },
                                 leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
+                                onClick = {
+                                    showOverflow = false
+                                    editingScheduledMessage = null
+                                    showScheduleDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Scheduled messages") },
+                                leadingIcon = { Icon(Icons.Rounded.EventRepeat, null) },
                                 onClick = {
                                     showOverflow = false
                                     showScheduledSheet = true
@@ -2034,6 +2070,24 @@ fun ChatScreen(
                                         fontSize = 12.sp
                                     )
                                 }
+                                val contactInteraction = remember { MutableInteractionSource() }
+                                OutlinedButton(
+                                    onClick = {
+                                        AppLockManager.suspendNextBackgroundLock()
+                                        showAttachTray = false
+                                        pickContactLauncher.launch(null)
+                                    },
+                                    interactionSource = contactInteraction,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.expressivePressScale(contactInteraction, pressedScale = 0.96f)
+                                ) {
+                                    Icon(Icons.Rounded.Person, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Contact",
+                                        fontSize = 12.sp
+                                    )
+                                }
                                 if (chat?.isGroup == true) {
                                     val mentionInteraction = remember { MutableInteractionSource() }
                                     OutlinedButton(
@@ -2049,24 +2103,6 @@ fun ChatScreen(
                                             fontSize = 12.sp
                                         )
                                     }
-                                }
-                                val scheduleInteraction = remember { MutableInteractionSource() }
-                                OutlinedButton(
-                                    onClick = {
-                                        editingScheduledMessage = null
-                                        showScheduleDialog = true
-                                        showAttachTray = false
-                                    },
-                                    interactionSource = scheduleInteraction,
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.expressivePressScale(scheduleInteraction, pressedScale = 0.96f)
-                                ) {
-                                    Icon(Icons.Rounded.Schedule, null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Schedule",
-                                        fontSize = 12.sp
-                                    )
                                 }
                             }
                         }
@@ -2314,42 +2350,49 @@ fun ChatScreen(
                             .expressivePressScale(fabInteraction, pressedScale = 0.88f)
                             .clip(RoundedCornerShape(fabCorner))
                             .background(fabBg)
-                            .clickable(
+                            .combinedClickable(
                                 enabled = canSendOutbound,
                                 interactionSource = fabInteraction,
-                                indication = null
-                            ) {
-                                when {
-                                    isRecordingVoice -> {
-                                        scrollToBottomPending = true
-                                        viewModel.toggleVoiceRecording(chatJid, true)
-                                        scope.launch { listState.animateScrollToItem(0) }
-                                    }
-                                    draftValue.text.isNotBlank() -> {
-                                        runWithOutboundGuard {
+                                indication = null,
+                                onClick = {
+                                    when {
+                                        isRecordingVoice -> {
                                             scrollToBottomPending = true
-                                            viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
-                                            draftValue = TextFieldValue("")
-                                            replyTarget = null
-                                            ghostMentionEveryone = false
+                                            viewModel.toggleVoiceRecording(chatJid, true)
                                             scope.launch { listState.animateScrollToItem(0) }
                                         }
-                                    }
-                                    else -> {
-                                        val hasMic = ContextCompat.checkSelfPermission(
-                                            context,
-                                            Manifest.permission.RECORD_AUDIO
-                                        ) == PackageManager.PERMISSION_GRANTED
-                                        if (hasMic) {
+                                        draftValue.text.isNotBlank() -> {
                                             runWithOutboundGuard {
-                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                scrollToBottomPending = true
+                                                viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
+                                                draftValue = TextFieldValue("")
+                                                replyTarget = null
+                                                ghostMentionEveryone = false
+                                                scope.launch { listState.animateScrollToItem(0) }
                                             }
-                                        } else {
-                                            micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                        else -> {
+                                            val hasMic = ContextCompat.checkSelfPermission(
+                                                context,
+                                                Manifest.permission.RECORD_AUDIO
+                                            ) == PackageManager.PERMISSION_GRANTED
+                                            if (hasMic) {
+                                                runWithOutboundGuard {
+                                                    viewModel.toggleVoiceRecording(chatJid, true)
+                                                }
+                                            } else {
+                                                micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
                                         }
                                     }
+                                },
+                                onLongClick = {
+                                    if (!isRecordingVoice) {
+                                        editingScheduledMessage = null
+                                        showScheduleDialog = true
+                                    }
                                 }
-                            },
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         AnimatedContent(

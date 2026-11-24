@@ -43,11 +43,32 @@ class DocumentMessageUtilsTest {
         val contactMsg = sampleMsg(msgType = "CONTACT", mimeType = "text/vcard", body = "Jane Doe")
         assertTrue(isContactMessage(contactMsg))
 
+        val vcardMimeMsg = sampleMsg(msgType = "DOCUMENT", mimeType = "text/vcard", body = "Jane Doe.vcf")
+        assertTrue(isContactMessage(vcardMimeMsg))
+        assertFalse(isDocumentMessage(vcardMimeMsg))
+
+        val vcfExtMsg = sampleMsg(msgType = "DOCUMENT", mimeType = "application/octet-stream", body = "John.vcf")
+        assertTrue(isContactMessage(vcfExtMsg))
+        assertFalse(isDocumentMessage(vcfExtMsg))
+
         val deletedContactMsg = contactMsg.copy(isDeletedBySender = true)
         assertFalse(isContactMessage(deletedContactMsg))
 
         val regularMsg = sampleMsg(msgType = "TEXT", mimeType = "text/plain", body = "Hello")
         assertFalse(isContactMessage(regularMsg))
+    }
+
+    @Test
+    fun extractPhoneFromVCardOrMessage_parsesTelField() {
+        val tempVcf = File.createTempFile("contact_", ".vcf").apply {
+            writeText("BEGIN:VCARD\nVERSION:3.0\nFN:Alice\nTEL;TYPE=CELL:+1234567890\nEND:VCARD\n")
+            deleteOnExit()
+        }
+        val msgWithVcf = sampleMsg(msgType = "CONTACT", localMediaPath = tempVcf.absolutePath)
+        assertEquals("+1234567890", extractPhoneFromVCardOrMessage(msgWithVcf))
+
+        val msgWithoutVcf = sampleMsg(msgType = "CONTACT", localMediaPath = null)
+        assertEquals(null, extractPhoneFromVCardOrMessage(msgWithoutVcf))
     }
 
     @Test

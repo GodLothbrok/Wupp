@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,16 +30,50 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wa.beastclient.data.db.MessageEntity
 import com.wa.beastclient.ui.theme.WaColors
+import java.io.File
 
 /**
  * Returns true when this message is a shared contact attachment (vCard).
  */
-internal fun isContactMessage(msg: MessageEntity): Boolean =
-    msg.msgType.uppercase() == "CONTACT" && !msg.isDeletedBySender
+internal fun isContactMessage(msg: MessageEntity): Boolean {
+    if (msg.isDeletedBySender) return false
+    val upper = msg.msgType.uppercase()
+    if (upper == "CONTACT") return true
+    val mime = msg.mimeType.lowercase()
+    if (mime == "text/vcard" || mime == "text/x-vcard") return true
+    val body = msg.body.trim()
+    if (body.endsWith(".vcf", ignoreCase = true)) return true
+    return false
+}
+
+/**
+ * Extracts a phone number from an attached vCard file or body text if present.
+ */
+internal fun extractPhoneFromVCardOrMessage(msg: MessageEntity): String? {
+    val path = msg.localMediaPath
+    if (!path.isNullOrBlank()) {
+        val file = File(path)
+        if (file.exists() && file.length() > 0L) {
+            val phone = runCatching {
+                file.useLines { lines ->
+                    for (line in lines) {
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("TEL", ignoreCase = true) && trimmed.contains(":")) {
+                            return@runCatching trimmed.substringAfter(":").trim()
+                        }
+                    }
+                    null
+                }
+            }.getOrNull()
+            if (!phone.isNullOrBlank()) return phone
+        }
+    }
+    return null
+}
 
 /**
  * Renders a contact attachment as a small card: avatar placeholder, display name,
- * a divider, and an "Add to contacts" action button.
+ * optional phone number, a divider, and an "Add to contacts" action button.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -48,13 +83,28 @@ internal fun ContactMessageCard(
     onLongClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val displayName = msg.body.trim().ifBlank { "Unknown Contact" }
+    val rawName = msg.body.trim().removeSuffix(".vcf").removeSuffix(".VCF").ifBlank { "Unknown Contact" }
+    val displayName = rawName
+    val phoneNumber = remember(msg.localMediaPath, msg.body) {
+        extractPhoneFromVCardOrMessage(msg)
+    }
+
+    val openAddContact = {
+        val intent = Intent(Intent.ACTION_INSERT_OR_EDIT).apply {
+            type = ContactsContract.Contacts.CONTENT_ITEM_TYPE
+            putExtra(ContactsContract.Intents.Insert.NAME, displayName)
+            if (!phoneNumber.isNullOrBlank()) {
+                putExtra(ContactsContract.Intents.Insert.PHONE, phoneNumber)
+            }
+        }
+        runCatching { context.startActivity(intent) }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
+                onClick = { openAddContact() },
                 onLongClick = onLongClick
             )
     ) {
@@ -90,7 +140,7 @@ internal fun ContactMessageCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Contact",
+                    text = phoneNumber?.ifBlank { null } ?: "Contact",
                     color = colors.textSecondary,
                     fontSize = 12.sp
                 )
@@ -100,13 +150,7 @@ internal fun ContactMessageCard(
         HorizontalDivider(color = colors.textSecondary.copy(alpha = 0.15f))
 
         TextButton(
-            onClick = {
-                val intent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
-                    type = ContactsContract.RawContacts.CONTENT_TYPE
-                    putExtra(ContactsContract.Intents.Insert.NAME, displayName)
-                }
-                runCatching { context.startActivity(intent) }
-            },
+            onClick = { openAddContact() },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp)

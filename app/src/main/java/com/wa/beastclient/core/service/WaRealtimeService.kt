@@ -104,6 +104,7 @@ internal fun resolveOutboundMediaDispatch(
         }
         "VIDEO" to wireMode
     }
+    mimeType.equals("text/vcard", ignoreCase = true) || mimeType.equals("text/x-vcard", ignoreCase = true) -> "CONTACT" to "document"
     qualityMode == OutboundQualityMode.ORIGINAL -> "DOCUMENT" to OutboundQualityMode.ORIGINAL.wireValue
     mimeType.startsWith("image/", ignoreCase = true) -> "IMAGE" to qualityMode.wireValue
     mimeType.startsWith("audio/", ignoreCase = true) -> "AUDIO" to qualityMode.wireValue

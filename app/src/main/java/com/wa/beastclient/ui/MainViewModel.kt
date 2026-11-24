@@ -1389,6 +1389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             resolvedMime.contains("webm", ignoreCase = true) -> "webm"
             resolvedMime.contains("3gpp", ignoreCase = true) -> "3gp"
             resolvedMime.contains("pdf", ignoreCase = true) -> "pdf"
+            resolvedMime.contains("vcard", ignoreCase = true) || resolvedMime.contains("vcf", ignoreCase = true) -> "vcf"
             resolvedMime.startsWith("video/", ignoreCase = true) -> "mp4"
             resolvedMime.startsWith("image/", ignoreCase = true) -> "jpg"
             else -> "bin"

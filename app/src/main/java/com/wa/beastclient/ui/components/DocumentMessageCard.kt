@@ -98,6 +98,7 @@ internal fun resolveDocumentCaptionLine(body: String): String =
  */
 internal fun isDocumentMessage(msg: MessageEntity): Boolean {
     if (msg.isDeletedBySender || msg.isViewOnce || msg.msgType == "VIEW_ONCE_STRIPPED") return false
+    if (isContactMessage(msg)) return false
     val upper = msg.msgType.uppercase(Locale.US)
     if (upper == "DOCUMENT") return true
     val mime = msg.mimeType.lowercase(Locale.US)
