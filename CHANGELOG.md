@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.9-pre.2] - 2026-11-24
+
+### ✨ Features
+- Added contact sharing from the attachment menu with full contact details and card preview (#146).
+
+### 🛠️ Fixes
+- Fixed per-chat media auto-download to respect custom chat rules and download all media types (#145).
+- Removed duplicate scheduler option in the chat overflow menu.
+- Improved scheduled message reliability by requiring an active connection and pacing outbound messages.
+
 ## [0.3.9-pre.1] - 2026-11-24
 
 ### ✨ Features
