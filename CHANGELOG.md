@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.9-pre.3] - 2026-11-24
+
+### ✨ Features
+- Added in-app contact picker allowing contact selection without leaving the chat.
+- Added native WhatsApp contact cards with direct message and add-contact shortcuts.
+
+### 🛠️ Fixes
+- Fixed contact sharing sending raw .vcf document files instead of native WhatsApp contact cards.
+
 ## [0.3.9-pre.2] - 2026-11-24
 
 ### ✨ Features

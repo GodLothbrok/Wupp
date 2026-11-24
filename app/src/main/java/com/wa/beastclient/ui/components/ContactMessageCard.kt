@@ -4,6 +4,7 @@ import android.content.Intent
 import android.provider.ContactsContract
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,6 +33,9 @@ import androidx.compose.ui.unit.sp
 import com.wa.beastclient.data.db.MessageEntity
 import com.wa.beastclient.ui.theme.WaColors
 import java.io.File
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 
 /**
  * Returns true when this message is a shared contact attachment (vCard).
@@ -79,7 +84,22 @@ internal fun resolveContactNameAndPhone(msg: MessageEntity): Pair<String, String
     var phoneNumber: String? = null
 
     val body = msg.body.trim()
-    if (body.contains('\n')) {
+    if (body.contains("BEGIN:VCARD", ignoreCase = true)) {
+        for (line in body.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("FN:", ignoreCase = true)) {
+                displayName = trimmed.substringAfter(":").trim()
+            } else if (displayName == "Contact" && trimmed.startsWith("N:", ignoreCase = true)) {
+                val parts = trimmed.substringAfter(":").split(";").filter { it.isNotBlank() }
+                if (parts.isNotEmpty()) displayName = parts.reversed().joinToString(" ")
+            } else if (trimmed.startsWith("TEL", ignoreCase = true) && trimmed.contains(":")) {
+                val num = trimmed.substringAfter(":").trim()
+                if (phoneNumber.isNullOrBlank() && num.isNotBlank()) {
+                    phoneNumber = num
+                }
+            }
+        }
+    } else if (body.contains('\n')) {
         val firstLine = body.substringBefore('\n').trim()
         val secondLine = body.substringAfter('\n').trim()
         if (firstLine.isNotBlank()) displayName = firstLine
@@ -98,15 +118,16 @@ internal fun resolveContactNameAndPhone(msg: MessageEntity): Pair<String, String
 }
 
 /**
- * Renders a contact attachment as a small card: avatar placeholder, display name,
- * phone number, a divider, and an "Add to contacts" action button.
+ * Renders a contact attachment as a native WhatsApp-style card: avatar placeholder, display name,
+ * phone number, a divider, and action buttons ("Message" and "Add to contacts").
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ContactMessageCard(
     msg: MessageEntity,
     colors: WaColors,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    onMessageClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val (displayName, phoneNumber) = remember(msg.body, msg.localMediaPath) {
@@ -128,7 +149,10 @@ internal fun ContactMessageCard(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = { openAddContact() },
+                onClick = {
+                    if (!phoneNumber.isNullOrBlank()) onMessageClick(phoneNumber)
+                    else openAddContact()
+                },
                 onLongClick = onLongClick
             )
     ) {
@@ -175,18 +199,68 @@ internal fun ContactMessageCard(
 
         HorizontalDivider(color = colors.textSecondary.copy(alpha = 0.15f))
 
-        TextButton(
-            onClick = { openAddContact() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp)
-        ) {
-            Text(
-                text = "Add to contacts",
-                color = colors.accentGreen,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+        if (!phoneNumber.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = { onMessageClick(phoneNumber) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = colors.accentGreen,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Message",
+                        color = colors.accentGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(colors.textSecondary.copy(alpha = 0.2f))
+                )
+
+                TextButton(
+                    onClick = { openAddContact() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Add to contacts",
+                        color = colors.accentGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        } else {
+            TextButton(
+                onClick = { openAddContact() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+            ) {
+                Text(
+                    text = "Add to contacts",
+                    color = colors.accentGreen,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }

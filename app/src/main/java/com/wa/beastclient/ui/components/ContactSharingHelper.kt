@@ -46,7 +46,8 @@ data class SharedContactPreview(
     val phoneNumber: String,
     val phoneTypeLabel: String = "Mobile",
     val allPhones: List<Pair<String, String>> = emptyList(),
-    val vcfFile: File
+    val vcfFile: File? = null,
+    val vcardText: String = ""
 )
 
 object ContactSharingHelper {
@@ -228,7 +229,8 @@ object ContactSharingHelper {
             phoneNumber = effectivePhone,
             phoneTypeLabel = phoneTypeLabel,
             allPhones = allPhones,
-            vcfFile = vcfFile
+            vcfFile = vcfFile,
+            vcardText = vcardText ?: ""
         )
     }
 

@@ -256,6 +256,7 @@ import com.wa.beastclient.ui.components.resolveDocumentDisplayName
 import com.wa.beastclient.ui.components.resolveDocumentMimeType
 import com.wa.beastclient.ui.components.ContactMessageCard
 import com.wa.beastclient.ui.components.ContactSharingHelper
+import com.wa.beastclient.ui.components.InAppContactPickerSheet
 import com.wa.beastclient.ui.components.SendContactPreviewDialog
 import com.wa.beastclient.ui.components.SharedContactPreview
 import com.wa.beastclient.ui.components.isContactMessage
@@ -286,7 +287,8 @@ fun ChatScreen(
     chatJid: String,
     viewModel: MainViewModel,
     onBack: () -> Unit,
-    onOpenContactInfo: (String) -> Unit = {}
+    onOpenContactInfo: (String) -> Unit = {},
+    onNavigateToChat: (String) -> Unit = {}
 ) {
     val colors = LocalWaColors.current
     val mono = LocalWaMonoFamily.current
@@ -805,38 +807,13 @@ fun ChatScreen(
         }
     }
 
+    var showInAppContactPicker by remember { mutableStateOf(false) }
     var pendingShareContact by remember { mutableStateOf<SharedContactPreview?>(null) }
-
-    val pickContactLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val uri = result.data?.data
-            if (uri != null) {
-                val preview = ContactSharingHelper.processPickedContact(context, uri)
-                if (preview != null) {
-                    pendingShareContact = preview
-                } else {
-                    Toast.makeText(context, "Could not read contact details", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    val launchPhoneContactPicker: () -> Unit = {
-        val phoneIntent = Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
-        runCatching {
-            pickContactLauncher.launch(phoneIntent)
-        }.onFailure {
-            val fallbackIntent = Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI)
-            runCatching { pickContactLauncher.launch(fallbackIntent) }
-        }
-    }
 
     val contactPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ ->
-        launchPhoneContactPicker()
+        // Permission state automatically updates InAppContactPickerSheet
     }
 
     val pickStickerVisualLauncher = rememberLauncherForActivityResult(
@@ -1707,7 +1684,8 @@ fun ChatScreen(
                                         onLongPress = {
                                             showMoreReactionEmojis = false
                                             actionMenuTarget = msg
-                                        }
+                                        },
+                                        onNavigateToChat = onNavigateToChat
                                     )
                                 } else {
                                     SwipeToReplyBox(onReply = { replyTarget = msg }) {
@@ -1738,7 +1716,8 @@ fun ChatScreen(
                                             onLongPress = {
                                                 showMoreReactionEmojis = false
                                                 actionMenuTarget = msg
-                                            }
+                                            },
+                                            onNavigateToChat = onNavigateToChat
                                         )
                                     }
                                 }
@@ -2088,13 +2067,8 @@ fun ChatScreen(
                                 val contactInteraction = remember { MutableInteractionSource() }
                                 OutlinedButton(
                                     onClick = {
-                                        AppLockManager.suspendNextBackgroundLock()
                                         showAttachTray = false
-                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
-                                            launchPhoneContactPicker()
-                                        } else {
-                                            contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                                        }
+                                        showInAppContactPicker = true
                                     },
                                     interactionSource = contactInteraction,
                                     shape = RoundedCornerShape(16.dp),
@@ -2736,6 +2710,26 @@ fun ChatScreen(
         )
     }
 
+    if (showInAppContactPicker) {
+        val allContactsList by viewModel.allContacts.collectAsState(initial = emptyList())
+        val allChatsList by viewModel.allChats.collectAsState(initial = emptyList())
+        val bridgeStatus by viewModel.bridgeStatus.collectAsState()
+        InAppContactPickerSheet(
+            colors = colors,
+            contacts = allContactsList,
+            chats = allChatsList,
+            ownJid = bridgeStatus.ownJid,
+            onRequestPermission = {
+                contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+            },
+            onDismiss = { showInAppContactPicker = false },
+            onContactSelected = { preview ->
+                showInAppContactPicker = false
+                pendingShareContact = preview
+            }
+        )
+    }
+
     pendingShareContact?.let { contact ->
         SendContactPreviewDialog(
             contact = contact,
@@ -2745,18 +2739,24 @@ fun ChatScreen(
                 pendingShareContact = null
                 runWithOutboundGuard {
                     scrollToBottomPending = true
-                    val caption = if (confirmedContact.phoneNumber.isNotBlank()) {
-                        "${confirmedContact.displayName}\n${confirmedContact.phoneNumber}"
+                    val phones = if (confirmedContact.allPhones.isNotEmpty()) {
+                        val chosen = confirmedContact.allPhones.firstOrNull { it.first == confirmedContact.phoneNumber }
+                        val rest = confirmedContact.allPhones.filter { it.first != confirmedContact.phoneNumber }
+                        if (chosen != null) listOf(chosen) + rest else confirmedContact.allPhones
+                    } else if (confirmedContact.phoneNumber.isNotBlank()) {
+                        listOf(confirmedContact.phoneNumber to confirmedContact.phoneTypeLabel)
                     } else {
-                        confirmedContact.displayName
+                        emptyList()
                     }
-                    viewModel.sendPickedMedia(
+                    val vcard = ContactSharingHelper.buildVCard(confirmedContact.displayName, phones)
+                    viewModel.sendContact(
                         chatJid = chatJid,
-                        uri = Uri.fromFile(confirmedContact.vcfFile),
-                        mimeType = "text/vcard",
-                        caption = caption,
-                        qualityMode = OutboundQualityMode.ORIGINAL
+                        displayName = confirmedContact.displayName,
+                        phoneNumber = confirmedContact.phoneNumber,
+                        vcard = vcard,
+                        quoted = replyTarget
                     )
+                    replyTarget = null
                     draftValue = androidx.compose.ui.text.input.TextFieldValue("")
                     scope.launch { listState.animateScrollToItem(0) }
                 }
@@ -3314,7 +3314,8 @@ private fun MessageBubbleRow(
     onOpenSticker: () -> Unit = {},
     onOpenDocument: () -> Unit = {},
     onSaveDocument: () -> Unit = {},
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    onNavigateToChat: (String) -> Unit = {}
 ) {
     val colors = LocalWaColors.current
     val mono = LocalWaMonoFamily.current
@@ -4043,7 +4044,14 @@ private fun MessageBubbleRow(
                         ContactMessageCard(
                             msg = msg,
                             colors = colors,
-                            onLongClick = onLongPress
+                            onLongClick = onLongPress,
+                            onMessageClick = { phone ->
+                                val digits = phone.filter { it.isDigit() }
+                                if (digits.isNotBlank()) {
+                                    val targetJid = "$digits@s.whatsapp.net"
+                                    onNavigateToChat(targetJid)
+                                }
+                            }
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
