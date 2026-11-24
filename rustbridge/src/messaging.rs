@@ -311,11 +311,11 @@ pub async fn normalize_message(
                 }
             } else if !files_dir.is_empty()
                 && (was_wanted
-                    || (!from_history && runtime.is_auto_download_enabled(&meta.msg_type))
+                    || (!from_history && runtime.is_auto_download_enabled_for_chat(&meta.msg_type, &chat_jid))
                     || (from_history
                         && is_status
                         && meta.msg_type == "IMAGE"
-                        && runtime.is_auto_download_enabled("IMAGE")))
+                        && runtime.is_auto_download_enabled_for_chat("IMAGE", &chat_jid)))
             {
                 spawn_auto_download(Arc::clone(runtime), meta, false, is_status, from_history, None);
             }

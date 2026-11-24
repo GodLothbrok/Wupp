@@ -858,6 +858,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPerChatAutoDownload(chatJid: String, mask: Int?) {
         StealthMatrixManager.setPerChatAutoDownload(chatJid, mask)
+        WaRealtimeService.syncAutoDownloadPolicy(appContext)
     }
 
     fun setAutoDownloadMask(network: AutoDownloadNetwork, mask: Int) {
