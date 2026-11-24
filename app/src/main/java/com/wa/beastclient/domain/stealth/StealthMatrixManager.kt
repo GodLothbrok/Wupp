@@ -32,8 +32,16 @@ enum class AutoDownloadNetwork(val label: String) {
 
 enum class CallBackendMode(val storageKey: String, val title: String, val subtitle: String) {
     OFF("OFF", "Official WhatsApp App", "Hand off incoming and outgoing calls to the official WhatsApp app"),
-    SMART_WARM("SMART_WARM", "In-app Native VoIP (Battery Balanced)", "Answer and place E2EE voice & video calls directly inside Wupp"),
-    ALWAYS_READY("ALWAYS_READY", "In-app Native VoIP (Recommended)", "Instant native Rust voice & video calling on your single Wupp linked device");
+    SMART_WARM(
+        "SMART_WARM",
+        "In-app Native VoIP (Battery Balanced)",
+        "Answer and place E2EE voice & video calls directly inside Wupp"
+    ),
+    ALWAYS_READY(
+        "ALWAYS_READY",
+        "In-app Native VoIP (Recommended)",
+        "Instant native Rust voice & video calling on your single Wupp linked device"
+    );
 
     companion object {
         fun fromStorageKey(raw: String?): CallBackendMode =
@@ -302,75 +310,75 @@ object StealthMatrixManager {
 
     private fun readConfigFromPrefs(prefs: SharedPreferences, now: Long): GlobalStealthConfig =
         GlobalStealthConfig(
-                ghostPresence = prefs.getBoolean(KEY_GHOST_PRESENCE, true),
-                hideReadReceipts = prefs.getBoolean(KEY_HIDE_READ, false),
-                hidePlayedReceipts = prefs.getBoolean(KEY_HIDE_PLAYED, true),
-                hideTypingRecording = prefs.getBoolean(KEY_HIDE_TYPING, true),
-                antiDeleteEnabled = prefs.getBoolean(KEY_ANTI_DELETE, true),
-                ghostOutboundGuardPrompt = prefs.getBoolean(KEY_GHOST_GUARD_PROMPT, false),
-                disappearingImmunity = prefs.getBoolean(KEY_DISAPPEARING_IMMUNITY, true),
-                themeMode = WuppThemeMode.fromStorageKey(
-                    prefs.getString(KEY_THEME_MODE, null),
-                    prefs.getBoolean(KEY_DARK_THEME, true)
-                ),
-                accentColor = WuppAccentColor.fromStorageKey(prefs.getString(KEY_ACCENT_COLOR, null)),
-                useSystemFont = prefs.getBoolean(KEY_USE_SYSTEM_FONT, false),
-                quickReactionEmojis = parseQuickReactions(prefs.getString(KEY_QUICK_REACTIONS, null)),
-                classicWhatsAppLook = prefs.getBoolean(KEY_CLASSIC_LOOK, false),
-                statusVerticalLayout = prefs.getBoolean(KEY_STATUS_VERTICAL, false),
-                alwaysShowContactBio = prefs.getBoolean(KEY_ALWAYS_SHOW_BIO, true),
-                compactChatRows = prefs.getBoolean(KEY_COMPACT_CHAT_ROWS, false),
-                showSecondsInTimestamps = prefs.getBoolean(KEY_SHOW_SECONDS_TIME, false),
-                clockFormat = WuppClockFormat.fromStorageKey(prefs.getString(KEY_CLOCK_FORMAT, null)),
-                hideHomeCameraShortcut = prefs.getBoolean(KEY_HIDE_HOME_CAMERA, false),
-                offlineMode = prefs.getBoolean(KEY_OFFLINE_MODE, false),
-                hideStealthStatusBadges = prefs.getBoolean(KEY_HIDE_STEALTH_BADGES, false),
-                separateGroupsAndChats = prefs.getBoolean(KEY_SEPARATE_GROUPS_CHATS, false),
-                separateChannelsTab = prefs.getBoolean(KEY_SEPARATE_CHANNELS_TAB, false),
-                hideChannels = prefs.getBoolean(KEY_HIDE_CHANNELS, false),
-                enterIsSend = prefs.getBoolean(KEY_ENTER_IS_SEND, false),
-                chatFontScale = prefs.getFloat(KEY_CHAT_FONT_SCALE, 1.0f).coerceIn(0.85f, 1.25f),
-                notifyDmEnabled = prefs.getBoolean(KEY_NOTIFY_DM, true),
-                notifyGroupEnabled = prefs.getBoolean(KEY_NOTIFY_GROUP, true),
-                notifyShowPreview = prefs.getBoolean(KEY_NOTIFY_PREVIEW, true),
-                notifyVibrateEnabled = prefs.getBoolean(KEY_NOTIFY_VIBRATE, true),
-                defaultDisappearingSec = prefs.getInt(KEY_DEFAULT_DISAPPEARING_SEC, 0).coerceAtLeast(0),
-                appLanguage = prefs.getString(KEY_APP_LANGUAGE, LocaleHelper.LANG_SYSTEM) ?: LocaleHelper.LANG_SYSTEM,
-                chatWallpaperUri = prefs.getString(KEY_CHAT_WALLPAPER_URI, "") ?: "",
-                chatWallpaperDim = prefs.getFloat(KEY_CHAT_WALLPAPER_DIM, 0.28f),
-                chatWallpaperShowDoodle = prefs.getBoolean(KEY_CHAT_WALLPAPER_DOODLE, true),
-                chatWallpaperScale = prefs.getFloat(KEY_CHAT_WALLPAPER_SCALE, 1f).coerceIn(1f, 3f),
-                chatWallpaperOffsetX = prefs.getFloat(KEY_CHAT_WALLPAPER_OFFSET_X, 0f).coerceIn(-1f, 1f),
-                chatWallpaperOffsetY = prefs.getFloat(KEY_CHAT_WALLPAPER_OFFSET_Y, 0f).coerceIn(-1f, 1f),
-                perChatWallpapers = parsePerChatWallpapers(prefs.getString(KEY_CHAT_WALLPAPER_OVERRIDES, null)),
-                perChatAutoDownload = parsePerChatAutoDownload(prefs.getString(KEY_PER_CHAT_AUTO_DL, null)),
-                autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DL_ENABLED, true),
-                autoDownloadMobileMask = prefs.getInt(KEY_AUTO_DL_MOBILE, MEDIA_ALL),
-                autoDownloadWifiMask = prefs.getInt(KEY_AUTO_DL_WIFI, MEDIA_ALL),
-                autoDownloadRoamingMask = prefs.getInt(KEY_AUTO_DL_ROAMING, MEDIA_NONE),
-                mediaVisibilityInGallery = prefs.getBoolean(KEY_MEDIA_VISIBILITY, true),
-                hiddenGalleryJids = prefs.getStringSet(KEY_HIDDEN_GALLERY_JIDS, emptySet())?.toSet() ?: emptySet(),
-                visibleGalleryJids = prefs.getStringSet(KEY_VISIBLE_GALLERY_JIDS, emptySet())?.toSet() ?: emptySet(),
-                primaryLastSeenEpochMs = prefs.getLong(KEY_PRIMARY_HEARTBEAT_MS, now),
-                callBackendMode = CallBackendMode.fromStorageKey(prefs.getString(KEY_CALL_BACKEND_MODE, null)),
-                suppressIncomingRingWhenOfficialInstalled = prefs.getBoolean(KEY_SUPPRESS_RING_WITH_OFFICIAL, false),
-                officialCallMuteConfirmed = prefs.getBoolean(KEY_OFFICIAL_CALL_MUTE_CONFIRMED, false),
-                antiCallMode = AntiCallMode.fromStorageKey(prefs.getString(KEY_ANTI_CALL_MODE, null)),
-                pureBlackOled = prefs.getBoolean(KEY_PURE_BLACK_OLED, false),
-                dynamicMaterialYou = prefs.getBoolean(KEY_DYNAMIC_MATERIAL_YOU, false),
-                fontStyle = WuppFontStyle.fromStorageKey(
-                    prefs.getString(KEY_FONT_STYLE, null),
-                    prefs.getBoolean(KEY_USE_SYSTEM_FONT, false)
-                ),
-                customFontPath = prefs.getString(KEY_CUSTOM_FONT_PATH, "") ?: "",
-                bubbleCornerRadiusDp = prefs.getInt(KEY_BUBBLE_CORNER_RADIUS_DP, 17).coerceIn(4, 24),
-                customOutgoingBubbleArgb = prefs.getLong(KEY_CUSTOM_OUTGOING_BUBBLE_ARGB, 0L),
-                customIncomingBubbleArgb = prefs.getLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, 0L),
-                vaultLockEnabled = prefs.getBoolean(KEY_VAULT_LOCK_ENABLED, false),
-                autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false),
-                chatSoundsEnabled = prefs.getBoolean(KEY_CHAT_SOUNDS_ENABLED, true),
-                localContactFallbackEnabled = prefs.getBoolean(KEY_LOCAL_CONTACT_FALLBACK, true),
-                preferPhonebookContactNames = prefs.getBoolean(KEY_PREFER_PHONEBOOK_NAMES, false)
+            ghostPresence = prefs.getBoolean(KEY_GHOST_PRESENCE, true),
+            hideReadReceipts = prefs.getBoolean(KEY_HIDE_READ, false),
+            hidePlayedReceipts = prefs.getBoolean(KEY_HIDE_PLAYED, true),
+            hideTypingRecording = prefs.getBoolean(KEY_HIDE_TYPING, true),
+            antiDeleteEnabled = prefs.getBoolean(KEY_ANTI_DELETE, true),
+            ghostOutboundGuardPrompt = prefs.getBoolean(KEY_GHOST_GUARD_PROMPT, false),
+            disappearingImmunity = prefs.getBoolean(KEY_DISAPPEARING_IMMUNITY, true),
+            themeMode = WuppThemeMode.fromStorageKey(
+                prefs.getString(KEY_THEME_MODE, null),
+                prefs.getBoolean(KEY_DARK_THEME, true)
+            ),
+            accentColor = WuppAccentColor.fromStorageKey(prefs.getString(KEY_ACCENT_COLOR, null)),
+            useSystemFont = prefs.getBoolean(KEY_USE_SYSTEM_FONT, false),
+            quickReactionEmojis = parseQuickReactions(prefs.getString(KEY_QUICK_REACTIONS, null)),
+            classicWhatsAppLook = prefs.getBoolean(KEY_CLASSIC_LOOK, false),
+            statusVerticalLayout = prefs.getBoolean(KEY_STATUS_VERTICAL, false),
+            alwaysShowContactBio = prefs.getBoolean(KEY_ALWAYS_SHOW_BIO, true),
+            compactChatRows = prefs.getBoolean(KEY_COMPACT_CHAT_ROWS, false),
+            showSecondsInTimestamps = prefs.getBoolean(KEY_SHOW_SECONDS_TIME, false),
+            clockFormat = WuppClockFormat.fromStorageKey(prefs.getString(KEY_CLOCK_FORMAT, null)),
+            hideHomeCameraShortcut = prefs.getBoolean(KEY_HIDE_HOME_CAMERA, false),
+            offlineMode = prefs.getBoolean(KEY_OFFLINE_MODE, false),
+            hideStealthStatusBadges = prefs.getBoolean(KEY_HIDE_STEALTH_BADGES, false),
+            separateGroupsAndChats = prefs.getBoolean(KEY_SEPARATE_GROUPS_CHATS, false),
+            separateChannelsTab = prefs.getBoolean(KEY_SEPARATE_CHANNELS_TAB, false),
+            hideChannels = prefs.getBoolean(KEY_HIDE_CHANNELS, false),
+            enterIsSend = prefs.getBoolean(KEY_ENTER_IS_SEND, false),
+            chatFontScale = prefs.getFloat(KEY_CHAT_FONT_SCALE, 1.0f).coerceIn(0.85f, 1.25f),
+            notifyDmEnabled = prefs.getBoolean(KEY_NOTIFY_DM, true),
+            notifyGroupEnabled = prefs.getBoolean(KEY_NOTIFY_GROUP, true),
+            notifyShowPreview = prefs.getBoolean(KEY_NOTIFY_PREVIEW, true),
+            notifyVibrateEnabled = prefs.getBoolean(KEY_NOTIFY_VIBRATE, true),
+            defaultDisappearingSec = prefs.getInt(KEY_DEFAULT_DISAPPEARING_SEC, 0).coerceAtLeast(0),
+            appLanguage = prefs.getString(KEY_APP_LANGUAGE, LocaleHelper.LANG_SYSTEM) ?: LocaleHelper.LANG_SYSTEM,
+            chatWallpaperUri = prefs.getString(KEY_CHAT_WALLPAPER_URI, "") ?: "",
+            chatWallpaperDim = prefs.getFloat(KEY_CHAT_WALLPAPER_DIM, 0.28f),
+            chatWallpaperShowDoodle = prefs.getBoolean(KEY_CHAT_WALLPAPER_DOODLE, true),
+            chatWallpaperScale = prefs.getFloat(KEY_CHAT_WALLPAPER_SCALE, 1f).coerceIn(1f, 3f),
+            chatWallpaperOffsetX = prefs.getFloat(KEY_CHAT_WALLPAPER_OFFSET_X, 0f).coerceIn(-1f, 1f),
+            chatWallpaperOffsetY = prefs.getFloat(KEY_CHAT_WALLPAPER_OFFSET_Y, 0f).coerceIn(-1f, 1f),
+            perChatWallpapers = parsePerChatWallpapers(prefs.getString(KEY_CHAT_WALLPAPER_OVERRIDES, null)),
+            perChatAutoDownload = parsePerChatAutoDownload(prefs.getString(KEY_PER_CHAT_AUTO_DL, null)),
+            autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DL_ENABLED, true),
+            autoDownloadMobileMask = prefs.getInt(KEY_AUTO_DL_MOBILE, MEDIA_ALL),
+            autoDownloadWifiMask = prefs.getInt(KEY_AUTO_DL_WIFI, MEDIA_ALL),
+            autoDownloadRoamingMask = prefs.getInt(KEY_AUTO_DL_ROAMING, MEDIA_NONE),
+            mediaVisibilityInGallery = prefs.getBoolean(KEY_MEDIA_VISIBILITY, true),
+            hiddenGalleryJids = prefs.getStringSet(KEY_HIDDEN_GALLERY_JIDS, emptySet())?.toSet() ?: emptySet(),
+            visibleGalleryJids = prefs.getStringSet(KEY_VISIBLE_GALLERY_JIDS, emptySet())?.toSet() ?: emptySet(),
+            primaryLastSeenEpochMs = prefs.getLong(KEY_PRIMARY_HEARTBEAT_MS, now),
+            callBackendMode = CallBackendMode.fromStorageKey(prefs.getString(KEY_CALL_BACKEND_MODE, null)),
+            suppressIncomingRingWhenOfficialInstalled = prefs.getBoolean(KEY_SUPPRESS_RING_WITH_OFFICIAL, false),
+            officialCallMuteConfirmed = prefs.getBoolean(KEY_OFFICIAL_CALL_MUTE_CONFIRMED, false),
+            antiCallMode = AntiCallMode.fromStorageKey(prefs.getString(KEY_ANTI_CALL_MODE, null)),
+            pureBlackOled = prefs.getBoolean(KEY_PURE_BLACK_OLED, false),
+            dynamicMaterialYou = prefs.getBoolean(KEY_DYNAMIC_MATERIAL_YOU, false),
+            fontStyle = WuppFontStyle.fromStorageKey(
+                prefs.getString(KEY_FONT_STYLE, null),
+                prefs.getBoolean(KEY_USE_SYSTEM_FONT, false)
+            ),
+            customFontPath = prefs.getString(KEY_CUSTOM_FONT_PATH, "") ?: "",
+            bubbleCornerRadiusDp = prefs.getInt(KEY_BUBBLE_CORNER_RADIUS_DP, 17).coerceIn(4, 24),
+            customOutgoingBubbleArgb = prefs.getLong(KEY_CUSTOM_OUTGOING_BUBBLE_ARGB, 0L),
+            customIncomingBubbleArgb = prefs.getLong(KEY_CUSTOM_INCOMING_BUBBLE_ARGB, 0L),
+            vaultLockEnabled = prefs.getBoolean(KEY_VAULT_LOCK_ENABLED, false),
+            autoRecordCalls = prefs.getBoolean(KEY_AUTO_RECORD_CALLS, false),
+            chatSoundsEnabled = prefs.getBoolean(KEY_CHAT_SOUNDS_ENABLED, true),
+            localContactFallbackEnabled = prefs.getBoolean(KEY_LOCAL_CONTACT_FALLBACK, true),
+            preferPhonebookContactNames = prefs.getBoolean(KEY_PREFER_PHONEBOOK_NAMES, false)
         )
 
     fun updateConfig(transform: (GlobalStealthConfig) -> GlobalStealthConfig) {
@@ -387,7 +395,10 @@ object StealthMatrixManager {
                 .putBoolean(KEY_DISAPPEARING_IMMUNITY, updated.disappearingImmunity)
                 .putString(KEY_THEME_MODE, updated.themeMode.storageKey)
                 .putString(KEY_ACCENT_COLOR, updated.accentColor.storageKey)
-                .putBoolean(KEY_DARK_THEME, updated.themeMode != WuppThemeMode.LIGHT && updated.themeMode != WuppThemeMode.IOS)
+                .putBoolean(
+                    KEY_DARK_THEME,
+                    updated.themeMode != WuppThemeMode.LIGHT && updated.themeMode != WuppThemeMode.IOS
+                )
                 .putBoolean(KEY_USE_SYSTEM_FONT, updated.useSystemFont)
                 .putString(KEY_QUICK_REACTIONS, encodeQuickReactions(updated.quickReactionEmojis))
                 .putBoolean(KEY_CLASSIC_LOOK, updated.classicWhatsAppLook)
@@ -466,7 +477,11 @@ object StealthMatrixManager {
         return AutoDownloadNetwork.WIFI
     }
 
-    fun activeAutoDownloadMask(context: Context? = null, cfg: GlobalStealthConfig = _config.value, chatJid: String = ""): Int {
+    fun activeAutoDownloadMask(
+        context: Context? = null,
+        cfg: GlobalStealthConfig = _config.value,
+        chatJid: String = ""
+    ): Int {
         if (chatJid.isNotBlank()) {
             val override = cfg.perChatAutoDownload[chatJid]
             if (override != null) return override
@@ -491,7 +506,11 @@ object StealthMatrixManager {
         if (mask == MEDIA_NONE) return false
         val upperType = msgType.uppercase()
         val bit = when {
-            upperType == "PTT" || upperType == "AUDIO" || mimeType.startsWith("audio/", ignoreCase = true) -> MEDIA_AUDIO
+            upperType == "PTT" || upperType == "AUDIO" || mimeType.startsWith(
+                "audio/",
+                ignoreCase = true
+            ) -> MEDIA_AUDIO
+
             upperType == "VIDEO" || mimeType.startsWith("video/", ignoreCase = true) -> MEDIA_VIDEO
             upperType == "DOCUMENT" -> MEDIA_DOCUMENT
             else -> MEDIA_PHOTO
@@ -526,10 +545,12 @@ object StealthMatrixManager {
                     hidden.remove(chatJid)
                     visible.add(chatJid)
                 }
+
                 false -> {
                     visible.remove(chatJid)
                     hidden.add(chatJid)
                 }
+
                 null -> {
                     hidden.remove(chatJid)
                     visible.remove(chatJid)
@@ -830,7 +851,10 @@ object StealthMatrixManager {
     /** Returns true when [chatJid] targets the user's own account ("Message yourself"). */
     fun isSelfChatJid(chatJid: String, ownJid: String): Boolean {
         if (chatJid.isBlank() || ownJid.isBlank()) return false
-        if (chatJid.endsWith("@g.us") || chatJid.endsWith("@newsletter") || chatJid == "status@broadcast" || chatJid.endsWith("@broadcast")) {
+        if (chatJid.endsWith("@g.us") || chatJid.endsWith("@newsletter") || chatJid == "status@broadcast" || chatJid.endsWith(
+                "@broadcast"
+            )
+        ) {
             return false
         }
         val chatUser = chatJid.trim().substringBefore("@").substringBefore(":")

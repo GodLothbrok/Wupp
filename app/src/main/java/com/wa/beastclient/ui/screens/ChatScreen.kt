@@ -100,7 +100,6 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.EventRepeat
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
@@ -1331,17 +1330,8 @@ fun ChatScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Schedule message") },
-                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    editingScheduledMessage = null
-                                    showScheduleDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Scheduled messages") },
-                                leadingIcon = { Icon(Icons.Rounded.EventRepeat, null) },
+                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
                                 onClick = {
                                     showOverflow = false
                                     showScheduledSheet = true
