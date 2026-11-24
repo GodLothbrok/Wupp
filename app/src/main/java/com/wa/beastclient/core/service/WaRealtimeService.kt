@@ -4682,6 +4682,7 @@ class WaRealtimeService : Service() {
                 StealthMatrixManager.reloadForActiveAccount(appCtx)
                 CustomStickerStore.getInstance(appCtx).reloadForActiveAccount()
                 StickerFavoritesStore.getInstance(appCtx).reloadForActiveAccount()
+                com.wa.beastclient.domain.scheduling.ScheduledMessageManager.reloadForActiveAccount(appCtx)
                 resetAliasesForAccountSwitch(appCtx)
                 reloadGroupLocks(appCtx)
                 _bridgeStatus.value = BridgeStatus(

@@ -69,6 +69,7 @@ fun ScheduleMessageDialog(
     val is24Hour = remember { DateFormat.is24HourFormat(context) }
 
     var text by remember { mutableStateOf(initialMessage?.text ?: initialText) }
+    var targetRecipient by remember { mutableStateOf(initialMessage?.chatJid ?: chatJid) }
     var repeatType by remember { mutableStateOf(initialMessage?.repeatType ?: ScheduledRepeatType.ONCE) }
     var selectedDays by remember { mutableStateOf(initialMessage?.customDaysOfWeek?.toSet() ?: emptySet()) }
 
@@ -154,6 +155,21 @@ fun ScheduleMessageDialog(
                         color = colors.textSecondary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
+                    )
+                } else if (chatJid.isBlank()) {
+                    OutlinedTextField(
+                        value = targetRecipient,
+                        onValueChange = { targetRecipient = it },
+                        label = { Text("Recipient (phone number or JID)") },
+                        placeholder = { Text("+1234567890") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.accentGreen,
+                            unfocusedBorderColor = colors.textSecondary.copy(alpha = 0.3f),
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        )
                     )
                 }
 
@@ -319,6 +335,15 @@ fun ScheduleMessageDialog(
             TextButton(
                 onClick = {
                     if (text.isBlank()) return@TextButton
+                    val cleanRecipient = targetRecipient.trim()
+                    val resolvedJid = if (cleanRecipient.contains("@")) {
+                        cleanRecipient
+                    } else {
+                        val digits = cleanRecipient.filter { it.isDigit() }
+                        if (digits.isNotBlank()) "$digits@s.whatsapp.net" else ""
+                    }
+                    if (resolvedJid.isBlank()) return@TextButton
+
                     val finalCal = Calendar.getInstance().apply {
                         set(Calendar.YEAR, scheduledYear)
                         set(Calendar.MONTH, scheduledMonth)
@@ -330,11 +355,13 @@ fun ScheduleMessageDialog(
                     }
                     val scheduledMs = finalCal.timeInMillis
                     val item = (initialMessage ?: ScheduledMessage(
-                        chatJid = chatJid,
-                        chatTitle = chatTitle,
+                        chatJid = resolvedJid,
+                        chatTitle = if (chatTitle.isNotBlank()) chatTitle else resolvedJid.substringBefore("@"),
                         text = text.trim(),
                         scheduledEpochMs = scheduledMs
                     )).copy(
+                        chatJid = resolvedJid,
+                        chatTitle = if (chatTitle.isNotBlank()) chatTitle else resolvedJid.substringBefore("@"),
                         text = text.trim(),
                         scheduledEpochMs = scheduledMs,
                         repeatType = repeatType,
@@ -345,7 +372,7 @@ fun ScheduleMessageDialog(
                     onSave(item)
                     onDismiss()
                 },
-                enabled = text.isNotBlank() && (repeatType != ScheduledRepeatType.CUSTOM_DAYS || selectedDays.isNotEmpty())
+                enabled = text.isNotBlank() && targetRecipient.isNotBlank() && (repeatType != ScheduledRepeatType.CUSTOM_DAYS || selectedDays.isNotEmpty())
             ) {
                 Text(
                     text = if (initialMessage != null) "Update" else "Schedule",
