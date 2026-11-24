@@ -654,6 +654,26 @@ interface WaDao {
     @Query(
         """
         SELECT * FROM messages
+        WHERE chat_jid = :chatJid
+          AND is_view_once = 0
+          AND view_once_state != 'STRIPPED'
+          AND (local_media_path IS NULL OR local_media_path = '')
+          AND (
+              msg_type IN ('IMAGE', 'STICKER', 'PTT', 'AUDIO', 'VIDEO', 'DOCUMENT')
+              OR LOWER(mime_type) LIKE 'image/%'
+              OR LOWER(mime_type) LIKE 'video/%'
+              OR LOWER(mime_type) LIKE 'audio/%'
+              OR LOWER(mime_type) LIKE 'application/%'
+          )
+        ORDER BY timestamp DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getUndownloadedMediaMessages(chatJid: String, limit: Int = 30): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
         WHERE msg_type = 'STICKER'
           AND local_media_path IS NOT NULL
           AND local_media_path != ''

@@ -466,12 +466,13 @@ object StealthMatrixManager {
         return AutoDownloadNetwork.WIFI
     }
 
-    fun activeAutoDownloadMask(context: Context, cfg: GlobalStealthConfig = _config.value, chatJid: String = ""): Int {
-        if (!cfg.autoDownloadEnabled) return MEDIA_NONE
+    fun activeAutoDownloadMask(context: Context? = null, cfg: GlobalStealthConfig = _config.value, chatJid: String = ""): Int {
         if (chatJid.isNotBlank()) {
             val override = cfg.perChatAutoDownload[chatJid]
             if (override != null) return override
         }
+        if (!cfg.autoDownloadEnabled) return MEDIA_NONE
+        if (context == null) return cfg.autoDownloadWifiMask
         return when (currentAutoDownloadNetwork(context)) {
             AutoDownloadNetwork.WIFI -> cfg.autoDownloadWifiMask
             AutoDownloadNetwork.MOBILE -> cfg.autoDownloadMobileMask
@@ -480,7 +481,7 @@ object StealthMatrixManager {
     }
 
     fun isAutoDownloadAllowed(
-        context: Context,
+        context: Context? = null,
         msgType: String,
         mimeType: String = "",
         cfg: GlobalStealthConfig = _config.value,
@@ -725,6 +726,9 @@ object StealthMatrixManager {
     fun getPerChatAutoDownloadMask(chatJid: String): Int? =
         _config.value.perChatAutoDownload[chatJid]
 
+    fun getPerChatAutoDownloadJson(cfg: GlobalStealthConfig = _config.value): String =
+        encodePerChatAutoDownload(cfg.perChatAutoDownload)
+
     fun setPerChatAutoDownload(chatJid: String, mask: Int?) {
         if (chatJid.isBlank()) return
         updateConfig { cfg ->
@@ -732,27 +736,28 @@ object StealthMatrixManager {
             if (mask == null) next.remove(chatJid) else next[chatJid] = mask
             cfg.copy(perChatAutoDownload = next)
         }
+        runCatching {
+            com.wa.bridge.whatsbridge.Whatsbridge.setChatAutoDownload(chatJid, mask ?: -1)
+        }
     }
+
+    private val PER_CHAT_AUTO_DL_REGEX = Regex(""""([^"]+)":\s*(-?\d+)""")
 
     private fun parsePerChatAutoDownload(rawJson: String?): Map<String, Int> {
         if (rawJson.isNullOrBlank()) return emptyMap()
         return runCatching {
-            val obj = JSONObject(rawJson)
-            buildMap {
-                val keys = obj.keys()
-                while (keys.hasNext()) {
-                    val jid = keys.next()
-                    put(jid, obj.getInt(jid))
-                }
+            PER_CHAT_AUTO_DL_REGEX.findAll(rawJson).associate { match ->
+                match.groupValues[1] to match.groupValues[2].toInt()
             }
         }.getOrDefault(emptyMap())
     }
 
     private fun encodePerChatAutoDownload(map: Map<String, Int>): String {
         if (map.isEmpty()) return ""
-        val root = JSONObject()
-        map.forEach { (jid, mask) -> root.put(jid, mask) }
-        return root.toString()
+        return map.entries.joinToString(separator = ",", prefix = "{", postfix = "}") { (jid, mask) ->
+            val escaped = jid.replace("\\", "\\\\").replace("\"", "\\\"")
+            "\"$escaped\":$mask"
+        }
     }
 
     fun extractFirstGrapheme(input: String): String {

@@ -591,6 +591,29 @@ pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeSetAutoD
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeSetChatAutoDownload<'a>(
+    mut env: JNIEnv<'a>,
+    _cls: JClass<'a>,
+    chat_jid: JString<'a>,
+    mask: jint,
+) {
+    let jid = jstr(&mut env, &chat_jid);
+    let Some(rt) = BridgeRuntime::get() else { return };
+    rt.set_chat_auto_download(&jid, mask);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeSetPerChatAutoDownloadJson<'a>(
+    mut env: JNIEnv<'a>,
+    _cls: JClass<'a>,
+    json_str: JString<'a>,
+) {
+    let s = jstr(&mut env, &json_str);
+    let Some(rt) = BridgeRuntime::get() else { return };
+    rt.set_per_chat_auto_download_json(&s);
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_wa_bridge_whatsbridge_Whatsbridge_nativeVerifyNumbersOnWhatsApp<'a>(
     mut env: JNIEnv<'a>,
     _cls: JClass<'a>,

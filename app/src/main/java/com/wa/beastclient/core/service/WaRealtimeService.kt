@@ -1449,6 +1449,16 @@ class WaRealtimeService : Service() {
         }
         val targetChat = dao.getChat(msg.chatJid)
         val suppressHiddenAlerts = AppLockManager.shouldSuppressAlertsForChat(targetChat?.isLocked == true)
+        val isMedia = msg.msgType in setOf("IMAGE", "VIDEO", "AUDIO", "PTT", "DOCUMENT", "STICKER") ||
+            msg.mimeType.startsWith("image/", ignoreCase = true) ||
+            msg.mimeType.startsWith("video/", ignoreCase = true) ||
+            msg.mimeType.startsWith("audio/", ignoreCase = true) ||
+            msg.mimeType.startsWith("application/", ignoreCase = true)
+        if (insertedNew && isMedia && msg.localMediaPath.isNullOrBlank() && !msg.isFromMe && !msg.isViewOnce && msg.viewOnceState != "STRIPPED") {
+            if (StealthMatrixManager.isAutoDownloadAllowed(applicationContext, msg.msgType, msg.mimeType, chatJid = msg.chatJid)) {
+                requestMediaDownload(applicationContext, msg, userInitiated = false)
+            }
+        }
         if (insertedNew && !isSync && !msg.isFromMe && !isActiveChat && !msg.chatJid.endsWith("@newsletter")) {
             if (!suppressHiddenAlerts) {
                 if (isUiForeground) {
@@ -3086,9 +3096,9 @@ class WaRealtimeService : Service() {
                             }
                         }
                     }
-                    if (StealthMatrixManager.isAutoDownloadAllowed(appCtx, "AUDIO", chatJid = chatJid)) {
-                        val missingAudio = dao.getUndownloadedAudioMessages(chatJid)
-                        for (msg in missingAudio) {
+                    val missingMedia = dao.getUndownloadedMediaMessages(chatJid, limit = 25)
+                    for (msg in missingMedia) {
+                        if (StealthMatrixManager.isAutoDownloadAllowed(appCtx, msg.msgType, msg.mimeType, chatJid = chatJid)) {
                             runCatching {
                                 triggerMediaDownloadWithAnchor(dao, msg)
                             }.onFailure {
@@ -3189,6 +3199,7 @@ class WaRealtimeService : Service() {
             val allowDoc = (mask and StealthMatrixManager.MEDIA_DOCUMENT) != 0
             runCatching {
                 Whatsbridge.setAutoDownloadPolicy(allowPhoto, allowAudio, allowVideo, allowDoc)
+                Whatsbridge.setPerChatAutoDownloadJson(StealthMatrixManager.getPerChatAutoDownloadJson())
             }.onFailure {
                 Log.w(TAG, "syncAutoDownloadPolicy failed: ${it.message}")
             }

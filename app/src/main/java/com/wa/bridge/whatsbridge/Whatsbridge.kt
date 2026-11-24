@@ -198,6 +198,16 @@ object Whatsbridge {
     ) = nativeSetAutoDownloadPolicy(allowPhoto, allowAudio, allowVideo, allowDoc)
 
     @JvmStatic
+    fun setChatAutoDownload(chatJid: String, mask: Int) {
+        runCatching { nativeSetChatAutoDownload(chatJid, mask) }
+    }
+
+    @JvmStatic
+    fun setPerChatAutoDownloadJson(jsonStr: String) {
+        runCatching { nativeSetPerChatAutoDownloadJson(jsonStr) }
+    }
+
+    @JvmStatic
     fun verifyNumbersOnWhatsApp(phonesCsv: String): String =
         nativeVerifyNumbersOnWhatsApp(phonesCsv) ?: "[]"
 
@@ -411,6 +421,8 @@ object Whatsbridge {
         allowVideo: Boolean,
         allowDoc: Boolean
     )
+    private external fun nativeSetChatAutoDownload(chatJid: String, mask: Int)
+    private external fun nativeSetPerChatAutoDownloadJson(jsonStr: String)
     private external fun nativeVerifyNumbersOnWhatsApp(phonesCsv: String): String?
     private external fun nativeSyncContactsAndAvatars(filterCsv: String)
     private external fun nativeFetchNewsletterMessages(nlJid: String)

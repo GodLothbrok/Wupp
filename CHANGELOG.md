@@ -8,6 +8,9 @@
 - Added contact sharing from the attachment menu and contact card preview (#146).
 - Moved the message scheduler to the chat menu and long-press on Send.
 
+### 🛠️ Fixes
+- Fixed per-chat media auto-download to respect custom chat rules and download all media types (#145).
+
 ## [0.3.8] - 2026-11-23
 
 > **Note:** Video calls are still **Beta / Unstable**.

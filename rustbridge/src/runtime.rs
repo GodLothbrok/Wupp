@@ -43,6 +43,7 @@ pub struct BridgeRuntime {
     pub wanted_media_ids: Mutex<HashSet<String>>,
     pub peer_media_req_ms: Mutex<HashMap<String, i64>>,
     pub chat_ephemeral: RwLock<HashMap<String, u32>>,
+    pub chat_auto_dl: RwLock<HashMap<String, u32>>,
     pub contact_sync_active: AtomicBool,
     pub last_sync_unix: AtomicI64,
     pub last_verify_unix: AtomicI64,
@@ -95,6 +96,7 @@ impl BridgeRuntime {
             wanted_media_ids: Mutex::new(HashSet::new()),
             peer_media_req_ms: Mutex::new(HashMap::new()),
             chat_ephemeral: RwLock::new(HashMap::new()),
+            chat_auto_dl: RwLock::new(HashMap::new()),
             contact_sync_active: AtomicBool::new(false),
             last_sync_unix: AtomicI64::new(0),
             last_verify_unix: AtomicI64::new(0),
@@ -139,12 +141,51 @@ impl BridgeRuntime {
     }
 
     pub fn is_auto_download_enabled(&self, msg_type: &str) -> bool {
-        match msg_type.to_ascii_lowercase().as_str() {
-            "image" | "sticker" => self.allow_photo.load(Ordering::Relaxed),
-            "audio" | "ptt" => self.allow_audio.load(Ordering::Relaxed),
-            "video" | "gif" | "ptv" => self.allow_video.load(Ordering::Relaxed),
-            "document" => self.allow_doc.load(Ordering::Relaxed),
+        self.is_auto_download_enabled_for_chat(msg_type, "")
+    }
+
+    pub fn is_auto_download_enabled_for_chat(&self, msg_type: &str, chat_jid: &str) -> bool {
+        let bit = match msg_type.to_ascii_lowercase().as_str() {
+            "image" | "sticker" => 1u32,
+            "audio" | "ptt" => 2u32,
+            "video" | "gif" | "ptv" => 4u32,
+            "document" => 8u32,
+            _ => return false,
+        };
+
+        if !chat_jid.is_empty() {
+            let guard = self.chat_auto_dl.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(&mask) = guard.get(chat_jid) {
+                return (mask & bit) != 0;
+            }
+        }
+
+        match bit {
+            1 => self.allow_photo.load(Ordering::Relaxed),
+            2 => self.allow_audio.load(Ordering::Relaxed),
+            4 => self.allow_video.load(Ordering::Relaxed),
+            8 => self.allow_doc.load(Ordering::Relaxed),
             _ => false,
+        }
+    }
+
+    pub fn set_chat_auto_download(&self, chat_jid: &str, mask: i32) {
+        if chat_jid.is_empty() {
+            return;
+        }
+        let mut guard = self.chat_auto_dl.write().unwrap_or_else(|e| e.into_inner());
+        if mask < 0 {
+            guard.remove(chat_jid);
+        } else {
+            guard.insert(chat_jid.to_string(), mask as u32);
+        }
+    }
+
+    pub fn set_per_chat_auto_download_json(&self, json_str: &str) {
+        let mut guard = self.chat_auto_dl.write().unwrap_or_else(|e| e.into_inner());
+        guard.clear();
+        if let Ok(map) = serde_json::from_str::<HashMap<String, u32>>(json_str) {
+            *guard = map;
         }
     }
 
