@@ -435,6 +435,11 @@ fun HomeScreen(
     var showThemePickerDialog by remember { mutableStateOf(false) }
     var showAccountSwitcherSheet by remember { mutableStateOf(false) }
     var showMediaVaultSheet by remember { mutableStateOf(false) }
+    var showScheduledSheet by remember { mutableStateOf(false) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    var editingScheduledMessage by remember { mutableStateOf<com.wa.beastclient.domain.scheduling.ScheduledMessage?>(null) }
+    var scheduleDialogChatJid by remember { mutableStateOf("") }
+    var scheduleDialogChatTitle by remember { mutableStateOf("") }
     var showMessageHistorySheet by remember { mutableStateOf(false) }
     var messageHistoryChatFilter by remember { mutableStateOf<String?>(null) }
     var showStickerStudioDialog by remember { mutableStateOf(false) }
@@ -985,6 +990,14 @@ fun HomeScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Scheduled messages") },
+                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
+                                onClick = {
+                                    overflowExpanded = false
+                                    showScheduledSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Media vault") },
                                 leadingIcon = { Icon(Icons.Rounded.Shield, null) },
                                 onClick = {
@@ -1527,6 +1540,51 @@ fun HomeScreen(
                 viewModel.exportMediaToGallery(file.absolutePath, name, mime)
             },
             onDismiss = { showMediaVaultSheet = false }
+        )
+    }
+
+    if (showScheduledSheet) {
+        com.wa.beastclient.ui.components.ScheduledMessagesSheet(
+            colors = colors,
+            onDismiss = { showScheduledSheet = false },
+            onOpenComposer = { jid, title ->
+                editingScheduledMessage = null
+                scheduleDialogChatJid = jid
+                scheduleDialogChatTitle = title
+                showScheduleDialog = true
+            },
+            onEditMessage = { msg ->
+                editingScheduledMessage = msg
+                scheduleDialogChatJid = msg.chatJid
+                scheduleDialogChatTitle = msg.chatTitle
+                showScheduleDialog = true
+            },
+            onPauseMessage = { viewModel.pauseScheduledMessage(it) },
+            onResumeMessage = { viewModel.resumeScheduledMessage(it) },
+            onDeleteMessage = { viewModel.deleteScheduledMessage(it) },
+            onRetryMessage = { viewModel.retryScheduledMessage(it) }
+        )
+    }
+
+    if (showScheduleDialog) {
+        com.wa.beastclient.ui.components.ScheduleMessageDialog(
+            chatJid = scheduleDialogChatJid,
+            chatTitle = scheduleDialogChatTitle,
+            initialMessage = editingScheduledMessage,
+            colors = colors,
+            onDismiss = {
+                showScheduleDialog = false
+                editingScheduledMessage = null
+            },
+            onSave = { msg ->
+                if (editingScheduledMessage != null) {
+                    viewModel.updateScheduledMessage(msg)
+                } else {
+                    viewModel.scheduleMessage(msg)
+                }
+                showScheduleDialog = false
+                editingScheduledMessage = null
+            }
         )
     }
 

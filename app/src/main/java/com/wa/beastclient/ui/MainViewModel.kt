@@ -39,6 +39,8 @@ import com.wa.beastclient.data.media.hasExtractableAudioTrack
 import com.wa.beastclient.data.media.SoundPoolManager
 import com.wa.beastclient.data.media.StickerFavoritesStore
 import com.wa.beastclient.domain.accounts.AccountManager
+import com.wa.beastclient.domain.scheduling.ScheduledMessage
+import com.wa.beastclient.domain.scheduling.ScheduledMessageManager
 import com.wa.beastclient.domain.accounts.WuppAccount
 import com.wa.beastclient.domain.contacts.DeviceContactFallbackResolver
 import com.wa.beastclient.domain.security.AppLockConfig
@@ -1252,6 +1254,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     showToast(err.message ?: "Send failed")
                 }
         }
+    }
+
+    fun scheduleMessage(item: ScheduledMessage) {
+        ScheduledMessageManager.scheduleMessage(appContext, item)
+    }
+
+    fun updateScheduledMessage(item: ScheduledMessage) {
+        ScheduledMessageManager.updateScheduledMessage(appContext, item)
+    }
+
+    fun pauseScheduledMessage(id: String) {
+        ScheduledMessageManager.pauseScheduledMessage(appContext, id)
+    }
+
+    fun resumeScheduledMessage(id: String) {
+        ScheduledMessageManager.resumeScheduledMessage(appContext, id)
+    }
+
+    fun deleteScheduledMessage(id: String) {
+        ScheduledMessageManager.deleteScheduledMessage(appContext, id)
+    }
+
+    fun retryScheduledMessage(id: String) {
+        ScheduledMessageManager.retryScheduledMessage(appContext, id)
     }
 
     fun forwardMessage(msg: MessageEntity, targetChatJids: List<String>) {

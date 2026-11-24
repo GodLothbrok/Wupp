@@ -104,6 +104,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".domain.scheduling.ScheduledMessageReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".core.service.BootReceiver"
             android:enabled="true"
             android:exported="true">

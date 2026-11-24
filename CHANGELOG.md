@@ -3,6 +3,7 @@
 ## [0.3.9-pre.1] - 2026-11-24
 
 ### ✨ Features
+- Added scheduled and recurring messages with repeat options and dedicated management (#144).
 - Added per-chat media auto-download overrides in Chat Info (#145).
 
 ### 🛠️ Fixes
