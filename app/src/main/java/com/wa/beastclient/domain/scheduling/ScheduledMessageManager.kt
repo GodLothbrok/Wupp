@@ -167,25 +167,41 @@ object ScheduledMessageManager {
         if (dueList.isEmpty()) return@withContext 0
 
         Log.i(TAG, "Processing ${dueList.size} due scheduled message(s)")
+
+        // Wait briefly (up to 4s) if companion socket is establishing after alarm wakeup
+        var waitLoops = 0
+        while (!runCatching { com.wa.bridge.whatsbridge.Whatsbridge.isLoggedIn() }.getOrDefault(false) && waitLoops < 8) {
+            kotlinx.coroutines.delay(500L)
+            waitLoops++
+        }
+
         var processedCount = 0
 
-        for (item in dueList) {
+        for ((index, item) in dueList.withIndex()) {
+            if (index > 0) {
+                // Pace outbound scheduled messages to avoid rapid burst flags
+                kotlinx.coroutines.delay(1000L)
+            }
             val result = runCatching {
                 WaRealtimeService.sendTextMessage(
                     context = context,
                     chatJid = item.chatJid,
                     text = item.text,
                     quoted = null,
-                    ghostMentionEveryone = false
+                    ghostMentionEveryone = false,
+                    requireLinkedSession = true
                 )
             }.getOrElse { Result.failure(it) }
 
             val updatedNow = System.currentTimeMillis()
+            val sentEntity = result.getOrNull()
+            val isActuallySent = result.isSuccess && sentEntity != null && !sentEntity.id.startsWith("LOCAL_")
+
             synchronized(ScheduledMessageManager) {
                 val current = _messages.value.toMutableList()
                 val idx = current.indexOfFirst { it.id == item.id }
                 if (idx != -1) {
-                    val updated = if (result.isSuccess) {
+                    val updated = if (isActuallySent) {
                         processedCount++
                         if (item.repeatType == ScheduledRepeatType.ONCE) {
                             item.copy(
@@ -215,7 +231,11 @@ object ScheduledMessageManager {
                             }
                         }
                     } else {
-                        val errMsg = result.exceptionOrNull()?.message ?: "Failed to send message"
+                        val errMsg = when {
+                            sentEntity?.id?.startsWith("LOCAL_") == true -> "Offline — message not sent to WhatsApp"
+                            result.isFailure -> result.exceptionOrNull()?.message ?: "Failed to send message"
+                            else -> "Companion not connected"
+                        }
                         item.copy(
                             status = ScheduledStatus.FAILED,
                             lastTriggeredAtMs = updatedNow,
