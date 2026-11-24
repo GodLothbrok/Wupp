@@ -3085,7 +3085,7 @@ class WaRealtimeService : Service() {
                             }
                         }
                     }
-                    if (StealthMatrixManager.isAutoDownloadAllowed(appCtx, "AUDIO")) {
+                    if (StealthMatrixManager.isAutoDownloadAllowed(appCtx, "AUDIO", chatJid = chatJid)) {
                         val missingAudio = dao.getUndownloadedAudioMessages(chatJid)
                         for (msg in missingAudio) {
                             runCatching {
@@ -3198,7 +3198,7 @@ class WaRealtimeService : Service() {
             if (msg.isViewOnce || msg.msgType == "VIEW_ONCE_STRIPPED" || msg.viewOnceState == "STRIPPED") return
             if (_downloadingMediaIds.value.contains(msg.id)) return
             if (!userInitiated && _failedMediaIds.value.containsKey(msg.id)) return
-            if (!userInitiated && !StealthMatrixManager.isAutoDownloadAllowed(context, msg.msgType, msg.mimeType)) return
+            if (!userInitiated && !StealthMatrixManager.isAutoDownloadAllowed(context, msg.msgType, msg.mimeType, chatJid = msg.chatJid)) return
 
             val appCtx = context.applicationContext
             _downloadingMediaIds.value = _downloadingMediaIds.value + msg.id

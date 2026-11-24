@@ -35,6 +35,19 @@ class DocumentMessageUtilsTest {
         assertTrue(isDocumentMessage(sampleMsg(msgType = "UNKNOWN", mimeType = "application/pdf", fileSize = 0L)))
         assertFalse(isDocumentMessage(sampleMsg(msgType = "TEXT", mimeType = "text/plain", body = "Check notes.pdf", fileSize = 0L)))
         assertFalse(isDocumentMessage(sampleMsg(msgType = "IMAGE", mimeType = "image/jpeg", body = "photo.pdf")))
+        assertFalse(isDocumentMessage(sampleMsg(msgType = "CONTACT", mimeType = "text/vcard", body = "John Doe.vcf")))
+    }
+
+    @Test
+    fun isContactMessage_identifiesContactsCorrectly() {
+        val contactMsg = sampleMsg(msgType = "CONTACT", mimeType = "text/vcard", body = "Jane Doe")
+        assertTrue(isContactMessage(contactMsg))
+
+        val deletedContactMsg = contactMsg.copy(isDeletedBySender = true)
+        assertFalse(isContactMessage(deletedContactMsg))
+
+        val regularMsg = sampleMsg(msgType = "TEXT", mimeType = "text/plain", body = "Hello")
+        assertFalse(isContactMessage(regularMsg))
     }
 
     @Test

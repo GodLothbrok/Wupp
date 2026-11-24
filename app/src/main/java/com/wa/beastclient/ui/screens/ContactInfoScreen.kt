@@ -338,6 +338,7 @@ fun ContactInfoScreen(
     var showWallpaperDialog by remember { mutableStateOf(false) }
     var showGhostPrivacySheet by remember { mutableStateOf(false) }
     var showMediaVisibilityDialog by remember { mutableStateOf(false) }
+    var showAutoDownloadSheet by remember { mutableStateOf(false) }
     var mediaViewerTarget by remember { mutableStateOf<MessageEntity?>(null) }
     var fallbackPdfTarget by remember { mutableStateOf<Pair<File, String>?>(null) }
     var activeMemberActionTarget by remember { mutableStateOf<MemberActionTarget?>(null) }
@@ -1421,6 +1422,23 @@ fun ContactInfoScreen(
                         )
                     }
 
+                    // Per-chat media auto-download
+                    item(key = "settings_auto_download") {
+                        val perChatMask = remember(stealthConfig, chatJid) {
+                            StealthMatrixManager.getPerChatAutoDownloadMask(chatJid)
+                        }
+                        SettingsCard(
+                            title = "Media auto-download",
+                            subtitle = if (perChatMask != null)
+                                "Custom: ${StealthMatrixManager.formatAutoDownloadSummary(perChatMask)}"
+                            else
+                                "Following global settings",
+                            icon = Icons.Rounded.Download,
+                            colors = colors,
+                            onClick = { showAutoDownloadSheet = true }
+                        )
+                    }
+
                     // Privacy overrides
                     item(key = "settings_ghost_privacy") {
                         SettingsCard(
@@ -1716,6 +1734,150 @@ fun ContactInfoScreen(
             onChatPositionChange = { scale, ox, oy -> viewModel.setPerChatWallpaperPosition(chatJid, scale, ox, oy) },
             onResetChatToGlobal = { viewModel.clearPerChatWallpaper(chatJid) }
         )
+    }
+
+    // Per-chat media auto-download bottom sheet
+    if (showAutoDownloadSheet) {
+        val currentOverride = remember(stealthConfig, chatJid) {
+            StealthMatrixManager.getPerChatAutoDownloadMask(chatJid)
+        }
+        val activeGlobalMask = remember(stealthConfig) {
+            StealthMatrixManager.activeAutoDownloadMask(context, stealthConfig)
+        }
+        // Start with the override mask or the current active global mask so toggles make sense
+        var photoOn by remember(currentOverride, activeGlobalMask) {
+            mutableStateOf(
+                currentOverride?.let { (it and StealthMatrixManager.MEDIA_PHOTO) != 0 }
+                    ?: ((activeGlobalMask and StealthMatrixManager.MEDIA_PHOTO) != 0)
+            )
+        }
+        var videoOn by remember(currentOverride, activeGlobalMask) {
+            mutableStateOf(
+                currentOverride?.let { (it and StealthMatrixManager.MEDIA_VIDEO) != 0 }
+                    ?: ((activeGlobalMask and StealthMatrixManager.MEDIA_VIDEO) != 0)
+            )
+        }
+        var audioOn by remember(currentOverride, activeGlobalMask) {
+            mutableStateOf(
+                currentOverride?.let { (it and StealthMatrixManager.MEDIA_AUDIO) != 0 }
+                    ?: ((activeGlobalMask and StealthMatrixManager.MEDIA_AUDIO) != 0)
+            )
+        }
+        var docOn by remember(currentOverride, activeGlobalMask) {
+            mutableStateOf(
+                currentOverride?.let { (it and StealthMatrixManager.MEDIA_DOCUMENT) != 0 }
+                    ?: ((activeGlobalMask and StealthMatrixManager.MEDIA_DOCUMENT) != 0)
+            )
+        }
+
+        ModalBottomSheet(onDismissRequest = { showAutoDownloadSheet = false },
+            containerColor = colors.elevatedBar
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(
+                    text = "Media auto-download",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                Text(
+                    text = "Override global auto-download settings for this chat.",
+                    color = colors.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                // Photos toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Text("Photos", color = colors.textPrimary, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = photoOn,
+                        onCheckedChange = { photoOn = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = colors.accentGreen, checkedTrackColor = colors.accentGreen.copy(alpha = 0.4f))
+                    )
+                }
+                // Videos toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Text("Videos", color = colors.textPrimary, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = videoOn,
+                        onCheckedChange = { videoOn = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = colors.accentGreen, checkedTrackColor = colors.accentGreen.copy(alpha = 0.4f))
+                    )
+                }
+                // Audio toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Text("Audio", color = colors.textPrimary, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = audioOn,
+                        onCheckedChange = { audioOn = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = colors.accentGreen, checkedTrackColor = colors.accentGreen.copy(alpha = 0.4f))
+                    )
+                }
+                // Documents toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Text("Documents", color = colors.textPrimary, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = docOn,
+                        onCheckedChange = { docOn = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = colors.accentGreen, checkedTrackColor = colors.accentGreen.copy(alpha = 0.4f))
+                    )
+                }
+
+                Row(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (currentOverride != null) {
+                        TextButton(
+                            onClick = {
+                                viewModel.setPerChatAutoDownload(chatJid, null)
+                                showAutoDownloadSheet = false
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Reset to global", color = colors.textSecondary)
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            var mask = 0
+                            if (photoOn) mask = mask or StealthMatrixManager.MEDIA_PHOTO
+                            if (videoOn) mask = mask or StealthMatrixManager.MEDIA_VIDEO
+                            if (audioOn) mask = mask or StealthMatrixManager.MEDIA_AUDIO
+                            if (docOn) mask = mask or StealthMatrixManager.MEDIA_DOCUMENT
+                            viewModel.setPerChatAutoDownload(chatJid, mask)
+                            showAutoDownloadSheet = false
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save", color = colors.accentGreen, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
     }
 
     // Per-Chat Quick Controls & Privacy Overrides Sheet

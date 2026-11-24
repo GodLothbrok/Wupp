@@ -121,6 +121,7 @@ data class GlobalStealthConfig(
     val chatWallpaperOffsetX: Float = 0f,
     val chatWallpaperOffsetY: Float = 0f,
     val perChatWallpapers: Map<String, ChatWallpaperOverride> = emptyMap(),
+    val perChatAutoDownload: Map<String, Int> = emptyMap(),
     val autoDownloadEnabled: Boolean = true,
     val autoDownloadMobileMask: Int = StealthMatrixManager.MEDIA_ALL,
     val autoDownloadWifiMask: Int = StealthMatrixManager.MEDIA_ALL,
@@ -193,6 +194,7 @@ object StealthMatrixManager {
     private const val KEY_CHAT_WALLPAPER_OFFSET_X = "chat_wallpaper_offset_x"
     private const val KEY_CHAT_WALLPAPER_OFFSET_Y = "chat_wallpaper_offset_y"
     private const val KEY_CHAT_WALLPAPER_OVERRIDES = "chat_wallpaper_overrides_json"
+    private const val KEY_PER_CHAT_AUTO_DL = "per_chat_auto_dl_json"
     private const val KEY_USE_SYSTEM_FONT = "use_system_font"
     private const val KEY_QUICK_REACTIONS = "quick_reaction_emojis_json"
     private const val KEY_CLASSIC_LOOK = "classic_whatsapp_look"
@@ -341,6 +343,7 @@ object StealthMatrixManager {
                 chatWallpaperOffsetX = prefs.getFloat(KEY_CHAT_WALLPAPER_OFFSET_X, 0f).coerceIn(-1f, 1f),
                 chatWallpaperOffsetY = prefs.getFloat(KEY_CHAT_WALLPAPER_OFFSET_Y, 0f).coerceIn(-1f, 1f),
                 perChatWallpapers = parsePerChatWallpapers(prefs.getString(KEY_CHAT_WALLPAPER_OVERRIDES, null)),
+                perChatAutoDownload = parsePerChatAutoDownload(prefs.getString(KEY_PER_CHAT_AUTO_DL, null)),
                 autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DL_ENABLED, true),
                 autoDownloadMobileMask = prefs.getInt(KEY_AUTO_DL_MOBILE, MEDIA_ALL),
                 autoDownloadWifiMask = prefs.getInt(KEY_AUTO_DL_WIFI, MEDIA_ALL),
@@ -414,6 +417,7 @@ object StealthMatrixManager {
                 .putFloat(KEY_CHAT_WALLPAPER_OFFSET_X, updated.chatWallpaperOffsetX)
                 .putFloat(KEY_CHAT_WALLPAPER_OFFSET_Y, updated.chatWallpaperOffsetY)
                 .putString(KEY_CHAT_WALLPAPER_OVERRIDES, encodePerChatWallpapers(updated.perChatWallpapers))
+                .putString(KEY_PER_CHAT_AUTO_DL, encodePerChatAutoDownload(updated.perChatAutoDownload))
                 .putBoolean(KEY_AUTO_DL_ENABLED, updated.autoDownloadEnabled)
                 .putInt(KEY_AUTO_DL_MOBILE, updated.autoDownloadMobileMask)
                 .putInt(KEY_AUTO_DL_WIFI, updated.autoDownloadWifiMask)
@@ -462,8 +466,12 @@ object StealthMatrixManager {
         return AutoDownloadNetwork.WIFI
     }
 
-    fun activeAutoDownloadMask(context: Context, cfg: GlobalStealthConfig = _config.value): Int {
+    fun activeAutoDownloadMask(context: Context, cfg: GlobalStealthConfig = _config.value, chatJid: String = ""): Int {
         if (!cfg.autoDownloadEnabled) return MEDIA_NONE
+        if (chatJid.isNotBlank()) {
+            val override = cfg.perChatAutoDownload[chatJid]
+            if (override != null) return override
+        }
         return when (currentAutoDownloadNetwork(context)) {
             AutoDownloadNetwork.WIFI -> cfg.autoDownloadWifiMask
             AutoDownloadNetwork.MOBILE -> cfg.autoDownloadMobileMask
@@ -475,9 +483,10 @@ object StealthMatrixManager {
         context: Context,
         msgType: String,
         mimeType: String = "",
-        cfg: GlobalStealthConfig = _config.value
+        cfg: GlobalStealthConfig = _config.value,
+        chatJid: String = ""
     ): Boolean {
-        val mask = activeAutoDownloadMask(context, cfg)
+        val mask = activeAutoDownloadMask(context, cfg, chatJid)
         if (mask == MEDIA_NONE) return false
         val upperType = msgType.uppercase()
         val bit = when {
@@ -709,6 +718,40 @@ object StealthMatrixManager {
                     .put("offsetY", entry.offsetYFraction.toDouble())
             )
         }
+        return root.toString()
+    }
+
+    // Per-chat auto-download overrides
+    fun getPerChatAutoDownloadMask(chatJid: String): Int? =
+        _config.value.perChatAutoDownload[chatJid]
+
+    fun setPerChatAutoDownload(chatJid: String, mask: Int?) {
+        if (chatJid.isBlank()) return
+        updateConfig { cfg ->
+            val next = cfg.perChatAutoDownload.toMutableMap()
+            if (mask == null) next.remove(chatJid) else next[chatJid] = mask
+            cfg.copy(perChatAutoDownload = next)
+        }
+    }
+
+    private fun parsePerChatAutoDownload(rawJson: String?): Map<String, Int> {
+        if (rawJson.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val obj = JSONObject(rawJson)
+            buildMap {
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val jid = keys.next()
+                    put(jid, obj.getInt(jid))
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun encodePerChatAutoDownload(map: Map<String, Int>): String {
+        if (map.isEmpty()) return ""
+        val root = JSONObject()
+        map.forEach { (jid, mask) -> root.put(jid, mask) }
         return root.toString()
     }
 
