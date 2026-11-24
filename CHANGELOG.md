@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.9-pre.1] - 2026-11-24
+
+### ✨ Features
+- Added scheduled and recurring messages with repeat options and dedicated management (#144).
+
 ## [0.3.8] - 2026-11-23
 
 > **Note:** Video calls are still **Beta / Unstable**.

@@ -18,6 +18,8 @@ class BootReceiver : BroadcastReceiver() {
             .getBoolean("setup_completed_v1", false)
         if (setupDone && com.wa.bridge.whatsbridge.Whatsbridge.isNativeLoaded) {
             val appCtx = context.applicationContext
+            com.wa.beastclient.domain.scheduling.ScheduledMessageManager.init(appCtx)
+            com.wa.beastclient.domain.scheduling.ScheduledMessageManager.scheduleNextAlarm(appCtx)
             SyncWatchdogJobService.schedulePeriodic(appCtx)
             WaRealtimeService.ensureStarted(appCtx)
         }
