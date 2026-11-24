@@ -40,6 +40,7 @@ class WaBeastApp : Application(), ImageLoaderFactory {
         StealthMatrixManager.init(this)
         AppLockManager.init(this)
         SoundPoolManager.init(this)
+        com.wa.beastclient.domain.scheduling.ScheduledMessageManager.init(this)
         WaUiDatabase.getInstance(this)
     }
 

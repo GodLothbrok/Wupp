@@ -11,6 +11,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.wa.beastclient.domain.accounts.AccountManager
 import com.wa.beastclient.domain.stealth.StealthMatrixManager
 import com.wa.bridge.whatsbridge.Whatsbridge
@@ -44,6 +47,9 @@ class SyncWatchdogJobService : JobService() {
                 WaRealtimeService.ensureStarted(appCtx)
             } else {
                 WaRealtimeService.instance?.nudgeReconnectIfNeeded()
+            }
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                com.wa.beastclient.domain.scheduling.ScheduledMessageManager.processDueMessages(appCtx)
             }
         }
         jobFinished(params, false)

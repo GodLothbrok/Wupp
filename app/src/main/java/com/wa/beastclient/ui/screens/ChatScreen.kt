@@ -103,6 +103,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.SentimentSatisfiedAlt
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Stop
@@ -237,6 +238,9 @@ import com.wa.beastclient.ui.components.buildDocumentExportFileName
 import com.wa.beastclient.ui.components.deleteBeforeSelection
 import com.wa.beastclient.ui.components.expressivePressScale
 import com.wa.beastclient.ui.components.resolveMentionsInText
+import com.wa.beastclient.domain.scheduling.ScheduledMessage
+import com.wa.beastclient.ui.components.ScheduleMessageDialog
+import com.wa.beastclient.ui.components.ScheduledMessagesSheet
 import com.wa.beastclient.ui.components.formatMessageClock
 import com.wa.beastclient.ui.components.insertTextAtSelection
 import com.wa.beastclient.ui.components.isDocumentMessage
@@ -736,6 +740,9 @@ fun ChatScreen(
     var showProfilePhotoLightbox by remember { mutableStateOf(false) }
     var participantAvatarTarget by remember { mutableStateOf<Triple<String, String, String?>?>(null) }
     var showWallpaperDialog by remember { mutableStateOf(false) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    var showScheduledSheet by remember { mutableStateOf(false) }
+    var editingScheduledMessage by remember { mutableStateOf<ScheduledMessage?>(null) }
 
     BackHandler(enabled = showEmojiPicker) {
         if (isDockExpanded) {
@@ -1279,6 +1286,14 @@ fun ChatScreen(
                                 onClick = {
                                     showOverflow = false
                                     showWallpaperDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Scheduled messages") },
+                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
+                                onClick = {
+                                    showOverflow = false
+                                    showScheduledSheet = true
                                 }
                             )
                         }
@@ -2035,6 +2050,24 @@ fun ChatScreen(
                                         )
                                     }
                                 }
+                                val scheduleInteraction = remember { MutableInteractionSource() }
+                                OutlinedButton(
+                                    onClick = {
+                                        editingScheduledMessage = null
+                                        showScheduleDialog = true
+                                        showAttachTray = false
+                                    },
+                                    interactionSource = scheduleInteraction,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.expressivePressScale(scheduleInteraction, pressedScale = 0.96f)
+                                ) {
+                                    Icon(Icons.Rounded.Schedule, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Schedule",
+                                        fontSize = 12.sp
+                                    )
+                                }
                             }
                         }
                     }
@@ -2589,6 +2622,55 @@ fun ChatScreen(
             onToggleChatDoodle = { viewModel.setPerChatWallpaperShowDoodle(chatJid, it) },
             onChatPositionChange = { scale, ox, oy -> viewModel.setPerChatWallpaperPosition(chatJid, scale, ox, oy) },
             onResetChatToGlobal = { viewModel.clearPerChatWallpaper(chatJid) }
+        )
+    }
+
+    if (showScheduleDialog) {
+        val resolvedTitle = chat?.name?.takeIf { it.isNotBlank() } ?: chatJid.substringBefore("@")
+        ScheduleMessageDialog(
+            chatJid = chatJid,
+            chatTitle = resolvedTitle,
+            initialMessage = editingScheduledMessage,
+            initialText = if (editingScheduledMessage == null) draftValue.text else "",
+            colors = colors,
+            onDismiss = {
+                showScheduleDialog = false
+                editingScheduledMessage = null
+            },
+            onSave = { msg ->
+                if (editingScheduledMessage != null) {
+                    viewModel.updateScheduledMessage(msg)
+                } else {
+                    viewModel.scheduleMessage(msg)
+                    if (draftValue.text.isNotBlank() && draftValue.text == msg.text) {
+                        draftValue = androidx.compose.ui.text.input.TextFieldValue("")
+                    }
+                }
+                showScheduleDialog = false
+                editingScheduledMessage = null
+            }
+        )
+    }
+
+    if (showScheduledSheet) {
+        val resolvedTitle = chat?.name?.takeIf { it.isNotBlank() } ?: chatJid.substringBefore("@")
+        ScheduledMessagesSheet(
+            filterChatJid = chatJid,
+            filterChatTitle = resolvedTitle,
+            colors = colors,
+            onDismiss = { showScheduledSheet = false },
+            onOpenComposer = { _, _ ->
+                editingScheduledMessage = null
+                showScheduleDialog = true
+            },
+            onEditMessage = { msg ->
+                editingScheduledMessage = msg
+                showScheduleDialog = true
+            },
+            onPauseMessage = { viewModel.pauseScheduledMessage(it) },
+            onResumeMessage = { viewModel.resumeScheduledMessage(it) },
+            onDeleteMessage = { viewModel.deleteScheduledMessage(it) },
+            onRetryMessage = { viewModel.retryScheduledMessage(it) }
         )
     }
 
