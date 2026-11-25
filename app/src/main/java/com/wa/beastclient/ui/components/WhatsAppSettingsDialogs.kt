@@ -111,98 +111,76 @@ fun SettingsProfileHeaderCard(
     onClick: () -> Unit
 ) {
     val colors = LocalWaColors.current
+    val pillBg = if (colors.isDark) Color(0xFF1F2227) else Color(0xFFE9E9EE)
     val displayName = profile.pushName.ifBlank {
         profile.phone.ifBlank { "My Account" }
     }
-    val aboutText = profile.about.ifBlank { "Tap to add your status bio" }
-    val cardBorder = if (colors.isDark) Color.White.copy(alpha = 0.07f) else colors.divider
+    val aboutLabel = profile.about.ifBlank { "What's new?" }
 
-    Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = colors.elevatedBar.copy(alpha = if (colors.isDark) 0.94f else 0.99f),
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(0.65.dp, cardBorder, RoundedCornerShape(22.dp))
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
+            .padding(top = 6.dp, bottom = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // Floating iOS-style status/about thought pill
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = pillBg
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(colors.pillInactiveBg)
-                    .border(0.6.dp, cardBorder, CircleShape)
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = aboutText,
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, colors.accentGreen.copy(alpha = 0.45f), CircleShape)
-                    .padding(3.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                WhatsAppAvatar(
-                    jid = ownJid.ifBlank { profile.ownJid },
-                    avatarPath = avatarPath,
-                    isGroup = false,
-                    size = 90.dp
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = displayName,
-                color = colors.textPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+                text = aboutLabel,
+                color = colors.textSecondary,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
             )
-            if (profile.phone.isNotBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = profile.phone,
-                    color = colors.textSecondary,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(colors.accentGreen.copy(alpha = if (colors.isDark) 0.18f else 0.12f))
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Edit,
-                    contentDescription = null,
-                    tint = colors.accentGreen,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "Edit Profile",
-                    color = colors.accentGreen,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+        }
+        Spacer(modifier = Modifier.height(3.dp))
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(pillBg)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .size(98.dp)
+                .clip(CircleShape)
+                .border(2.dp, colors.accentGreen.copy(alpha = 0.42f), CircleShape)
+                .padding(3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            WhatsAppAvatar(
+                jid = ownJid.ifBlank { profile.ownJid },
+                avatarPath = avatarPath,
+                isGroup = false,
+                size = 92.dp
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = displayName,
+            color = colors.textPrimary,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.4).sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (profile.phone.isNotBlank() && profile.phone != displayName) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = profile.phone,
+                color = colors.textSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }

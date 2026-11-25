@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.9-pre.5] - 2026-11-25
+
+### ✨ Features
+- Set pure black AMOLED as the default theme across launch, chats, and settings.
+- Redesigned chat headers, grouped settings cards, Contact Info, and linking screens with rounded glass controls.
+- Rebuilt the chat composer with left attach, inside emoji button, embedded reply thumbnails, and a live 2-row voice recorder.
+- Added drag-scrubbing voice note waveforms with contact avatars and automatic speed pill switching during playback.
+- Updated photo and video sending with circular top tools, integrated view-once toggle inside the caption bar, and updated lightbox viewers.
+
+## [0.3.9-pre.4] - 2026-11-25
+
+### ✨ Features
+- 🎨 Redesigned Home tabs (**Chats**, **Updates**, **Calls**, and **You**) with a native iOS-style header, inline search bars, circular quick actions, and a centered **You** profile hero while keeping Wupp's tab order.
+- ⚙️ Kept Settings accessible from both the **You** tab and the top-left `⋯` overflow menu.
+
 ## [0.3.9-pre.3] - 2026-11-24
 
 ### ✨ Features

@@ -33,13 +33,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Hub
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -477,9 +477,9 @@ fun WuppGlassNavBar(
     groupsLabel: String = "Groups",
     updatesLabel: String = "Updates",
     channelsLabel: String = "Channels",
-    communitiesLabel: String = "Communities",
+    communitiesLabel: String = "Community",
     callsLabel: String = "Calls",
-    settingsLabel: String = "Settings",
+    youLabel: String = "You",
     trailingActionIcon: ImageVector? = null,
     trailingActionDrawableRes: Int? = null,
     trailingActionDescription: String = "",
@@ -499,7 +499,7 @@ fun WuppGlassNavBar(
         channelsLabel,
         communitiesLabel,
         callsLabel,
-        settingsLabel
+        youLabel
     ) {
         buildList {
             add(GlassNavTab(0, chatsLabel, imageVector = Icons.Rounded.ChatBubble, badgeCount = unreadChatsCount))
@@ -512,7 +512,7 @@ fun WuppGlassNavBar(
             }
             add(GlassNavTab(2, communitiesLabel, imageVector = Icons.Rounded.Hub))
             add(GlassNavTab(5, callsLabel, imageVector = Icons.Rounded.Call))
-            add(GlassNavTab(3, settingsLabel, imageVector = Icons.Rounded.Settings))
+            add(GlassNavTab(3, youLabel, imageVector = Icons.Rounded.AccountCircle))
         }
     }
     val fiveTabs = tabs.size >= 5
