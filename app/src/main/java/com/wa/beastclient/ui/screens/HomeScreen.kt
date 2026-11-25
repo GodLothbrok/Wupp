@@ -100,6 +100,7 @@ import androidx.compose.material.icons.rounded.KeyboardReturn
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
@@ -264,8 +265,10 @@ import com.wa.beastclient.ui.components.StickerStudioDialog
 import com.wa.beastclient.ui.components.ThemePickerDialog
 import com.wa.beastclient.ui.components.ThemeSelectorGrid
 import com.wa.beastclient.ui.components.WallpaperPickerDialog
+import com.wa.beastclient.ui.components.WuppGlassCircleButton
 import com.wa.beastclient.ui.components.WuppGlassContainer
 import com.wa.beastclient.ui.components.WuppGlassNavBar
+import com.wa.beastclient.ui.components.WuppGlassTopBar
 import com.wa.beastclient.ui.components.describeChatWallpaper
 import com.wa.beastclient.ui.components.expressivePressScale
 import com.wa.beastclient.ui.components.findFragmentActivity
@@ -778,245 +781,268 @@ fun HomeScreen(
                         }
                     )
                 } else {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.appSurface,
-                        titleContentColor = if (colors.isDark) colors.textPrimary else colors.accentGreen
-                    ),
-                    title = {
-                        if (currentTab == 0) {
-                            val badge = resolveTopBarConnectionBadge(
-                                connectionState = bridgeStatus.connectionState,
-                                offlineMode = stealth.offlineMode
+                val badge = resolveTopBarConnectionBadge(
+                    connectionState = bridgeStatus.connectionState,
+                    offlineMode = stealth.offlineMode
+                )
+                val statusColor by animateColorAsState(
+                    targetValue = when (badge.tone) {
+                        TopBarStatusTone.LIVE -> colors.brightGreen
+                        TopBarStatusTone.SYNCING -> colors.warningAmber
+                        TopBarStatusTone.OFFLINE -> Color(0xFFE53935)
+                        TopBarStatusTone.IDLE -> colors.textSecondary.copy(alpha = 0.55f)
+                    },
+                    animationSpec = motionScheme.fastEffectsSpec(),
+                    label = "top_bar_status_dot"
+                )
+                val showBadge = currentTab == 0 && (
+                    !stealth.hideStealthStatusBadges ||
+                        badge.tone == TopBarStatusTone.OFFLINE
+                    )
+                val centerTitle = when (currentTab) {
+                    0 -> "Wupp"
+                    4 -> stringResource(R.string.nav_groups)
+                    1 -> stringResource(R.string.nav_updates)
+                    6 -> stringResource(R.string.nav_channels)
+                    2 -> stringResource(R.string.nav_communities)
+                    5 -> stringResource(R.string.nav_calls)
+                    else -> stringResource(R.string.nav_settings)
+                }
+
+                WuppGlassTopBar(
+                    backdropState = backdropState,
+                    classicMode = stealth.classicWhatsAppLook,
+                    leading = {
+                        Box {
+                            WuppGlassCircleButton(
+                                onClick = { overflowExpanded = true },
+                                contentDescription = "Menu",
+                                imageVector = Icons.Rounded.MoreHoriz,
+                                size = 36.dp,
+                                iconSize = 20.dp,
+                                backdropState = backdropState,
+                                classicMode = stealth.classicWhatsAppLook
                             )
-                            val statusColor by animateColorAsState(
-                                targetValue = when (badge.tone) {
-                                    TopBarStatusTone.LIVE -> colors.brightGreen
-                                    TopBarStatusTone.SYNCING -> colors.warningAmber
-                                    TopBarStatusTone.OFFLINE -> Color(0xFFE53935)
-                                    TopBarStatusTone.IDLE -> colors.textSecondary.copy(alpha = 0.55f)
-                                },
-                                animationSpec = motionScheme.fastEffectsSpec(),
-                                label = "top_bar_status_dot"
-                            )
-                            val showBadge = !stealth.hideStealthStatusBadges ||
-                                badge.tone == TopBarStatusTone.OFFLINE
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                            DropdownMenu(
+                                expanded = overflowExpanded,
+                                onDismissRequest = { overflowExpanded = false }
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("New chat") },
+                                    leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showQuickContactPicker = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Linked devices") },
+                                    leadingIcon = { Icon(Icons.Rounded.QrCode2, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showPairingDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Switch account") },
+                                    leadingIcon = { Icon(Icons.Rounded.ManageAccounts, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showAccountSwitcherSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Starred messages") },
+                                    leadingIcon = { Icon(Icons.Rounded.Star, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        viewModel.selectFilter(HomeFilterChip.FAVORITES)
+                                        onSelectTab(0)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (includeArchived) stringResource(R.string.home_back_to_active_chats)
+                                            else stringResource(R.string.home_archived_chats)
+                                        )
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.Archive, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        viewModel.toggleArchivedIncluded()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.nav_settings)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        onSelectTab(3)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Check for updates") },
+                                    leadingIcon = { Icon(Icons.Rounded.SystemUpdate, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        viewModel.checkForUpdates(silent = false)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Report bug / Feedback") },
+                                    leadingIcon = { Icon(Icons.Rounded.BugReport, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        activeFeedbackType = GitHubFeedbackType.BUG
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Theme · ${stealth.themeMode.label}") },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Palette, null)
+                                    },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showThemePickerDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Message history") },
+                                    leadingIcon = { Icon(Icons.Rounded.History, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        messageHistoryChatFilter = null
+                                        showMessageHistorySheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Scheduled messages") },
+                                    leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showScheduledSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Media vault") },
+                                    leadingIcon = { Icon(Icons.Rounded.Shield, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showMediaVaultSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Sticker studio") },
+                                    leadingIcon = { Icon(Icons.Rounded.AutoFixHigh, null) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        showStickerStudioDialog = true
+                                    }
+                                )
+                            }
+                        }
+                        if (showBadge) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(statusColor.copy(alpha = 0.14f))
+                                    .then(
+                                        if (bridgeStatus.isLoggedIn) {
+                                            Modifier.clickable { viewModel.toggleOfflineMode() }
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (badge.tone == TopBarStatusTone.OFFLINE) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Flight,
+                                        contentDescription = "Offline mode",
+                                        tint = statusColor,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(statusColor)
+                                    )
+                                }
+                                Text(
+                                    text = badge.label,
+                                    color = statusColor,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    lineHeight = 11.sp
+                                )
+                            }
+                        }
+                    },
+                    center = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            if (currentTab == 0) {
                                 Image(
                                     painter = painterResource(R.drawable.wupp_logo),
                                     contentDescription = "Wupp",
                                     modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(RoundedCornerShape(9.dp))
+                                        .size(22.dp)
+                                        .clip(RoundedCornerShape(6.dp))
                                 )
-                                Text(
-                                    text = "Wupp",
-                                    fontSize = 25.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = (-0.5).sp
-                                )
-                                if (showBadge) {
-                                    Row(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .background(statusColor.copy(alpha = 0.14f))
-                                            .then(
-                                                if (bridgeStatus.isLoggedIn) {
-                                                    Modifier.clickable { viewModel.toggleOfflineMode() }
-                                                } else {
-                                                    Modifier
-                                                }
-                                            )
-                                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        if (badge.tone == TopBarStatusTone.OFFLINE) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Flight,
-                                                contentDescription = "Offline mode",
-                                                tint = statusColor,
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(statusColor)
-                                            )
-                                        }
-                                        Text(
-                                            text = badge.label,
-                                            color = statusColor,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            lineHeight = 12.sp
-                                        )
-                                    }
-                                }
                             }
-                        } else {
                             Text(
-                                text = when (currentTab) {
-                                    4 -> stringResource(R.string.nav_groups)
-                                    1 -> stringResource(R.string.nav_updates)
-                                    6 -> stringResource(R.string.nav_channels)
-                                    2 -> stringResource(R.string.nav_communities)
-                                    5 -> stringResource(R.string.nav_calls)
-                                    else -> stringResource(R.string.nav_settings)
-                                },
-                                fontSize = 25.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = (-0.4).sp
+                                text = centerTitle,
+                                color = colors.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.2).sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     },
-                    actions = {
+                    trailing = {
                         if ((currentTab == 0 || currentTab == 4) && !stealth.hideHomeCameraShortcut) {
-                            IconButton(onClick = { showPairingDialog = true }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.vec_ic_camera_reply),
-                                    contentDescription = "Camera",
-                                    tint = colors.textPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
+                            WuppGlassCircleButton(
+                                onClick = { showPairingDialog = true },
+                                contentDescription = "Camera / Link device",
+                                drawableRes = R.drawable.vec_ic_camera_reply,
+                                size = 36.dp,
+                                iconSize = 18.dp,
+                                backdropState = backdropState,
+                                classicMode = stealth.classicWhatsAppLook
+                            )
+                        }
+                        if (currentTab == 0 || currentTab == 4) {
+                            WuppGlassCircleButton(
+                                onClick = { showQuickContactPicker = true },
+                                contentDescription = "New chat",
+                                imageVector = Icons.Rounded.Add,
+                                size = 36.dp,
+                                iconSize = 20.dp,
+                                accentFill = true,
+                                backdropState = backdropState,
+                                classicMode = stealth.classicWhatsAppLook
+                            )
                         } else if (currentTab == 1 || currentTab == 6 || currentTab == 2 || currentTab == 5) {
-                            IconButton(onClick = {
-                                searchExpanded = !searchExpanded
-                                if (!searchExpanded) viewModel.updateHomeSearch("")
-                            }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.vec_ic_search),
-                                    contentDescription = "Search",
-                                    tint = colors.textPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                        IconButton(onClick = { overflowExpanded = true }) {
-                            Icon(Icons.Rounded.MoreVert, "Menu", tint = colors.textPrimary)
-                        }
-                        DropdownMenu(
-                            expanded = overflowExpanded,
-                            onDismissRequest = { overflowExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("New chat") },
-                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
+                            WuppGlassCircleButton(
                                 onClick = {
-                                    overflowExpanded = false
-                                    showQuickContactPicker = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Linked devices") },
-                                leadingIcon = { Icon(Icons.Rounded.QrCode2, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showPairingDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Switch account") },
-                                leadingIcon = { Icon(Icons.Rounded.ManageAccounts, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showAccountSwitcherSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Starred messages") },
-                                leadingIcon = { Icon(Icons.Rounded.Star, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    viewModel.selectFilter(HomeFilterChip.FAVORITES)
-                                    onSelectTab(0)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (includeArchived) stringResource(R.string.home_back_to_active_chats)
-                                        else stringResource(R.string.home_archived_chats)
-                                    )
+                                    searchExpanded = !searchExpanded
+                                    if (!searchExpanded) viewModel.updateHomeSearch("")
                                 },
-                                leadingIcon = { Icon(Icons.Rounded.Archive, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    viewModel.toggleArchivedIncluded()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.nav_settings)) },
-                                leadingIcon = { Icon(Icons.Rounded.Settings, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    onSelectTab(3)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Check for updates") },
-                                leadingIcon = { Icon(Icons.Rounded.SystemUpdate, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    viewModel.checkForUpdates(silent = false)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Report bug / Feedback") },
-                                leadingIcon = { Icon(Icons.Rounded.BugReport, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    activeFeedbackType = GitHubFeedbackType.BUG
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Theme · ${stealth.themeMode.label}") },
-                                leadingIcon = {
-                                    Icon(Icons.Rounded.Palette, null)
-                                },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showThemePickerDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Message history") },
-                                leadingIcon = { Icon(Icons.Rounded.History, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    messageHistoryChatFilter = null
-                                    showMessageHistorySheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Scheduled messages") },
-                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showScheduledSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Media vault") },
-                                leadingIcon = { Icon(Icons.Rounded.Shield, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showMediaVaultSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Sticker studio") },
-                                leadingIcon = { Icon(Icons.Rounded.AutoFixHigh, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showStickerStudioDialog = true
-                                }
+                                contentDescription = "Search",
+                                drawableRes = R.drawable.vec_ic_search,
+                                size = 36.dp,
+                                iconSize = 18.dp,
+                                backdropState = backdropState,
+                                classicMode = stealth.classicWhatsAppLook
                             )
                         }
                     }
@@ -1046,6 +1072,28 @@ fun HomeScreen(
             }
         },
         bottomBar = {
+            val navOrbIcon = when (currentTab) {
+                0, 4 -> Icons.Rounded.Edit
+                1 -> Icons.Rounded.Add
+                5, 6, 2 -> Icons.Rounded.Search
+                else -> null
+            }
+            val navOrbDesc = when (currentTab) {
+                0, 4 -> "New chat"
+                1 -> "Add status"
+                5, 6, 2 -> "Search"
+                else -> ""
+            }
+            val navOrbAccent = currentTab == 0 || currentTab == 4 || currentTab == 1
+            val navOrbAction: (() -> Unit)? = when (currentTab) {
+                0, 4 -> ({ showQuickContactPicker = true })
+                1 -> ({ statusComposerInitialMode = StatusComposerMode.MEDIA })
+                5, 6, 2 -> ({
+                    searchExpanded = !searchExpanded
+                    if (!searchExpanded) viewModel.updateHomeSearch("")
+                })
+                else -> null
+            }
             WuppGlassNavBar(
                 currentTab = currentTab,
                 unreadChatsCount = unreadChatsCount,
@@ -1061,81 +1109,87 @@ fun HomeScreen(
                 channelsLabel = stringResource(R.string.nav_channels),
                 communitiesLabel = stringResource(R.string.nav_communities),
                 callsLabel = stringResource(R.string.nav_calls),
-                settingsLabel = stringResource(R.string.nav_settings)
+                settingsLabel = stringResource(R.string.nav_settings),
+                trailingActionIcon = navOrbIcon,
+                trailingActionDescription = navOrbDesc,
+                trailingActionAccentFill = navOrbAccent,
+                onTrailingActionClick = navOrbAction
             )
         },
         floatingActionButton = {
-            when (currentTab) {
-                0, 4 -> {
-                    FloatingActionButton(
-                        onClick = { showQuickContactPicker = true },
-                        containerColor = colors.brightGreen,
-                        contentColor = colors.brightGreen.contrastingContentColor(),
-                        shape = RoundedCornerShape(18.dp),
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 4.dp,
-                            pressedElevation = 8.dp
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.ChatBubbleOutline,
-                            contentDescription = "New Chat",
-                            modifier = Modifier.size(23.dp)
-                        )
-                    }
-                }
-                1 -> {
-                    FloatingActionButtonMenu(
-                        expanded = updatesFabExpanded,
-                        button = {
-                            ToggleFloatingActionButton(
-                                checked = updatesFabExpanded,
-                                onCheckedChange = { updatesFabExpanded = it },
-                                containerColor = ToggleFloatingActionButtonDefaults.containerColor(
-                                    initialColor = colors.brightGreen,
-                                    finalColor = colors.accentGreen
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = if (updatesFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
-                                    contentDescription = if (updatesFabExpanded) "Close status actions" else "Status actions",
-                                    tint = (if (updatesFabExpanded) colors.accentGreen else colors.brightGreen)
-                                        .contrastingContentColor()
-                                )
-                            }
+            if (stealth.classicWhatsAppLook) {
+                when (currentTab) {
+                    0, 4 -> {
+                        FloatingActionButton(
+                            onClick = { showQuickContactPicker = true },
+                            containerColor = colors.brightGreen,
+                            contentColor = colors.brightGreen.contrastingContentColor(),
+                            shape = RoundedCornerShape(18.dp),
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 4.dp,
+                                pressedElevation = 8.dp
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ChatBubbleOutline,
+                                contentDescription = "New Chat",
+                                modifier = Modifier.size(23.dp)
+                            )
                         }
-                    ) {
-                        FloatingActionButtonMenuItem(
-                            onClick = {
-                                updatesFabExpanded = false
-                                statusComposerInitialMode = StatusComposerMode.TEXT
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Edit,
-                                    contentDescription = null
-                                )
-                            },
-                            text = { Text("Text status", fontWeight = FontWeight.SemiBold) },
-                            containerColor = colors.elevatedBar,
-                            contentColor = colors.textPrimary
-                        )
-                        FloatingActionButtonMenuItem(
-                            onClick = {
-                                updatesFabExpanded = false
-                                statusComposerInitialMode = StatusComposerMode.MEDIA
-                            },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.vec_ic_camera_reply),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            text = { Text("Camera status", fontWeight = FontWeight.SemiBold) },
-                            containerColor = colors.pillActiveBg,
-                            contentColor = colors.pillActiveText
-                        )
+                    }
+                    1 -> {
+                        FloatingActionButtonMenu(
+                            expanded = updatesFabExpanded,
+                            button = {
+                                ToggleFloatingActionButton(
+                                    checked = updatesFabExpanded,
+                                    onCheckedChange = { updatesFabExpanded = it },
+                                    containerColor = ToggleFloatingActionButtonDefaults.containerColor(
+                                        initialColor = colors.brightGreen,
+                                        finalColor = colors.accentGreen
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = if (updatesFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
+                                        contentDescription = if (updatesFabExpanded) "Close status actions" else "Status actions",
+                                        tint = (if (updatesFabExpanded) colors.accentGreen else colors.brightGreen)
+                                            .contrastingContentColor()
+                                    )
+                                }
+                            }
+                        ) {
+                            FloatingActionButtonMenuItem(
+                                onClick = {
+                                    updatesFabExpanded = false
+                                    statusComposerInitialMode = StatusComposerMode.TEXT
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Edit,
+                                        contentDescription = null
+                                    )
+                                },
+                                text = { Text("Text status", fontWeight = FontWeight.SemiBold) },
+                                containerColor = colors.elevatedBar,
+                                contentColor = colors.textPrimary
+                            )
+                            FloatingActionButtonMenuItem(
+                                onClick = {
+                                    updatesFabExpanded = false
+                                    statusComposerInitialMode = StatusComposerMode.MEDIA
+                                },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.vec_ic_camera_reply),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                text = { Text("Camera status", fontWeight = FontWeight.SemiBold) },
+                                containerColor = colors.pillActiveBg,
+                                contentColor = colors.pillActiveText
+                            )
+                        }
                     }
                 }
             }
@@ -2523,14 +2577,24 @@ private fun ChatsTabContent(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = bottomPadding)
     ) {
+        item(key = "home_hero_title") {
+            Text(
+                text = if (groupFilterMode == true) stringResource(R.string.nav_groups) else stringResource(R.string.nav_chats),
+                color = colors.textPrimary,
+                fontSize = 31.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.6).sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+            )
+        }
         // Inline search bar (Kyant0 Liquid Glass or flat classic WhatsApp look)
         item(key = "inline_search_bar") {
             val isClassicUi = com.wa.beastclient.ui.theme.LocalWuppClassicUi.current
             WuppGlassContainer(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .height(48.dp),
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .height(44.dp),
                 colors = colors,
                 shape = CircleShape,
                 elevation = 6.dp,
@@ -4645,17 +4709,24 @@ private fun ToolsVaultTab(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            val searchShape = RoundedCornerShape(16.dp)
+            Text(
+                text = stringResource(R.string.nav_settings),
+                color = colors.textPrimary,
+                fontSize = 31.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.6).sp
+            )
+            val searchShape = CircleShape
             Surface(
                 shape = searchShape,
-                color = colors.elevatedBar.copy(alpha = if (colors.isDark) 0.92f else 0.98f),
+                color = colors.elevatedBar.copy(alpha = if (colors.isDark) 0.94f else 0.98f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(
-                        width = 0.75.dp,
+                        width = 0.65.dp,
                         color = if (isSearching) colors.accentGreen.copy(alpha = 0.6f)
                         else if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider,
                         shape = searchShape
@@ -4664,7 +4735,7 @@ private fun ToolsVaultTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -4728,18 +4799,18 @@ private fun ToolsVaultTab(
                             SettingsCategory.UPDATES -> updatesDotActive
                             else -> false
                         }
-                        val pillShape = RoundedCornerShape(20.dp)
+                        val pillShape = CircleShape
                         Row(
                             modifier = Modifier
                                 .clip(pillShape)
-                                .height(48.dp)
+                                .height(36.dp)
                                 .background(
-                                    if (selected) colors.accentGreen.copy(alpha = 0.16f)
-                                    else colors.elevatedBar.copy(alpha = if (colors.isDark) 0.85f else 0.96f)
+                                    if (selected) colors.accentGreen.copy(alpha = 0.18f)
+                                    else colors.elevatedBar.copy(alpha = if (colors.isDark) 0.90f else 0.97f)
                                 )
                                 .border(
-                                    width = if (selected) 1.35.dp else 0.75.dp,
-                                    color = if (selected) colors.accentGreen
+                                    width = if (selected) 1.dp else 0.6.dp,
+                                    color = if (selected) colors.accentGreen.copy(alpha = 0.65f)
                                     else if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider,
                                     shape = pillShape
                                 )
@@ -4747,7 +4818,7 @@ private fun ToolsVaultTab(
                                     selectedCategory = category
                                     tabScope.launch { listState.scrollToItem(0) }
                                 }
-                                .padding(horizontal = 14.dp),
+                                .padding(horizontal = 13.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -5813,7 +5884,19 @@ private fun ToolsVaultTab(
             }
 
             item(key = "patch_bottom_spacer") {
-                Spacer(modifier = Modifier.height(16.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Wupp · v${BuildConfig.VERSION_NAME}",
+                        color = colors.textSecondary.copy(alpha = 0.6f),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
     }

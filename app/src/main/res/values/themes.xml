@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.WaBeastClient" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#111B21</item>
-        <item name="android:navigationBarColor">#111B21</item>
-        <item name="android:windowBackground">#0B141A</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">#000000</item>
     </style>
 
     <style name="ThemeOverlay.Wupp.EmojiPicker.Dark" parent="android:Theme.Material.NoActionBar">

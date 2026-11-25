@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Clear
@@ -47,7 +48,13 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
+import com.wa.beastclient.ui.components.ExpressiveIconBadge
+import com.wa.beastclient.ui.components.WuppGlassCircleButton
+import com.wa.beastclient.ui.components.WuppGlassTopBar
+import com.wa.beastclient.ui.components.rememberWuppBackdropState
+import com.wa.beastclient.ui.components.wuppBackdropSource
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -412,111 +419,118 @@ fun ContactInfoScreen(
         viewModel.requestFullProfilePicture(chatJid)
     }
 
+    val infoBackdropState = rememberWuppBackdropState()
+    val classicMode = stealthConfig.classicWhatsAppLook
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.appSurface,
-                    titleContentColor = colors.textPrimary,
-                    navigationIconContentColor = colors.textPrimary,
-                    actionIconContentColor = colors.textPrimary
-                ),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
+            WuppGlassTopBar(
+                backdropState = infoBackdropState,
+                classicMode = classicMode,
+                leading = {
+                    WuppGlassCircleButton(
+                        onClick = onBack,
+                        contentDescription = "Back",
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        size = 36.dp,
+                        iconSize = 19.dp,
+                        backdropState = infoBackdropState,
+                        classicMode = classicMode
+                    )
                 },
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        WhatsAppAvatar(
-                            jid = chatJid,
-                            avatarPath = chat?.avatarPath,
-                            isGroup = isGroup,
-                            size = 34.dp
-                        )
-                        Text(
-                            text = chatTitle,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                center = {
+                    Text(
+                        text = if (isGroup) "Group Info" else if (isChannel) "Channel Info" else "Contact Info",
+                        color = colors.textPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 },
-                actions = {
-                    IconButton(onClick = { showOverflowMenu = true }) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Rounded.Share, null) },
-                            text = { Text("Share") },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.exportChatToText(chatJid, context)
-                            }
+                trailing = {
+                    Box {
+                        WuppGlassCircleButton(
+                            onClick = { showOverflowMenu = true },
+                            contentDescription = "More",
+                            imageVector = Icons.Rounded.MoreHoriz,
+                            size = 36.dp,
+                            iconSize = 19.dp,
+                            backdropState = infoBackdropState,
+                            classicMode = classicMode
                         )
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Rounded.Wallpaper, null) },
-                            text = { Text("Wallpaper & sound") },
-                            onClick = {
-                                showOverflowMenu = false
-                                showWallpaperDialog = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Rounded.Security, null) },
-                            text = { Text("Privacy overrides") },
-                            onClick = {
-                                showOverflowMenu = false
-                                showGhostPrivacySheet = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Rounded.Clear, null, tint = colors.antiDeleteRed) },
-                            text = { Text("Clear chat", color = colors.antiDeleteRed) },
-                            onClick = {
-                                showOverflowMenu = false
-                                showClearChatDialog = true
-                            }
-                        )
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Share, null) },
+                                text = { Text("Share") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    viewModel.exportChatToText(chatJid, context)
+                                }
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Wallpaper, null) },
+                                text = { Text("Wallpaper & sound") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showWallpaperDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Security, null) },
+                                text = { Text("Privacy overrides") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showGhostPrivacySheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Clear, null, tint = colors.antiDeleteRed) },
+                                text = { Text("Clear chat", color = colors.antiDeleteRed) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showClearChatDialog = true
+                                }
+                            )
+                        }
                     }
                 }
             )
         },
-        containerColor = colors.chatCanvas
+        containerColor = colors.appSurface
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .then(if (!classicMode) Modifier.wuppBackdropSource(infoBackdropState) else Modifier)
                 .padding(innerPadding)
         ) {
-            // Hero section: Large DP, Name, Subtitle, Quick action pills
+            // Hero section: Centered large avatar, Name, Subtitle, MB/iOS-style vertical quick action tiles
             item(key = "hero_section") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(colors.appSurface)
-                        .padding(top = 16.dp, bottom = 20.dp),
+                        .padding(top = 18.dp, bottom = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(116.dp)
+                            .size(124.dp)
                             .clip(CircleShape)
-                            .clickable { showProfilePhotoLightbox = true }
+                            .border(2.dp, colors.accentGreen.copy(alpha = 0.35f), CircleShape)
+                            .padding(3.dp)
+                            .clickable { showProfilePhotoLightbox = true },
+                        contentAlignment = Alignment.Center
                     ) {
                         WhatsAppAvatar(
                             jid = chatJid,
                             avatarPath = chat?.avatarPath,
                             isGroup = isGroup,
-                            size = 116.dp
+                            size = 118.dp
                         )
                     }
 
@@ -525,7 +539,7 @@ fun ContactInfoScreen(
                     Text(
                         text = chatTitle,
                         color = colors.textPrimary,
-                        fontSize = 22.sp,
+                        fontSize = 23.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -544,7 +558,7 @@ fun ContactInfoScreen(
                     Text(
                         text = subtitleText,
                         color = if (chat?.isOnline == true && !isGroup && !isChannel) colors.brightGreen else colors.textSecondary,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 24.dp)
@@ -552,21 +566,20 @@ fun ContactInfoScreen(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Action buttons: [Message] [Audio/Voice chat] [Video]
+                    // Equal-width vertical quick-action tiles: [Message] [Audio/Voice chat] [Video]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.Center,
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         InfoActionPill(
                             icon = Icons.AutoMirrored.Rounded.Chat,
                             label = "Message",
-                            onClick = { onOpenChat(chatJid) }
+                            onClick = { onOpenChat(chatJid) },
+                            modifier = Modifier.weight(1f)
                         )
-
-                        Spacer(modifier = Modifier.width(16.dp))
 
                         if (isGroup) {
                             InfoActionPill(
@@ -574,7 +587,8 @@ fun ContactInfoScreen(
                                 label = "Voice chat",
                                 onClick = {
                                     Toast.makeText(context, "Voice chat requires official WhatsApp app", Toast.LENGTH_SHORT).show()
-                                }
+                                },
+                                modifier = Modifier.weight(1f)
                             )
                         } else {
                             InfoActionPill(
@@ -582,54 +596,60 @@ fun ContactInfoScreen(
                                 label = "Audio",
                                 onClick = {
                                     Toast.makeText(context, "Calls require official WhatsApp app", Toast.LENGTH_SHORT).show()
-                                }
+                                },
+                                modifier = Modifier.weight(1f)
                             )
-
-                            Spacer(modifier = Modifier.width(16.dp))
 
                             InfoActionPill(
                                 icon = Icons.Rounded.Videocam,
                                 label = "Video",
                                 onClick = {
                                     Toast.makeText(context, "Calls require official WhatsApp app", Toast.LENGTH_SHORT).show()
-                                }
+                                },
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
                 }
             }
 
-            // Tabs Header: Members / Overview, Media, Settings
+            // Segmented Pill Tabs Header: Members / Overview, Media, Settings
             item(key = "tab_row") {
                 val tabTitles = if (isGroup) listOf("Members", "Media", "Settings") else listOf("Overview", "Media", "Settings")
-                SecondaryTabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = colors.appSurface,
-                    contentColor = colors.accentGreen,
-                    indicator = {
-                        TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(selectedTab),
-                            color = colors.accentGreen,
-                            height = 3.dp
-                        )
-                    }
+                val trackBorder = if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.elevatedBar)
+                        .border(0.6.dp, trackBorder, RoundedCornerShape(14.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     tabTitles.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = {
-                                Text(
-                                    text = title,
-                                    fontSize = 14.5.sp,
-                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTab == index) colors.accentGreen else colors.textSecondary
+                        val active = selectedTab == index
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(
+                                    if (active) colors.accentGreen.copy(alpha = if (colors.isDark) 0.22f else 0.16f)
+                                    else Color.Transparent
                                 )
-                            }
-                        )
+                                .clickable { selectedTab = index }
+                                .padding(vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = title,
+                                fontSize = 13.5.sp,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                color = if (active) colors.accentGreen else colors.textSecondary
+                            )
+                        }
                     }
                 }
-                HorizontalDivider(color = colors.divider, thickness = 0.8.dp)
             }
 
             // Tab Content
@@ -1922,32 +1942,38 @@ fun ContactInfoScreen(
 private fun InfoActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = LocalWaColors.current
+    val cardBorder = if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider
     Surface(
         onClick = onClick,
-        shape = CircleShape,
+        shape = RoundedCornerShape(16.dp),
         color = colors.elevatedBar,
-        tonalElevation = 2.dp,
-        modifier = Modifier.border(0.8.dp, colors.divider, CircleShape)
+        tonalElevation = 0.dp,
+        modifier = modifier.border(0.65.dp, cardBorder, RoundedCornerShape(16.dp))
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = colors.accentGreen,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(22.dp)
             )
             Text(
                 text = label,
                 color = colors.textPrimary,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -1956,7 +1982,7 @@ private fun InfoActionPill(
 @Composable
 private fun AdminBadge(bgColor: Color, textColor: Color) {
     Surface(
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(6.dp),
         color = bgColor.copy(alpha = 0.18f),
         modifier = Modifier.padding(start = 8.dp)
     ) {
@@ -1976,46 +2002,63 @@ private fun SettingsCard(
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     colors: com.wa.beastclient.ui.theme.WaColors,
-    iconTint: Color = colors.textSecondary,
+    iconTint: Color = colors.accentGreen,
     titleColor: Color = colors.textPrimary,
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    Row(
+    val cardBorder = if (colors.isDark) Color.White.copy(alpha = 0.06f) else colors.divider
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = colors.elevatedBar,
         modifier = Modifier
             .fillMaxWidth()
-            .background(colors.appSurface)
+            .padding(horizontal = 14.dp, vertical = 3.5.dp)
+            .border(0.6.dp, cardBorder, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = iconTint,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = titleColor,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ExpressiveIconBadge(
+                icon = icon,
+                contentDescription = null,
+                active = true,
+                tintOverride = iconTint
             )
-            if (subtitle.isNotBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = subtitle,
-                    color = colors.textSecondary,
-                    fontSize = 12.5.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    text = title,
+                    color = titleColor,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        color = colors.textSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (trailing != null) {
+                trailing()
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.textSecondary.copy(alpha = 0.45f),
+                    modifier = Modifier.size(19.dp)
                 )
             }
-        }
-        if (trailing != null) {
-            trailing()
         }
     }
 }

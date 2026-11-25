@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -225,7 +226,9 @@ fun FullScreenMediaViewer(
                 )
             }
 
-            // Top bar overlay (matches original WhatsApp media lightbox)
+            // Top bar overlay with AMOLED dark-glass circular action orbs
+            val darkOrbBg = Color(0xD914181D)
+            val darkOrbBorder = Color.White.copy(alpha = 0.14f)
             AnimatedVisibility(
                 visible = showChrome,
                 enter = fadeIn(),
@@ -237,28 +240,34 @@ fun FullScreenMediaViewer(
                         .fillMaxWidth()
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent)
+                                listOf(Color.Black.copy(alpha = 0.82f), Color.Transparent)
                             )
                         )
                         .statusBarsPadding()
-                        .padding(horizontal = 4.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    IconButton(onClick = onDismiss) {
+                    LightboxDarkOrb(
+                        onClick = onDismiss,
+                        bgColor = darkOrbBg,
+                        borderColor = darkOrbBorder
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 4.dp)
+                            .padding(horizontal = 2.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
                                 text = headerTitle,
@@ -278,22 +287,24 @@ fun FullScreenMediaViewer(
                                         use24Hour = use24Hour
                                     ),
                                     color = Color(0xFFFF6B6B),
-                                    fontSize = 11.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
-                                        .background(Color(0xFF44181A), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF3A1417))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
                             if (current.isViewOnce) {
                                 Text(
-                                    text = "View Once Vault",
+                                    text = "View Once",
                                     color = Color(0xFF25D366),
-                                    fontSize = 11.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
-                                        .background(Color(0xFF0E2C1F), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0E2C1F))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -303,46 +314,59 @@ fun FullScreenMediaViewer(
                         if (subtitle.isNotBlank()) {
                             Text(
                                 text = subtitle,
-                                color = Color(0xFFD1D7DB),
+                                color = Color(0xFFB8C0C6),
                                 fontSize = 12.sp
                             )
                         }
                     }
                     if (mediaFile != null) {
-                        IconButton(onClick = { onSaveToGallery(current) }) {
+                        LightboxDarkOrb(
+                            onClick = { onSaveToGallery(current) },
+                            bgColor = darkOrbBg,
+                            borderColor = darkOrbBorder
+                        ) {
                             Icon(
                                 imageVector = Icons.Rounded.Download,
                                 contentDescription = "Save to Gallery",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
                     if (onReply != null) {
-                        IconButton(
+                        LightboxDarkOrb(
                             onClick = {
                                 onReply(current)
                                 onDismiss()
-                            }
+                            },
+                            bgColor = darkOrbBg,
+                            borderColor = darkOrbBorder
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.Reply,
                                 contentDescription = "Reply",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
                     Box {
-                        IconButton(onClick = { showOverflow = true }) {
+                        LightboxDarkOrb(
+                            onClick = { showOverflow = true },
+                            bgColor = darkOrbBg,
+                            borderColor = darkOrbBorder
+                        ) {
                             Icon(
                                 imageVector = Icons.Rounded.MoreVert,
                                 contentDescription = "More",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                         DropdownMenu(
                             expanded = showOverflow,
                             onDismissRequest = { showOverflow = false },
-                            containerColor = Color(0xFF233138)
+                            containerColor = Color(0xFF14181D)
                         ) {
                             if (mediaFile != null) {
                                 DropdownMenuItem(
@@ -368,7 +392,7 @@ fun FullScreenMediaViewer(
                 }
             }
 
-            // Bottom caption + Reply pill + Quick emoji reactions
+            // Bottom caption + AMOLED Reply pill + Quick emoji reaction orbs
             AnimatedVisibility(
                 visible = showChrome,
                 enter = fadeIn(),
@@ -380,7 +404,7 @@ fun FullScreenMediaViewer(
                         .fillMaxWidth()
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.86f))
                             )
                         )
                         .navigationBarsPadding()
@@ -399,16 +423,22 @@ fun FullScreenMediaViewer(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                         ) {
                             if (onReply != null) {
+                                val replyInteraction = remember { MutableInteractionSource() }
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(46.dp)
-                                        .clip(RoundedCornerShape(23.dp))
-                                        .background(Color(0xFF202C33).copy(alpha = 0.92f))
-                                        .clickable {
+                                        .expressivePressScale(replyInteraction, pressedScale = 0.97f)
+                                        .clip(CircleShape)
+                                        .background(Color(0xE812161B))
+                                        .border(0.65.dp, darkOrbBorder, CircleShape)
+                                        .clickable(
+                                            interactionSource = replyInteraction,
+                                            indication = null
+                                        ) {
                                             onReply(current)
                                             onDismiss()
                                         }
@@ -416,21 +446,18 @@ fun FullScreenMediaViewer(
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     Text(
-                                        text = "Reply",
-                                        color = Color(0xFFD1D7DB),
+                                        text = "Reply...",
+                                        color = Color(0xFFB8C0C6),
                                         fontSize = 15.sp
                                     )
                                 }
                             }
                             if (onQuickReaction != null) {
                                 listOf("❤️", "🙏", "👍", "😊").forEach { emoji ->
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF202C33).copy(alpha = 0.92f))
-                                            .clickable { onQuickReaction(current, emoji) },
-                                        contentAlignment = Alignment.Center
+                                    LightboxDarkOrb(
+                                        onClick = { onQuickReaction(current, emoji) },
+                                        bgColor = Color(0xE812161B),
+                                        borderColor = darkOrbBorder
                                     ) {
                                         Text(text = emoji, fontSize = 18.sp, maxLines = 1)
                                     }
@@ -441,6 +468,32 @@ fun FullScreenMediaViewer(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LightboxDarkOrb(
+    onClick: () -> Unit,
+    bgColor: Color,
+    borderColor: Color,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .expressivePressScale(interactionSource, pressedScale = 0.88f)
+            .clip(CircleShape)
+            .background(bgColor)
+            .border(0.65.dp, borderColor, CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
     }
 }
 

@@ -3,7 +3,9 @@ package com.wa.beastclient.ui.components
 import androidx.compose.foundation.shape.CircleShape
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,22 +19,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
@@ -41,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wa.beastclient.ui.theme.LocalWaColors
+import com.wa.beastclient.ui.theme.contrastingContentColor
 
 enum class ExpressiveSegmentPosition {
     SINGLE,
@@ -59,19 +60,19 @@ enum class ExpressiveSegmentPosition {
 }
 
 fun expressiveSegmentShape(position: ExpressiveSegmentPosition): RoundedCornerShape = when (position) {
-    ExpressiveSegmentPosition.SINGLE -> RoundedCornerShape(24.dp)
+    ExpressiveSegmentPosition.SINGLE -> RoundedCornerShape(18.dp)
     ExpressiveSegmentPosition.TOP -> RoundedCornerShape(
-        topStart = 24.dp,
-        topEnd = 24.dp,
-        bottomStart = 6.dp,
-        bottomEnd = 6.dp
+        topStart = 18.dp,
+        topEnd = 18.dp,
+        bottomStart = 0.dp,
+        bottomEnd = 0.dp
     )
-    ExpressiveSegmentPosition.MIDDLE -> RoundedCornerShape(8.dp)
+    ExpressiveSegmentPosition.MIDDLE -> RoundedCornerShape(0.dp)
     ExpressiveSegmentPosition.BOTTOM -> RoundedCornerShape(
-        topStart = 6.dp,
-        topEnd = 6.dp,
-        bottomStart = 24.dp,
-        bottomEnd = 24.dp
+        topStart = 0.dp,
+        topEnd = 0.dp,
+        bottomStart = 18.dp,
+        bottomEnd = 18.dp
     )
 }
 
@@ -79,7 +80,7 @@ fun expressiveSegmentShape(position: ExpressiveSegmentPosition): RoundedCornerSh
 @Composable
 fun Modifier.expressivePressScale(
     interactionSource: MutableInteractionSource,
-    pressedScale: Float = 0.98f
+    pressedScale: Float = 0.985f
 ): Modifier {
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -102,16 +103,16 @@ fun ExpressiveSegmentedGroup(
     val colors = LocalWaColors.current
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = title,
-            color = colors.accentGreen,
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.2.sp,
-            modifier = Modifier.padding(start = 8.dp, bottom = 10.dp)
+            text = title.uppercase(),
+            color = colors.textSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.7.sp,
+            modifier = Modifier.padding(start = 14.dp, bottom = 7.dp)
         )
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
             content = content
         )
     }
@@ -127,14 +128,13 @@ fun ExpressiveIconBadge(
     tintOverride: Color? = null
 ) {
     val colors = LocalWaColors.current
-    val cookieShape = MaterialShapes.Cookie9Sided.toShape()
-    val inactiveShape = RoundedCornerShape(14.dp)
+    val badgeShape = RoundedCornerShape(9.dp)
 
     val bg by animateColorAsState(
         targetValue = when {
-            tintOverride != null -> tintOverride.copy(alpha = 0.18f)
-            active -> colors.accentGreen.copy(alpha = 0.20f)
-            else -> colors.textSecondary.copy(alpha = 0.11f)
+            tintOverride != null -> tintOverride.copy(alpha = if (colors.isDark) 0.22f else 0.14f)
+            active -> colors.accentGreen.copy(alpha = if (colors.isDark) 0.24f else 0.16f)
+            else -> colors.textSecondary.copy(alpha = if (colors.isDark) 0.14f else 0.10f)
         },
         animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "badge_bg"
@@ -149,19 +149,19 @@ fun ExpressiveIconBadge(
         label = "badge_tint"
     )
     val scale by animateFloatAsState(
-        targetValue = if (active) 1.05f else 1f,
+        targetValue = if (active) 1.03f else 1f,
         animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "badge_scale"
     )
 
     Box(
         modifier = modifier
-            .size(42.dp)
+            .size(32.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(if (active) cookieShape else inactiveShape)
+            .clip(badgeShape)
             .background(bg),
         contentAlignment = Alignment.Center
     ) {
@@ -169,37 +169,64 @@ fun ExpressiveIconBadge(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = iconTint,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(18.dp)
         )
     }
 }
 
+/**
+ * Clean iOS/MB-inspired pill toggle switch with smooth spring thumb glide.
+ */
 @Composable
 fun ExpressiveSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val colors = LocalWaColors.current
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        thumbContent = {
-            Icon(
-                imageVector = if (checked) Icons.Rounded.Check else Icons.Rounded.Close,
-                contentDescription = null,
-                modifier = Modifier.size(SwitchDefaults.IconSize)
-            )
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) {
+            colors.brightGreen
+        } else if (colors.isDark) {
+            Color.White.copy(alpha = 0.18f)
+        } else {
+            Color(0xFFCBD5E1)
         },
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
-            checkedIconColor = colors.accentGreen,
-            checkedTrackColor = colors.accentGreen,
-            uncheckedThumbColor = colors.textSecondary,
-            uncheckedIconColor = colors.elevatedBar,
-            uncheckedTrackColor = colors.pillInactiveBg,
-            uncheckedBorderColor = colors.textSecondary.copy(alpha = 0.42f)
-        )
+        animationSpec = spring(stiffness = 460f),
+        label = "pill_switch_track"
     )
+    val thumbOffset by animateDpAsState(
+        targetValue = if (checked) 20.dp else 2.dp,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
+        label = "pill_switch_thumb"
+    )
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Box(
+        modifier = Modifier
+            .size(width = 48.dp, height = 28.dp)
+            .clip(CircleShape)
+            .background(trackColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { onCheckedChange(!checked) }
+            ),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            modifier = Modifier
+                .offset(x = thumbOffset)
+                .size(24.dp)
+                .shadow(
+                    elevation = 2.dp,
+                    shape = CircleShape,
+                    ambientColor = Color.Black.copy(alpha = 0.25f),
+                    spotColor = Color.Black.copy(alpha = 0.25f)
+                )
+                .clip(CircleShape)
+                .background(Color.White)
+        )
+    }
 }
 
 @Composable
@@ -212,26 +239,47 @@ fun ExpressiveSegmentedContainer(
     val colors = LocalWaColors.current
     val shape = expressiveSegmentShape(position)
     val containerColor = if (highlighted) {
-        colors.pillActiveBg.copy(alpha = if (colors.isDark) 0.52f else 0.72f)
+        colors.pillActiveBg.copy(alpha = if (colors.isDark) 0.56f else 0.74f)
     } else {
-        colors.elevatedBar.copy(alpha = if (colors.isDark) 0.90f else 0.98f)
+        colors.elevatedBar.copy(alpha = if (colors.isDark) 0.96f else 0.99f)
     }
     val borderColor = if (highlighted) {
         colors.accentGreen.copy(alpha = 0.28f)
     } else if (colors.isDark) {
         Color.White.copy(alpha = 0.06f)
     } else {
-        colors.divider
+        colors.divider.copy(alpha = 0.85f)
     }
+    val showBottomSeparator = position == ExpressiveSegmentPosition.TOP || position == ExpressiveSegmentPosition.MIDDLE
 
     Surface(
         shape = shape,
         color = containerColor,
         modifier = modifier
             .fillMaxWidth()
-            .border(0.75.dp, borderColor, shape)
+            .then(
+                if (position == ExpressiveSegmentPosition.SINGLE) {
+                    Modifier.border(0.6.dp, borderColor, shape)
+                } else {
+                    Modifier
+                }
+            )
     ) {
-        content()
+        Column(modifier = Modifier.fillMaxWidth()) {
+            content()
+            if (showBottomSeparator) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 58.dp)
+                        .height(0.5.dp)
+                        .background(
+                            if (colors.isDark) Color.White.copy(alpha = 0.08f)
+                            else colors.divider
+                        )
+                )
+            }
+        }
     }
 }
 
@@ -294,7 +342,7 @@ fun ExpressiveSegmentedSwitchRow(
                     if (onInfoClick != null) {
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .clickable(onClick = onInfoClick),
                             contentAlignment = Alignment.Center
@@ -302,8 +350,8 @@ fun ExpressiveSegmentedSwitchRow(
                             Icon(
                                 imageVector = Icons.Rounded.Info,
                                 contentDescription = "Info about $title",
-                                tint = colors.textSecondary.copy(alpha = 0.75f),
-                                modifier = Modifier.size(18.dp)
+                                tint = colors.textSecondary.copy(alpha = 0.72f),
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -363,7 +411,7 @@ fun ExpressiveSegmentedActionRow(
                     indication = null,
                     onClick = onClick
                 )
-                .padding(horizontal = 14.dp, vertical = if (subtitle.isBlank()) 11.dp else 13.dp),
+                .padding(horizontal = 14.dp, vertical = if (subtitle.isBlank()) 12.dp else 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             ExpressiveIconBadge(
@@ -381,7 +429,7 @@ fun ExpressiveSegmentedActionRow(
                         text = title,
                         color = colors.textPrimary,
                         fontSize = 14.5.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -389,7 +437,7 @@ fun ExpressiveSegmentedActionRow(
                     if (onInfoClick != null) {
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .clickable(onClick = onInfoClick),
                             contentAlignment = Alignment.Center
@@ -397,8 +445,8 @@ fun ExpressiveSegmentedActionRow(
                             Icon(
                                 imageVector = Icons.Rounded.Info,
                                 contentDescription = "Info about $title",
-                                tint = colors.textSecondary.copy(alpha = 0.75f),
-                                modifier = Modifier.size(18.dp)
+                                tint = colors.textSecondary.copy(alpha = 0.72f),
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -419,26 +467,25 @@ fun ExpressiveSegmentedActionRow(
                 Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.accentGreen)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .clip(CircleShape)
+                        .background(colors.accentGreen.copy(alpha = if (colors.isDark) 0.22f else 0.14f))
+                        .padding(horizontal = 9.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = badgeText,
-                        color = Color(0xFF0B141A),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold
+                        color = colors.accentGreen,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
-            } else {
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = colors.textSecondary.copy(alpha = 0.55f),
-                    modifier = Modifier.size(19.dp)
-                )
             }
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = colors.textSecondary.copy(alpha = 0.48f),
+                modifier = Modifier.size(19.dp)
+            )
         }
     }
 }

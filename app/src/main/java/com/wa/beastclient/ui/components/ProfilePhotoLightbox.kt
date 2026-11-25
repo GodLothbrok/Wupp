@@ -1,11 +1,17 @@
 package com.wa.beastclient.ui.components
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,22 +19,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -54,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.io.File
+import java.util.Locale
 
 @Composable
 fun ProfilePhotoLightbox(
@@ -98,6 +104,9 @@ fun ProfilePhotoLightbox(
         jid.endsWith("@newsletter") -> title.ifBlank { "Channel icon" }
         else -> title.ifBlank { jid.substringBefore("@") }
     }
+
+    val darkOrbBg = Color(0xFF14171A)
+    val darkOrbBorder = Color.White.copy(alpha = 0.08f)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -148,51 +157,72 @@ fun ProfilePhotoLightbox(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
                             modifier = Modifier
-                                .size(140.dp)
+                                .size(144.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF1F2C33)),
+                                .background(Color(0xFF12161B))
+                                .border(0.75.dp, Color.White.copy(alpha = 0.12f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = if (jid.endsWith("@g.us")) Icons.Filled.Group else Icons.Filled.Person,
+                                imageVector = if (jid.endsWith("@g.us")) Icons.Rounded.Group else Icons.Rounded.Person,
                                 contentDescription = null,
-                                tint = Color(0xFF8696A0),
+                                tint = Color(0xFF8C969E),
                                 modifier = Modifier.size(68.dp)
                             )
                         }
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
                             text = "No profile photo",
-                            color = Color(0xFF8696A0),
+                            color = Color(0xFF8C969E),
                             fontSize = 14.sp
                         )
                     }
                 }
             }
 
+            // Floating Top Scrim + Circular Dark Back Chevron & Save Orb
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.72f))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.82f), Color.Transparent)
+                        )
+                    )
                     .statusBarsPadding()
-                    .padding(horizontal = 6.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onDismiss) {
+                val backInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .expressivePressScale(backInteraction, pressedScale = 0.88f)
+                        .clip(CircleShape)
+                        .background(darkOrbBg)
+                        .border(0.6.dp, darkOrbBorder, CircleShape)
+                        .clickable(
+                            interactionSource = backInteraction,
+                            indication = null,
+                            onClick = onDismiss
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = headerTitle,
                         color = Color.White,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -207,40 +237,87 @@ fun ProfilePhotoLightbox(
                     }
                 }
                 if (bmp != null && onSaveAvatar != null) {
-                    IconButton(onClick = onSaveAvatar) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    val saveInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .expressivePressScale(saveInteraction, pressedScale = 0.88f)
+                            .clip(CircleShape)
+                            .background(darkOrbBg)
+                            .border(0.65.dp, darkOrbBorder, CircleShape)
+                            .clickable(
+                                interactionSource = saveInteraction,
+                                indication = null,
+                                onClick = onSaveAvatar
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.Download,
-                            contentDescription = "Save icon",
-                            tint = Color.White
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = "Save photo",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
 
-            if (isLowResPreview && bmp != null && onRequestFullAvatar != null) {
-                Surface(
+            // Bottom Zoom Reset Pill (shown when pinched or double-tapped)
+            AnimatedVisibility(
+                visible = scale > 1.05f && bmp != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 26.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(darkOrbBg)
+                        .border(0.65.dp, darkOrbBorder, CircleShape)
+                        .clickable {
+                            scale = 1f
+                            offset = Offset.Zero
+                        }
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "${String.format(Locale.US, "%.1f", scale)}× · Tap to reset",
+                        color = Color.White,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Bottom Loading HD Photo Pill
+            if (isLowResPreview && bmp != null && onRequestFullAvatar != null && scale <= 1.05f) {
+                Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 28.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xCC1F2C33)
+                        .navigationBarsPadding()
+                        .padding(bottom = 26.dp)
+                        .clip(CircleShape)
+                        .background(darkOrbBg)
+                        .border(0.65.dp, darkOrbBorder, CircleShape)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                        LoadingIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = Color(0xFF25D366)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Loading HD photo...",
-                            color = Color.White,
-                            fontSize = 12.sp
-                        )
-                    }
+                    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                    LoadingIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = Color(0xFF25D366)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Loading HD photo...",
+                        color = Color.White,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }

@@ -19,7 +19,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -30,6 +35,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,12 +49,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -76,6 +84,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Forward
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
@@ -148,6 +157,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -161,6 +171,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -238,7 +251,10 @@ import com.wa.beastclient.ui.components.SwipeToReplyBox
 import com.wa.beastclient.ui.components.VoiceNoteBubble
 import com.wa.beastclient.ui.components.WallpaperPickerDialog
 import com.wa.beastclient.ui.components.WhatsAppBubbleShape
+import com.wa.beastclient.ui.components.WuppGlassCircleButton
 import com.wa.beastclient.ui.components.WuppGlassContainer
+import com.wa.beastclient.ui.components.WuppGlassTopBar
+import androidx.compose.material.icons.rounded.MoreHoriz
 import com.wa.beastclient.ui.components.whatsAppClusterInnerShape
 import com.wa.beastclient.ui.components.buildDocumentExportFileName
 import com.wa.beastclient.ui.components.deleteBeforeSelection
@@ -266,7 +282,6 @@ import com.wa.beastclient.ui.theme.LocalWuppBubbleRadiusDp
 import com.wa.beastclient.ui.theme.LocalWuppShowSeconds
 import com.wa.beastclient.ui.theme.LocalWuppUse24Hour
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -276,6 +291,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.sin
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -860,234 +876,240 @@ fun ChatScreen(
                     label = "chat_topbar_transition"
                 ) { selectedMsg ->
                     if (selectedMsg != null) {
-                    TopAppBar(
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = colors.appSurface,
-                            titleContentColor = colors.textPrimary
-                        ),
-                        navigationIcon = {
-                            IconButton(
+                    val isSelectedDoc = remember(
+                        selectedMsg.id,
+                        selectedMsg.msgType,
+                        selectedMsg.mimeType,
+                        selectedMsg.body,
+                        selectedMsg.isViewOnce,
+                        selectedMsg.isDeletedBySender
+                    ) {
+                        !selectedMsg.localMediaPath.isNullOrBlank() && isDocumentMessage(selectedMsg)
+                    }
+                    val barLayout = remember(
+                        selectedMsg.id,
+                        selectedMsg.isFromMe,
+                        selectedMsg.msgType,
+                        selectedMsg.body,
+                        selectedMsg.localMediaPath,
+                        selectedMsg.isPinned,
+                        selectedMsg.isEdited,
+                        isChannel,
+                        isGroupAnnounceLocked,
+                        chat?.isGroup,
+                        isSelectedDoc
+                    ) {
+                        resolveSelectionBarLayout(
+                            msg = selectedMsg,
+                            isChannel = isChannel,
+                            isGroupAnnounceLocked = isGroupAnnounceLocked,
+                            isGroup = chat?.isGroup == true,
+                            isDocument = isSelectedDoc
+                        )
+                    }
+
+                    val triggerAction: (SelectionBarAction) -> Unit = { action ->
+                        showSelectionOverflow = false
+                        when (action) {
+                            SelectionBarAction.REPLY -> {
+                                replyTarget = selectedMsg
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.FORWARD -> {
+                                val upper = selectedMsg.msgType.uppercase()
+                                val localReady = upper == "TEXT" || selectedMsg.localMediaPath
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?.let(::File)
+                                    ?.let { it.exists() && it.length() > 0L } == true
+                                if (localReady) {
+                                    forwardTarget = selectedMsg
+                                } else {
+                                    Toast.makeText(context, "Downloading media before forwarding…", Toast.LENGTH_SHORT).show()
+                                    viewModel.requestMediaDownload(selectedMsg, userInitiated = true)
+                                }
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.PIN_UNPIN -> {
+                                val target = selectedMsg
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                                if (target.isPinned) {
+                                    viewModel.unpinMessage(chatJid, target)
+                                } else {
+                                    pinDurationDialogTarget = target
+                                }
+                            }
+                            SelectionBarAction.EDIT -> {
+                                editMessageDialogTarget = selectedMsg
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.COPY -> {
+                                clipboard.setText(AnnotatedString(selectedMsg.body))
+                                Toast.makeText(context, "Message copied", Toast.LENGTH_SHORT).show()
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.SAVE_MEDIA -> {
+                                val mediaPath = selectedMsg.localMediaPath
+                                if (!mediaPath.isNullOrBlank()) {
+                                    val targetFile = File(mediaPath)
+                                    val exportName = if (isSelectedDoc) {
+                                        buildDocumentExportFileName(selectedMsg, targetFile)
+                                    } else {
+                                        "WA_${selectedMsg.msgType}_${selectedMsg.id}.${targetFile.extension.ifBlank { "bin" }}"
+                                    }
+                                    val exportMime = if (isSelectedDoc) {
+                                        resolveDocumentMimeType(selectedMsg, targetFile)
+                                    } else {
+                                        selectedMsg.mimeType
+                                    }
+                                    viewModel.exportMediaToGallery(mediaPath, exportName, exportMime)
+                                }
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.MESSAGE_INFO -> {
+                                groupReceiptsTarget = selectedMsg
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.EDIT_HISTORY -> {
+                                editHistoryTarget = selectedMsg
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.OPEN_DOCUMENT -> {
+                                val mediaPath = selectedMsg.localMediaPath
+                                if (!mediaPath.isNullOrBlank()) {
+                                    val docFile = File(mediaPath)
+                                    if (docFile.exists()) {
+                                        openDocumentNatively(context, selectedMsg, docFile) { pdfFile ->
+                                            pdfViewerTarget = pdfFile to resolveDocumentDisplayName(
+                                                selectedMsg,
+                                                resolveDocumentMimeType(selectedMsg, pdfFile),
+                                                pdfFile
+                                            )
+                                        }
+                                    } else {
+                                        viewModel.requestMediaDownload(selectedMsg, userInitiated = true)
+                                    }
+                                }
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                            SelectionBarAction.DELETE -> {
+                                deleteConfirmTarget = selectedMsg
+                                actionMenuTarget = null
+                                showMoreReactionEmojis = false
+                            }
+                        }
+                    }
+
+                    val iconForAction: (SelectionBarAction) -> androidx.compose.ui.graphics.vector.ImageVector = { action ->
+                        when (action) {
+                            SelectionBarAction.REPLY -> Icons.AutoMirrored.Rounded.Reply
+                            SelectionBarAction.FORWARD -> Icons.AutoMirrored.Rounded.Forward
+                            SelectionBarAction.PIN_UNPIN -> Icons.Rounded.PushPin
+                            SelectionBarAction.EDIT -> Icons.Rounded.Edit
+                            SelectionBarAction.COPY -> Icons.Rounded.ContentCopy
+                            SelectionBarAction.SAVE_MEDIA -> Icons.Rounded.Download
+                            SelectionBarAction.MESSAGE_INFO -> Icons.Rounded.Info
+                            SelectionBarAction.EDIT_HISTORY -> Icons.Rounded.History
+                            SelectionBarAction.OPEN_DOCUMENT -> Icons.Rounded.Description
+                            SelectionBarAction.DELETE -> Icons.Rounded.Delete
+                        }
+                    }
+
+                    val labelForAction: (SelectionBarAction) -> String = { action ->
+                        when (action) {
+                            SelectionBarAction.REPLY -> "Reply"
+                            SelectionBarAction.FORWARD -> "Forward"
+                            SelectionBarAction.PIN_UNPIN -> if (selectedMsg.isPinned) {
+                                context.getString(R.string.unpin_message)
+                            } else {
+                                context.getString(R.string.pin_message)
+                            }
+                            SelectionBarAction.EDIT -> "Edit"
+                            SelectionBarAction.COPY -> "Copy"
+                            SelectionBarAction.SAVE_MEDIA -> if (isSelectedDoc) {
+                                context.getString(R.string.chat_doc_save_downloads)
+                            } else {
+                                "Save to Gallery"
+                            }
+                            SelectionBarAction.MESSAGE_INFO -> "Message info"
+                            SelectionBarAction.EDIT_HISTORY -> "Edit history"
+                            SelectionBarAction.OPEN_DOCUMENT -> context.getString(R.string.chat_doc_open_with)
+                            SelectionBarAction.DELETE -> "Delete"
+                        }
+                    }
+
+                    WuppGlassTopBar(
+                        backdropState = wallpaperBackdropState,
+                        classicMode = stealthConfig.classicWhatsAppLook,
+                        height = 58.dp,
+                        leading = {
+                            WuppGlassCircleButton(
                                 onClick = {
                                     actionMenuTarget = null
                                     showMoreReactionEmojis = false
                                     showSelectionOverflow = false
-                                }
-                            ) {
-                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Clear selection", tint = colors.textPrimary)
-                            }
-                        },
-                        title = {
-                            Text(
-                                text = "1",
-                                fontSize = 19.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary
+                                },
+                                contentDescription = "Clear selection",
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                size = 36.dp,
+                                iconSize = 19.dp,
+                                backdropState = wallpaperBackdropState,
+                                classicMode = stealthConfig.classicWhatsAppLook
                             )
-                        },
-                        actions = {
-                            val isSelectedDoc = remember(
-                                selectedMsg.id,
-                                selectedMsg.msgType,
-                                selectedMsg.mimeType,
-                                selectedMsg.body,
-                                selectedMsg.isViewOnce,
-                                selectedMsg.isDeletedBySender
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(colors.pillActiveBg)
+                                    .padding(horizontal = 11.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                !selectedMsg.localMediaPath.isNullOrBlank() && isDocumentMessage(selectedMsg)
-                            }
-                            val barLayout = remember(
-                                selectedMsg.id,
-                                selectedMsg.isFromMe,
-                                selectedMsg.msgType,
-                                selectedMsg.body,
-                                selectedMsg.localMediaPath,
-                                selectedMsg.isPinned,
-                                selectedMsg.isEdited,
-                                isChannel,
-                                isGroupAnnounceLocked,
-                                chat?.isGroup,
-                                isSelectedDoc
-                            ) {
-                                resolveSelectionBarLayout(
-                                    msg = selectedMsg,
-                                    isChannel = isChannel,
-                                    isGroupAnnounceLocked = isGroupAnnounceLocked,
-                                    isGroup = chat?.isGroup == true,
-                                    isDocument = isSelectedDoc
+                                Text(
+                                    text = "1",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.pillActiveText
                                 )
                             }
-
-                            val triggerAction: (SelectionBarAction) -> Unit = { action ->
-                                showSelectionOverflow = false
-                                when (action) {
-                                    SelectionBarAction.REPLY -> {
-                                        replyTarget = selectedMsg
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.FORWARD -> {
-                                        val upper = selectedMsg.msgType.uppercase()
-                                        val localReady = upper == "TEXT" || selectedMsg.localMediaPath
-                                            ?.takeIf { it.isNotBlank() }
-                                            ?.let(::File)
-                                            ?.let { it.exists() && it.length() > 0L } == true
-                                        if (localReady) {
-                                            forwardTarget = selectedMsg
-                                        } else {
-                                            Toast.makeText(context, "Downloading media before forwarding…", Toast.LENGTH_SHORT).show()
-                                            viewModel.requestMediaDownload(selectedMsg, userInitiated = true)
-                                        }
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.PIN_UNPIN -> {
-                                        val target = selectedMsg
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                        if (target.isPinned) {
-                                            viewModel.unpinMessage(chatJid, target)
-                                        } else {
-                                            pinDurationDialogTarget = target
-                                        }
-                                    }
-                                    SelectionBarAction.EDIT -> {
-                                        editMessageDialogTarget = selectedMsg
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.COPY -> {
-                                        clipboard.setText(AnnotatedString(selectedMsg.body))
-                                        Toast.makeText(context, "Message copied", Toast.LENGTH_SHORT).show()
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.SAVE_MEDIA -> {
-                                        val mediaPath = selectedMsg.localMediaPath
-                                        if (!mediaPath.isNullOrBlank()) {
-                                            val targetFile = File(mediaPath)
-                                            val exportName = if (isSelectedDoc) {
-                                                buildDocumentExportFileName(selectedMsg, targetFile)
-                                            } else {
-                                                "WA_${selectedMsg.msgType}_${selectedMsg.id}.${targetFile.extension.ifBlank { "bin" }}"
-                                            }
-                                            val exportMime = if (isSelectedDoc) {
-                                                resolveDocumentMimeType(selectedMsg, targetFile)
-                                            } else {
-                                                selectedMsg.mimeType
-                                            }
-                                            viewModel.exportMediaToGallery(mediaPath, exportName, exportMime)
-                                        }
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.MESSAGE_INFO -> {
-                                        groupReceiptsTarget = selectedMsg
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.EDIT_HISTORY -> {
-                                        editHistoryTarget = selectedMsg
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.OPEN_DOCUMENT -> {
-                                        val mediaPath = selectedMsg.localMediaPath
-                                        if (!mediaPath.isNullOrBlank()) {
-                                            val docFile = File(mediaPath)
-                                            if (docFile.exists()) {
-                                                openDocumentNatively(context, selectedMsg, docFile) { pdfFile ->
-                                                    pdfViewerTarget = pdfFile to resolveDocumentDisplayName(
-                                                        selectedMsg,
-                                                        resolveDocumentMimeType(selectedMsg, pdfFile),
-                                                        pdfFile
-                                                    )
-                                                }
-                                            } else {
-                                                viewModel.requestMediaDownload(selectedMsg, userInitiated = true)
-                                            }
-                                        }
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                    SelectionBarAction.DELETE -> {
-                                        deleteConfirmTarget = selectedMsg
-                                        actionMenuTarget = null
-                                        showMoreReactionEmojis = false
-                                    }
-                                }
-                            }
-
-                            val iconForAction: (SelectionBarAction) -> androidx.compose.ui.graphics.vector.ImageVector = { action ->
-                                when (action) {
-                                    SelectionBarAction.REPLY -> Icons.AutoMirrored.Rounded.Reply
-                                    SelectionBarAction.FORWARD -> Icons.AutoMirrored.Rounded.Forward
-                                    SelectionBarAction.PIN_UNPIN -> Icons.Rounded.PushPin
-                                    SelectionBarAction.EDIT -> Icons.Rounded.Edit
-                                    SelectionBarAction.COPY -> Icons.Rounded.ContentCopy
-                                    SelectionBarAction.SAVE_MEDIA -> Icons.Rounded.Download
-                                    SelectionBarAction.MESSAGE_INFO -> Icons.Rounded.Info
-                                    SelectionBarAction.EDIT_HISTORY -> Icons.Rounded.History
-                                    SelectionBarAction.OPEN_DOCUMENT -> Icons.Rounded.Description
-                                    SelectionBarAction.DELETE -> Icons.Rounded.Delete
-                                }
-                            }
-
-                            val labelForAction: (SelectionBarAction) -> String = { action ->
-                                when (action) {
-                                    SelectionBarAction.REPLY -> "Reply"
-                                    SelectionBarAction.FORWARD -> "Forward"
-                                    SelectionBarAction.PIN_UNPIN -> if (selectedMsg.isPinned) {
-                                        context.getString(R.string.unpin_message)
-                                    } else {
-                                        context.getString(R.string.pin_message)
-                                    }
-                                    SelectionBarAction.EDIT -> "Edit"
-                                    SelectionBarAction.COPY -> "Copy"
-                                    SelectionBarAction.SAVE_MEDIA -> if (isSelectedDoc) {
-                                        context.getString(R.string.chat_doc_save_downloads)
-                                    } else {
-                                        "Save to Gallery"
-                                    }
-                                    SelectionBarAction.MESSAGE_INFO -> "Message info"
-                                    SelectionBarAction.EDIT_HISTORY -> "Edit history"
-                                    SelectionBarAction.OPEN_DOCUMENT -> context.getString(R.string.chat_doc_open_with)
-                                    SelectionBarAction.DELETE -> "Delete"
-                                }
-                            }
-
+                        },
+                        trailing = {
                             barLayout.directActions.forEach { action ->
                                 val tint = if (action == SelectionBarAction.PIN_UNPIN && selectedMsg.isPinned) {
                                     colors.accentGreen
                                 } else {
                                     colors.textPrimary
                                 }
-                                val label = labelForAction(action)
-                                IconButton(
+                                WuppGlassCircleButton(
                                     onClick = { triggerAction(action) },
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = iconForAction(action),
-                                        contentDescription = label,
-                                        tint = tint,
-                                        modifier = Modifier.size(21.dp)
-                                    )
-                                }
+                                    contentDescription = labelForAction(action),
+                                    imageVector = iconForAction(action),
+                                    size = 36.dp,
+                                    iconSize = 18.dp,
+                                    tint = tint,
+                                    backdropState = wallpaperBackdropState,
+                                    classicMode = stealthConfig.classicWhatsAppLook
+                                )
                             }
 
                             if (barLayout.overflowActions.isNotEmpty()) {
                                 Box {
-                                    IconButton(
+                                    WuppGlassCircleButton(
                                         onClick = { showSelectionOverflow = true },
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.MoreVert,
-                                            contentDescription = "More actions",
-                                            tint = colors.textPrimary,
-                                            modifier = Modifier.size(21.dp)
-                                        )
-                                    }
+                                        contentDescription = "More actions",
+                                        imageVector = Icons.Rounded.MoreHoriz,
+                                        size = 36.dp,
+                                        iconSize = 19.dp,
+                                        backdropState = wallpaperBackdropState,
+                                        classicMode = stealthConfig.classicWhatsAppLook
+                                    )
                                     DropdownMenu(
                                         expanded = showSelectionOverflow,
                                         onDismissRequest = { showSelectionOverflow = false }
@@ -1117,216 +1139,237 @@ fun ChatScreen(
                         }
                     )
                     } else {
-                    TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.appSurface,
-                        titleContentColor = colors.textPrimary
-                    ),
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = colors.textPrimary)
-                        }
-                    },
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.clickable { showProfilePhotoLightbox = true }) {
-                                WhatsAppAvatar(
-                                    jid = chatJid,
-                                    avatarPath = chat?.avatarPath,
-                                    isGroup = chat?.isGroup == true,
-                                    size = 38.dp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .clickable { onOpenContactInfo(chatJid) }
+                    WuppGlassTopBar(
+                        backdropState = wallpaperBackdropState,
+                        classicMode = stealthConfig.classicWhatsAppLook,
+                        height = 58.dp,
+                        leading = {
+                            WuppGlassCircleButton(
+                                onClick = onBack,
+                                contentDescription = "Back",
+                                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                                size = 36.dp,
+                                iconSize = 24.dp,
+                                backdropState = wallpaperBackdropState,
+                                classicMode = stealthConfig.classicWhatsAppLook
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 2.dp, end = 128.dp)
                             ) {
-                                val isSelfChat = remember(chatJid, bridgeStatus.ownJid) {
-                                    StealthMatrixManager.isSelfChatJid(chatJid, bridgeStatus.ownJid)
+                                Box(modifier = Modifier.clickable { showProfilePhotoLightbox = true }) {
+                                    WhatsAppAvatar(
+                                        jid = chatJid,
+                                        avatarPath = chat?.avatarPath,
+                                        isGroup = chat?.isGroup == true,
+                                        size = 38.dp
+                                    )
                                 }
-                                val displayChatTitle = remember(chat?.name, chatJid, isSelfChat) {
-                                    val base = chat?.name?.ifBlank { chatJid.substringBefore("@") }
-                                        ?: chatJid.substringBefore("@")
-                                    if (isSelfChat && !base.contains("(You)", ignoreCase = true)) "$base (You)" else base
-                                }
-                                Text(
-                                    text = displayChatTitle,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                val effectiveAbout = remember(chat?.aboutText, contact?.aboutText) {
-                                    chat?.aboutText?.takeIf { it.isNotBlank() } ?: contact?.aboutText.orEmpty()
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val presence = chat?.chatPresence.orEmpty()
-                                    if (presence.isNotBlank()) {
-                                        if (typingComposition != null) {
-                                            LottieAnimation(
-                                                composition = typingComposition,
-                                                iterations = LottieConstants.IterateForever,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                        }
-                                        Text(
-                                            text = presence,
-                                            fontSize = 12.sp,
-                                            color = colors.brightGreen
-                                        )
-                                    } else {
-                                        val sub = when {
-                                            isChannel -> "Public channel"
-                                            chat?.isOnline == true -> stringResource(R.string.chat_status_online)
-                                            (chat?.lastSeen ?: 0L) > 0L -> "last seen ${formatMessageClock(chat!!.lastSeen, includeSeconds = showSeconds, use24Hour = use24Hour)}"
-                                            effectiveAbout.isNotBlank() -> effectiveAbout
-                                            else -> ""
-                                        }
-                                        if (sub.isNotBlank()) {
-                                            Text(
-                                                text = sub,
-                                                fontSize = 12.sp,
-                                                color = if (chat?.isOnline == true && !isChannel) colors.brightGreen else colors.textSecondary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                                if (stealthConfig.alwaysShowContactBio &&
-                                    effectiveAbout.isNotBlank() &&
-                                    !isChannel &&
-                                    !chatJid.endsWith("@g.us") &&
-                                    (chat?.isOnline == true || (chat?.lastSeen ?: 0L) > 0L || !chat?.chatPresence.isNullOrBlank())
+                                Spacer(modifier = Modifier.width(9.dp))
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .clickable { onOpenContactInfo(chatJid) }
                                 ) {
+                                    val isSelfChat = remember(chatJid, bridgeStatus.ownJid) {
+                                        StealthMatrixManager.isSelfChatJid(chatJid, bridgeStatus.ownJid)
+                                    }
+                                    val displayChatTitle = remember(chat?.name, chatJid, isSelfChat) {
+                                        val base = chat?.name?.ifBlank { chatJid.substringBefore("@") }
+                                            ?: chatJid.substringBefore("@")
+                                        if (isSelfChat && !base.contains("(You)", ignoreCase = true)) "$base (You)" else base
+                                    }
                                     Text(
-                                        text = effectiveAbout,
-                                        fontSize = 11.sp,
-                                        color = colors.textSecondary.copy(alpha = 0.85f),
+                                        text = displayChatTitle,
+                                        color = colors.textPrimary,
+                                        fontSize = 15.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    val effectiveAbout = remember(chat?.aboutText, contact?.aboutText) {
+                                        chat?.aboutText?.takeIf { it.isNotBlank() } ?: contact?.aboutText.orEmpty()
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val presence = chat?.chatPresence.orEmpty()
+                                        if (presence.isNotBlank()) {
+                                            if (typingComposition != null) {
+                                                LottieAnimation(
+                                                    composition = typingComposition,
+                                                    iterations = LottieConstants.IterateForever,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                            }
+                                            Text(
+                                                text = presence,
+                                                fontSize = 11.5.sp,
+                                                color = colors.brightGreen
+                                            )
+                                        } else {
+                                            val sub = when {
+                                                isChannel -> "Public channel"
+                                                chat?.isOnline == true -> stringResource(R.string.chat_status_online)
+                                                (chat?.lastSeen ?: 0L) > 0L -> "last seen ${formatMessageClock(chat!!.lastSeen, includeSeconds = showSeconds, use24Hour = use24Hour)}"
+                                                effectiveAbout.isNotBlank() -> effectiveAbout
+                                                else -> ""
+                                            }
+                                            if (sub.isNotBlank()) {
+                                                Text(
+                                                    text = sub,
+                                                    fontSize = 11.5.sp,
+                                                    color = if (chat?.isOnline == true && !isChannel) colors.brightGreen else colors.textSecondary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (stealthConfig.alwaysShowContactBio &&
+                                        effectiveAbout.isNotBlank() &&
+                                        !isChannel &&
+                                        !chatJid.endsWith("@g.us") &&
+                                        (chat?.isOnline == true || (chat?.lastSeen ?: 0L) > 0L || !chat?.chatPresence.isNullOrBlank())
+                                    ) {
+                                        Text(
+                                            text = effectiveAbout,
+                                            fontSize = 10.5.sp,
+                                            color = colors.textSecondary.copy(alpha = 0.85f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
-                        }
-                    },
-                    actions = {
-                        if (isChannel) {
-                            IconButton(
-                                onClick = {
-                                    viewModel.toggleChannelMute(chatJid, chat?.isMuted == true)
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (chat?.isMuted == true) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
+                        },
+                        trailing = {
+                            if (isChannel) {
+                                WuppGlassCircleButton(
+                                    onClick = { viewModel.toggleChannelMute(chatJid, chat?.isMuted == true) },
                                     contentDescription = if (chat?.isMuted == true) "Unmute channel" else "Mute channel",
-                                    tint = colors.textPrimary
+                                    imageVector = if (chat?.isMuted == true) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
+                                    size = 36.dp,
+                                    iconSize = 19.dp,
+                                    backdropState = wallpaperBackdropState,
+                                    classicMode = stealthConfig.classicWhatsAppLook
+                                )
+                            } else {
+                                WuppGlassCircleButton(
+                                    onClick = { initiateCall(true) },
+                                    contentDescription = "Video call",
+                                    imageVector = Icons.Rounded.Videocam,
+                                    size = 36.dp,
+                                    iconSize = 19.dp,
+                                    backdropState = wallpaperBackdropState,
+                                    classicMode = stealthConfig.classicWhatsAppLook
+                                )
+                                WuppGlassCircleButton(
+                                    onClick = { initiateCall(false) },
+                                    contentDescription = "Voice call",
+                                    imageVector = Icons.Rounded.Call,
+                                    size = 36.dp,
+                                    iconSize = 18.dp,
+                                    backdropState = wallpaperBackdropState,
+                                    classicMode = stealthConfig.classicWhatsAppLook
                                 )
                             }
-                        } else {
-                            IconButton(
-                                onClick = { initiateCall(true) }
-                            ) {
-                                Icon(Icons.Rounded.Videocam, "Video call", tint = colors.textPrimary)
-                            }
-                            IconButton(
-                                onClick = { initiateCall(false) }
-                            ) {
-                                Icon(Icons.Rounded.Call, "Voice call", tint = colors.textPrimary)
-                            }
-                        }
-                        IconButton(onClick = { showOverflow = true }) {
-                            Icon(Icons.Rounded.MoreVert, "More", tint = colors.textPrimary)
-                        }
-                        DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Quick controls & privacy") },
-                                leadingIcon = { Icon(Icons.Rounded.Shield, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    showGhostOverrideSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("View contact info") },
-                                leadingIcon = { Icon(Icons.Rounded.Person, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    onOpenContactInfo(chatJid)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Search") },
-                                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    showSearchInChat = !showSearchInChat
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Mark as read") },
-                                leadingIcon = { Icon(Icons.Rounded.Visibility, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    viewModel.markChatReadExplicitly(chatJid)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (chat?.isPinned == true) stringResource(R.string.chat_action_unpin)
-                                        else stringResource(R.string.chat_action_pin)
+                            Box {
+                                WuppGlassCircleButton(
+                                    onClick = { showOverflow = true },
+                                    contentDescription = "More",
+                                    imageVector = Icons.Rounded.MoreHoriz,
+                                    size = 36.dp,
+                                    iconSize = 19.dp,
+                                    backdropState = wallpaperBackdropState,
+                                    classicMode = stealthConfig.classicWhatsAppLook
+                                )
+                                DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Quick controls & privacy") },
+                                        leadingIcon = { Icon(Icons.Rounded.Shield, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            showGhostOverrideSheet = true
+                                        }
                                     )
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.PushPin, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    chat?.let { viewModel.togglePinChat(it) }
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (chat?.isMuted == true) stringResource(R.string.chat_action_unmute)
-                                        else stringResource(R.string.chat_action_mute)
+                                    DropdownMenuItem(
+                                        text = { Text("View contact info") },
+                                        leadingIcon = { Icon(Icons.Rounded.Person, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            onOpenContactInfo(chatJid)
+                                        }
                                     )
-                                },
-                                leadingIcon = { Icon(if (chat?.isMuted == true) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    viewModel.muteChats(listOf(chatJid), chat?.isMuted != true)
+                                    DropdownMenuItem(
+                                        text = { Text("Search") },
+                                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            showSearchInChat = !showSearchInChat
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Mark as read") },
+                                        leadingIcon = { Icon(Icons.Rounded.Visibility, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            viewModel.markChatReadExplicitly(chatJid)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (chat?.isPinned == true) stringResource(R.string.chat_action_unpin)
+                                                else stringResource(R.string.chat_action_pin)
+                                            )
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.PushPin, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            chat?.let { viewModel.togglePinChat(it) }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (chat?.isMuted == true) stringResource(R.string.chat_action_unmute)
+                                                else stringResource(R.string.chat_action_mute)
+                                            )
+                                        },
+                                        leadingIcon = { Icon(if (chat?.isMuted == true) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            viewModel.muteChats(listOf(chatJid), chat?.isMuted != true)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (chat?.isFavorite == true) "Remove from Favorites" else "Add to Favorites") },
+                                        leadingIcon = { Icon(if (chat?.isFavorite == true) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            chat?.let { viewModel.toggleFavoriteChat(it) }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Chat wallpaper") },
+                                        leadingIcon = { Icon(Icons.Rounded.Image, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            showWallpaperDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Scheduled messages") },
+                                        leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
+                                        onClick = {
+                                            showOverflow = false
+                                            showScheduledSheet = true
+                                        }
+                                    )
                                 }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (chat?.isFavorite == true) "Remove from Favorites" else "Add to Favorites") },
-                                leadingIcon = { Icon(if (chat?.isFavorite == true) Icons.Rounded.Star else Icons.Rounded.StarBorder, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    chat?.let { viewModel.toggleFavoriteChat(it) }
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Chat wallpaper") },
-                                leadingIcon = { Icon(Icons.Rounded.Image, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    showWallpaperDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Scheduled messages") },
-                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
-                                onClick = {
-                                    showOverflow = false
-                                    showScheduledSheet = true
-                                }
-                            )
+                            }
                         }
-                    }
-                )
+                    )
                     }
                 }
 
@@ -1566,6 +1609,7 @@ fun ChatScreen(
                                 val senderAvatarPath = senderMeta?.avatarPath?.takeIf { it.isNotBlank() }
                                     ?: chatsByJid[msg.senderJid]?.avatarPath?.takeIf { it.isNotBlank() }
                                     ?: altJid.takeIf { it.isNotBlank() }?.let { chatsByJid[it]?.avatarPath?.takeIf { p -> p.isNotBlank() } }
+                                    ?: if (!isGroupChat && !msg.isFromMe) chat?.avatarPath?.takeIf { it.isNotBlank() } else null
                                 val senderDisplay = resolveSenderDisplayInfo(
                                     rawJidOrText = msg.senderJid,
                                     explicitName = msg.senderName,
@@ -1587,7 +1631,10 @@ fun ChatScreen(
                                         senderPushByJid = senderPushByJid
                                     )
                                 } else null
-                                val quotedMentionsCsv = msg.quotedId?.let { loadedMessagesById[it]?.mentionsCsv }.orEmpty()
+                                val quotedEntity = msg.quotedId?.let { loadedMessagesById[it] }
+                                val quotedMentionsCsv = quotedEntity?.mentionsCsv.orEmpty()
+                                val quotedMediaPath = quotedEntity?.localMediaPath
+                                val quotedMsgType = quotedEntity?.msgType
                                 val mentionDisplayResolver: ((String) -> String?)? =
                                     if (isGroupChat) {
                                         { mentionJid: String ->
@@ -1667,6 +1714,8 @@ fun ChatScreen(
                                         senderAvatarPath = senderAvatarPath,
                                         quotedDisplay = quotedDisplay,
                                         quotedMentionsCsv = quotedMentionsCsv,
+                                        quotedMediaPath = quotedMediaPath,
+                                        quotedMsgType = quotedMsgType,
                                         mentionDisplayResolver = mentionDisplayResolver,
                                         onClickSenderAvatar = clickAvatar,
                                         ghostPlayedActive = effectivePrivacy?.sendPlayedReceipts == false,
@@ -1699,6 +1748,8 @@ fun ChatScreen(
                                             senderAvatarPath = senderAvatarPath,
                                             quotedDisplay = quotedDisplay,
                                             quotedMentionsCsv = quotedMentionsCsv,
+                                            quotedMediaPath = quotedMediaPath,
+                                            quotedMsgType = quotedMsgType,
                                             mentionDisplayResolver = mentionDisplayResolver,
                                             onClickSenderAvatar = clickAvatar,
                                             ghostPlayedActive = effectivePrivacy?.sendPlayedReceipts == false,
@@ -1902,30 +1953,18 @@ fun ChatScreen(
                 }
 
                 if (showScrollToBottom && actionMenuTarget == null) {
-                    WuppGlassContainer(
-                        shape = CircleShape,
-                        colors = colors,
-                        elevation = 10.dp,
+                    WuppGlassCircleButton(
+                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                        contentDescription = "Scroll to latest message",
+                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                        size = 42.dp,
+                        iconSize = 24.dp,
                         backdropState = wallpaperBackdropState,
-                        blurRadius = 8.dp,
-                        refractionHeight = 10.dp,
-                        refractionAmount = 18.dp,
                         classicMode = stealthConfig.classicWhatsAppLook,
-                        contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(end = 12.dp, bottom = 12.dp)
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .clickable { scope.launch { listState.animateScrollToItem(0) } }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.KeyboardArrowDown,
-                            contentDescription = "Scroll to latest message",
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
+                    )
                 }
                 }
 
@@ -2102,185 +2141,201 @@ fun ChatScreen(
                     }
                 }
 
-                // Reply Context Preview Banner above Composer
-                AnimatedVisibility(visible = replyTarget != null) {
-                    replyTarget?.let { rep ->
-                        WuppGlassContainer(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 3.dp),
-                            colors = colors,
-                            shape = RoundedCornerShape(16.dp),
-                            elevation = 8.dp,
-                            backdropState = wallpaperBackdropState,
-                            classicMode = stealthConfig.classicWhatsAppLook
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(4.dp)
-                                        .height(32.dp)
-                                        .background(colors.brightGreen, RoundedCornerShape(2.dp))
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = rep.senderName.ifBlank { rep.senderJid.substringBefore("@") },
-                                        color = colors.brightGreen,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                    Text(
-                                        text = rep.body.ifBlank { rep.msgType },
-                                        color = colors.textSecondary,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { replyTarget = null },
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = "Cancel Reply",
-                                        tint = colors.textSecondary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                // Live Voice Recording Elapsed Timer (ticks cleanly while recording)
+                var recordingElapsedSec by remember { mutableIntStateOf(0) }
+                LaunchedEffect(isRecordingVoice) {
+                    if (isRecordingVoice) {
+                        recordingElapsedSec = 0
+                        while (true) {
+                            delay(1_000L)
+                            recordingElapsedSec += 1
                         }
+                    } else {
+                        recordingElapsedSec = 0
                     }
                 }
 
-                // Floating WhatsApp Composer Pill + Morphing Mic/Send FAB
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    WuppGlassContainer(
-                        modifier = Modifier.weight(1f),
-                        colors = colors,
-                        shape = RoundedCornerShape(26.dp),
-                        elevation = 12.dp,
-                        backdropState = wallpaperBackdropState,
-                        classicMode = stealthConfig.classicWhatsAppLook
-                    ) {
-                        Row(
+                // Chat Composer Area:
+                // - When recording: Full 2-row Voice Note Recorder card (Row 1: timer + tall live scrolling waveform; Row 2: Red Trash, Stop, Green Send)
+                // - Normal: (+) Attach left + Unified Capsule (Embedded Quote Preview w/ thumbnail + Message left + Emoji/Sticker inside right) + Camera & Mic (or Send) right
+                AnimatedContent(
+                    targetState = isRecordingVoice,
+                    transitionSpec = { fadeIn(tween(170)) togetherWith fadeOut(tween(150)) },
+                    label = "composer_voice_mode"
+                ) { recording ->
+                    if (recording) {
+                        val infiniteWave = rememberInfiniteTransition(label = "voice_rec_wave")
+                        val wavePhase by infiniteWave.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 6.2831855f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 1150, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "voice_rec_phase"
+                        )
+                        val dotPulse by infiniteWave.animateFloat(
+                            initialValue = 0.35f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 620, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "voice_rec_dot"
+                        )
+                        WuppGlassContainer(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            colors = colors,
+                            shape = RoundedCornerShape(24.dp),
+                            elevation = 14.dp,
+                            backdropState = wallpaperBackdropState,
+                            classicMode = stealthConfig.classicWhatsAppLook
                         ) {
-                        if (isRecordingVoice) {
-                            Box(
+                            Column(
                                 modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.antiDeleteRed)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Recording voice note... tap stop to send",
-                                color = colors.antiDeleteRed,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TextButton(onClick = { viewModel.cancelVoiceRecording() }) {
-                                Text("Cancel", color = colors.textSecondary)
-                            }
-                        } else {
-                            IconButton(
-                                enabled = canSendOutbound,
-                                onClick = {
-                                    if (showEmojiPicker) {
-                                        holdDockForIme = true
-                                        showEmojiPicker = false
-                                        draftFocusRequester.requestFocus()
-                                        keyboardController?.show()
-                                    } else {
-                                        showAttachTray = false
-                                        holdDockForIme = false
-                                        showEmojiPicker = true
-                                        keyboardController?.hide()
-                                    }
-                                },
-                                modifier = Modifier.size(40.dp)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(
-                                    imageVector = if (showEmojiPicker) Icons.Rounded.Keyboard else Icons.Rounded.SentimentSatisfiedAlt,
-                                    contentDescription = stringResource(
-                                        if (showEmojiPicker) R.string.chat_switch_to_keyboard else R.string.chat_switch_to_emoji
-                                    ),
-                                    tint = if (showEmojiPicker) colors.brightGreen else colors.textSecondary,
-                                    modifier = Modifier.size(23.dp)
-                                )
-                            }
-                            if (ghostMentionEveryone && chat?.isGroup == true) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(colors.pillActiveBg)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                // Row 1: Pulsing dot + 18sp timer + tall 40dp live scrolling 34-bar waveform
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("@all", color = colors.pillActiveText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(modifier = Modifier.width(6.dp))
-                            }
-                            Box(modifier = Modifier.weight(1f).padding(vertical = 6.dp, horizontal = 4.dp)) {
-                                if (draftValue.text.isEmpty()) {
-                                    Text(
-                                        text = if (canSendOutbound) stringResource(R.string.chat_input_placeholder) else "Blocked by Error 463 guard",
-                                        color = colors.textSecondary,
-                                        fontSize = 15.5.sp
+                                    Box(
+                                        modifier = Modifier
+                                            .size(9.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.antiDeleteRed.copy(alpha = dotPulse))
                                     )
-                                }
-                                val sendCurrentDraft: () -> Unit = {
-                                    if (canSendOutbound && draftValue.text.isNotBlank()) {
-                                        runWithOutboundGuard {
-                                            scrollToBottomPending = true
-                                            viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
-                                            draftValue = TextFieldValue("")
-                                            replyTarget = null
-                                            ghostMentionEveryone = false
-                                            scope.launch { listState.animateScrollToItem(0) }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "%d:%02d".format(recordingElapsedSec / 60, recordingElapsedSec % 60),
+                                        color = colors.textPrimary,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        fontFamily = LocalWaMonoFamily.current
+                                    )
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Canvas(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(40.dp)
+                                    ) {
+                                        val bars = 34
+                                        val slotW = size.width / bars
+                                        val barW = (slotW * 0.54f).coerceIn(2.2.dp.toPx(), 3.2.dp.toPx())
+                                        val centerY = size.height / 2f
+                                        val maxH = size.height * 0.86f
+                                        for (i in 0 until bars) {
+                                            val w1 = sin(wavePhase + i * 0.48f)
+                                            val w2 = sin(wavePhase * 1.7f - i * 0.31f)
+                                            val w3 = sin(wavePhase * 0.7f + i * 0.85f)
+                                            val norm = ((w1 * 0.45f + w2 * 0.35f + w3 * 0.20f) + 1f) / 2f
+                                            val barH = (maxH * (0.18f + norm * 0.82f)).coerceAtLeast(3.dp.toPx())
+                                            val x = i * slotW + (slotW - barW) / 2f
+                                            drawRoundRect(
+                                                color = colors.textSecondary.copy(alpha = 0.45f + norm * 0.50f),
+                                                topLeft = Offset(x, centerY - barH / 2f),
+                                                size = Size(barW, barH),
+                                                cornerRadius = CornerRadius(barW / 2f, barW / 2f)
+                                            )
                                         }
                                     }
                                 }
-                                BasicTextField(
-                                    value = draftValue,
-                                    onValueChange = { draftValue = it },
-                                    enabled = canSendOutbound,
-                                    interactionSource = draftInteractionSource,
-                                    textStyle = TextStyle(
-                                        color = colors.textPrimary,
-                                        fontSize = 15.5.sp,
-                                        lineHeight = 20.sp
-                                    ),
-                                    cursorBrush = SolidColor(colors.brightGreen),
-                                    maxLines = 6,
-                                    keyboardOptions = KeyboardOptions(
-                                        capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences,
-                                        imeAction = if (stealthConfig.enterIsSend) ImeAction.Send else ImeAction.Default
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onSend = { sendCurrentDraft() }
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(draftFocusRequester)
-                                )
+
+                                // Row 2: Red Trash (Discard) | Center Stop Circle | Green Send Orb
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    val trashInteraction = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .expressivePressScale(trashInteraction, pressedScale = 0.88f)
+                                            .clip(CircleShape)
+                                            .background(colors.antiDeleteRed.copy(alpha = 0.14f))
+                                            .clickable(
+                                                interactionSource = trashInteraction,
+                                                indication = null
+                                            ) { viewModel.cancelVoiceRecording() },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Delete,
+                                            contentDescription = "Discard voice note",
+                                            tint = colors.antiDeleteRed,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+
+                                    val stopInteraction = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .expressivePressScale(stopInteraction, pressedScale = 0.88f)
+                                            .clip(CircleShape)
+                                            .border(1.5.dp, colors.antiDeleteRed.copy(alpha = 0.75f), CircleShape)
+                                            .clickable(
+                                                interactionSource = stopInteraction,
+                                                indication = null
+                                            ) {
+                                                scrollToBottomPending = true
+                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                scope.launch { listState.animateScrollToItem(0) }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Stop,
+                                            contentDescription = "Stop and send",
+                                            tint = colors.antiDeleteRed,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+
+                                    val sendVoiceInteraction = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .expressivePressScale(sendVoiceInteraction, pressedScale = 0.88f)
+                                            .clip(CircleShape)
+                                            .background(colors.brightGreen)
+                                            .clickable(
+                                                interactionSource = sendVoiceInteraction,
+                                                indication = null
+                                            ) {
+                                                scrollToBottomPending = true
+                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                scope.launch { listState.animateScrollToItem(0) }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.Send,
+                                            contentDescription = "Send voice note",
+                                            tint = colors.brightGreen.contrastingContentColor(),
+                                            modifier = Modifier.size(21.dp)
+                                        )
+                                    }
+                                }
                             }
-                            IconButton(
+                        }
+                    } else {
+                        val hasDraftText = draftValue.text.isNotBlank()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Far Left: Circular (+) Attach button
+                            WuppGlassCircleButton(
                                 onClick = {
                                     val nextTray = !showAttachTray
                                     showAttachTray = nextTray
@@ -2289,133 +2344,343 @@ fun ChatScreen(
                                         holdDockForIme = false
                                     }
                                 },
-                                modifier = Modifier.size(40.dp)
+                                contentDescription = "Attach",
+                                imageVector = if (showAttachTray) Icons.Rounded.Close else Icons.Rounded.Add,
+                                size = 40.dp,
+                                iconSize = 22.dp,
+                                tint = if (showAttachTray) colors.brightGreen else colors.textPrimary,
+                                backdropState = wallpaperBackdropState,
+                                classicMode = stealthConfig.classicWhatsAppLook,
+                                modifier = Modifier.padding(bottom = 1.dp)
+                            )
+
+                            // Middle: Unified Rounded Capsule (Embedded Quoted Reply Preview + Message Input + Right Sticker/Emoji Icon)
+                            WuppGlassContainer(
+                                modifier = Modifier.weight(1f),
+                                colors = colors,
+                                shape = RoundedCornerShape(if (replyTarget != null) 20.dp else 22.dp),
+                                elevation = 10.dp,
+                                backdropState = wallpaperBackdropState,
+                                classicMode = stealthConfig.classicWhatsAppLook
                             ) {
-                                Icon(Icons.Rounded.AttachFile, "Attach", tint = colors.textSecondary)
-                            }
-                            AnimatedVisibility(visible = draftValue.text.isBlank()) {
-                                IconButton(
-                                    onClick = {
-                                        AppLockManager.suspendNextBackgroundLock()
-                                        pickVisualMediaLauncher.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                                        )
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.vec_ic_camera_reply),
-                                        contentDescription = "Camera / Photo",
-                                        tint = colors.textSecondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Morphing Mic / Send / Stop FAB with M3 Expressive shape + spring physics
-                    val fabMotion = MaterialTheme.motionScheme
-                    val fabCorner by animateDpAsState(
-                        targetValue = when {
-                            isRecordingVoice -> 14.dp
-                            stealthConfig.classicWhatsAppLook -> 24.dp
-                            draftValue.text.isNotBlank() -> 16.dp
-                            else -> 24.dp
-                        },
-                        animationSpec = fabMotion.fastSpatialSpec(),
-                        label = "composer_fab_corner"
-                    )
-                    val fabBg by animateColorAsState(
-                        targetValue = if (!canSendOutbound) colors.textSecondary
-                        else if (isRecordingVoice) colors.antiDeleteRed
-                        else colors.brightGreen,
-                        animationSpec = fabMotion.fastEffectsSpec(),
-                        label = "composer_fab_bg"
-                    )
-                    val fabInteraction = remember { MutableInteractionSource() }
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .expressivePressScale(fabInteraction, pressedScale = 0.88f)
-                            .clip(RoundedCornerShape(fabCorner))
-                            .background(fabBg)
-                            .combinedClickable(
-                                enabled = canSendOutbound,
-                                interactionSource = fabInteraction,
-                                indication = null,
-                                onClick = {
-                                    when {
-                                        isRecordingVoice -> {
-                                            scrollToBottomPending = true
-                                            viewModel.toggleVoiceRecording(chatJid, true)
-                                            scope.launch { listState.animateScrollToItem(0) }
-                                        }
-                                        draftValue.text.isNotBlank() -> {
-                                            runWithOutboundGuard {
-                                                scrollToBottomPending = true
-                                                viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
-                                                draftValue = TextFieldValue("")
-                                                replyTarget = null
-                                                ghostMentionEveryone = false
-                                                scope.launch { listState.animateScrollToItem(0) }
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    // Embedded Quoted Reply Preview inside top of capsule
+                                    AnimatedVisibility(visible = replyTarget != null) {
+                                        replyTarget?.let { rep ->
+                                            val repTypeUpper = rep.msgType.uppercase()
+                                            val repHasThumb = !rep.localMediaPath.isNullOrBlank() &&
+                                                (repTypeUpper == "IMAGE" || repTypeUpper == "VIDEO" || repTypeUpper == "GIF" || repTypeUpper == "STICKER")
+                                            val repThumbBmp by produceState<ImageBitmap?>(
+                                                initialValue = null,
+                                                key1 = rep.localMediaPath,
+                                                key2 = repTypeUpper
+                                            ) {
+                                                value = if (repHasThumb) {
+                                                    withContext(Dispatchers.IO) {
+                                                        decodeQuotedThumbnailBitmap(rep.localMediaPath!!, repTypeUpper == "VIDEO")
+                                                    }
+                                                } else null
                                             }
-                                        }
-                                        else -> {
-                                            val hasMic = ContextCompat.checkSelfPermission(
-                                                context,
-                                                Manifest.permission.RECORD_AUDIO
-                                            ) == PackageManager.PERMISSION_GRANTED
-                                            if (hasMic) {
-                                                runWithOutboundGuard {
-                                                    viewModel.toggleVoiceRecording(chatJid, true)
+                                            val replyPreviewText = rep.body.ifBlank {
+                                                when (repTypeUpper) {
+                                                    "IMAGE" -> "Photo"
+                                                    "VIDEO" -> "Video"
+                                                    "PTT", "AUDIO" -> "Voice message"
+                                                    "DOCUMENT" -> "Document"
+                                                    "STICKER" -> "Sticker"
+                                                    "GIF" -> "GIF"
+                                                    else -> rep.msgType
                                                 }
-                                            } else {
-                                                micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 2.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(IntrinsicSize.Min)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(colors.quotedBg),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .width(3.5.dp)
+                                                            .fillMaxHeight()
+                                                            .background(colors.brightGreen)
+                                                    )
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .padding(start = 9.dp, end = 28.dp, top = 6.dp, bottom = 6.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = if (rep.isFromMe) "You" else rep.senderName.ifBlank { rep.senderJid.substringBefore("@") },
+                                                            color = colors.brightGreen,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            fontSize = 12.sp,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Text(
+                                                            text = replyPreviewText,
+                                                            color = colors.textSecondary,
+                                                            fontSize = 12.5.sp,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                    if (repThumbBmp != null) {
+                                                        Image(
+                                                            bitmap = repThumbBmp!!,
+                                                            contentDescription = replyPreviewText,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier
+                                                                .width(50.dp)
+                                                                .fillMaxHeight()
+                                                                .sizeIn(minHeight = 50.dp)
+                                                        )
+                                                    }
+                                                }
+                                                // Top-right translucent circular close badge
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(4.dp)
+                                                        .size(21.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color.Black.copy(alpha = 0.56f))
+                                                        .clickable { replyTarget = null },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Close,
+                                                        contentDescription = "Cancel Reply",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
-                                },
-                                onLongClick = {
-                                    if (!isRecordingVoice) {
-                                        editingScheduledMessage = null
-                                        showScheduleDialog = true
+
+                                    // Text Entry Row: Message input LEFT + Sticker/Emoji icon INSIDE RIGHT
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 41.dp)
+                                            .padding(start = 13.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (ghostMentionEveryone && chat?.isGroup == true) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .background(colors.pillActiveBg)
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("@all", color = colors.pillActiveText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                        }
+                                        Box(modifier = Modifier.weight(1f).padding(vertical = 5.dp)) {
+                                            if (draftValue.text.isEmpty()) {
+                                                Text(
+                                                    text = if (canSendOutbound) stringResource(R.string.chat_input_placeholder) else "Blocked by Error 463 guard",
+                                                    color = colors.textSecondary,
+                                                    fontSize = 15.5.sp
+                                                )
+                                            }
+                                            val sendCurrentDraft: () -> Unit = {
+                                                if (canSendOutbound && draftValue.text.isNotBlank()) {
+                                                    runWithOutboundGuard {
+                                                        scrollToBottomPending = true
+                                                        viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
+                                                        draftValue = TextFieldValue("")
+                                                        replyTarget = null
+                                                        ghostMentionEveryone = false
+                                                        scope.launch { listState.animateScrollToItem(0) }
+                                                    }
+                                                }
+                                            }
+                                            BasicTextField(
+                                                value = draftValue,
+                                                onValueChange = { draftValue = it },
+                                                enabled = canSendOutbound,
+                                                interactionSource = draftInteractionSource,
+                                                textStyle = TextStyle(
+                                                    color = colors.textPrimary,
+                                                    fontSize = 15.5.sp,
+                                                    lineHeight = 20.sp
+                                                ),
+                                                cursorBrush = SolidColor(colors.brightGreen),
+                                                maxLines = 6,
+                                                keyboardOptions = KeyboardOptions(
+                                                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences,
+                                                    imeAction = if (stealthConfig.enterIsSend) ImeAction.Send else ImeAction.Default
+                                                ),
+                                                keyboardActions = KeyboardActions(
+                                                    onSend = { sendCurrentDraft() }
+                                                ),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(draftFocusRequester)
+                                            )
+                                        }
+                                        IconButton(
+                                            enabled = canSendOutbound,
+                                            onClick = {
+                                                if (showEmojiPicker) {
+                                                    holdDockForIme = true
+                                                    showEmojiPicker = false
+                                                    draftFocusRequester.requestFocus()
+                                                    keyboardController?.show()
+                                                } else {
+                                                    showAttachTray = false
+                                                    holdDockForIme = false
+                                                    showEmojiPicker = true
+                                                    keyboardController?.hide()
+                                                }
+                                            },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (showEmojiPicker) Icons.Rounded.Keyboard else Icons.Rounded.SentimentSatisfiedAlt,
+                                                contentDescription = stringResource(
+                                                    if (showEmojiPicker) R.string.chat_switch_to_keyboard else R.string.chat_switch_to_emoji
+                                                ),
+                                                tint = if (showEmojiPicker) colors.brightGreen else colors.textSecondary,
+                                                modifier = Modifier.size(21.dp)
+                                            )
+                                        }
                                     }
                                 }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AnimatedContent(
-                            targetState = when {
-                                isRecordingVoice -> 2
-                                draftValue.text.isNotBlank() -> 1
-                                else -> 0
-                            },
-                            transitionSpec = {
-                                (scaleIn(
-                                    animationSpec = fabMotion.fastSpatialSpec(),
-                                    initialScale = 0.72f
-                                ) + fadeIn(fabMotion.fastEffectsSpec())) togetherWith
-                                    (scaleOut(
-                                        animationSpec = fabMotion.fastEffectsSpec(),
-                                        targetScale = 0.72f
-                                    ) + fadeOut(fabMotion.fastEffectsSpec()))
-                            },
-                            label = "morph_fab"
-                        ) { mode ->
-                            val fabContentTint = if (!canSendOutbound || isRecordingVoice) Color.White else colors.brightGreen.contrastingContentColor()
-                            when (mode) {
-                                2 -> Icon(Icons.Rounded.Stop, "Stop & Send Audio", tint = fabContentTint)
-                                1 -> Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = fabContentTint)
-                                else -> Icon(
-                                    painter = painterResource(R.drawable.msg_status_mic),
-                                    contentDescription = "Record Voice Note",
-                                    tint = fabContentTint,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                            }
+
+                            // Far Right: Camera + Mic when empty, circular Green Send when typing
+                            val fabMotion = MaterialTheme.motionScheme
+                            AnimatedContent(
+                                targetState = hasDraftText,
+                                transitionSpec = {
+                                    (scaleIn(
+                                        animationSpec = fabMotion.fastSpatialSpec(),
+                                        initialScale = 0.78f
+                                    ) + fadeIn(fabMotion.fastEffectsSpec())) togetherWith
+                                        (scaleOut(
+                                            animationSpec = fabMotion.fastEffectsSpec(),
+                                            targetScale = 0.78f
+                                        ) + fadeOut(fabMotion.fastEffectsSpec()))
+                                },
+                                label = "mb_composer_right_actions"
+                            ) { typing ->
+                                if (typing) {
+                                    val sendInteraction = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(bottom = 1.dp)
+                                            .size(40.dp)
+                                            .expressivePressScale(sendInteraction, pressedScale = 0.88f)
+                                            .clip(CircleShape)
+                                            .background(if (canSendOutbound) colors.brightGreen else colors.textSecondary)
+                                            .combinedClickable(
+                                                enabled = canSendOutbound,
+                                                interactionSource = sendInteraction,
+                                                indication = null,
+                                                onClick = {
+                                                    runWithOutboundGuard {
+                                                        scrollToBottomPending = true
+                                                        viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
+                                                        draftValue = TextFieldValue("")
+                                                        replyTarget = null
+                                                        ghostMentionEveryone = false
+                                                        scope.launch { listState.animateScrollToItem(0) }
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    editingScheduledMessage = null
+                                                    showScheduleDialog = true
+                                                }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.Send,
+                                            contentDescription = "Send",
+                                            tint = if (canSendOutbound) colors.brightGreen.contrastingContentColor() else Color.White,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        modifier = Modifier.padding(bottom = 1.dp)
+                                    ) {
+                                        WuppGlassCircleButton(
+                                            onClick = {
+                                                AppLockManager.suspendNextBackgroundLock()
+                                                pickVisualMediaLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                                )
+                                            },
+                                            contentDescription = "Camera / Photo",
+                                            drawableRes = R.drawable.vec_ic_camera_reply,
+                                            size = 40.dp,
+                                            iconSize = 20.dp,
+                                            tint = colors.textPrimary,
+                                            backdropState = wallpaperBackdropState,
+                                            classicMode = stealthConfig.classicWhatsAppLook
+                                        )
+                                        val micInteraction = remember { MutableInteractionSource() }
+                                        WuppGlassContainer(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .expressivePressScale(micInteraction, pressedScale = 0.88f)
+                                                .clip(CircleShape)
+                                                .combinedClickable(
+                                                    enabled = canSendOutbound,
+                                                    interactionSource = micInteraction,
+                                                    indication = null,
+                                                    onClick = {
+                                                        val hasMic = ContextCompat.checkSelfPermission(
+                                                            context,
+                                                            Manifest.permission.RECORD_AUDIO
+                                                        ) == PackageManager.PERMISSION_GRANTED
+                                                        if (hasMic) {
+                                                            runWithOutboundGuard {
+                                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                            }
+                                                        } else {
+                                                            micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        editingScheduledMessage = null
+                                                        showScheduleDialog = true
+                                                    }
+                                                ),
+                                            colors = colors,
+                                            shape = CircleShape,
+                                            elevation = 6.dp,
+                                            backdropState = wallpaperBackdropState,
+                                            blurRadius = 7.dp,
+                                            refractionHeight = 8.dp,
+                                            refractionAmount = 14.dp,
+                                            classicMode = stealthConfig.classicWhatsAppLook,
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.msg_status_mic),
+                                                contentDescription = "Record Voice Note",
+                                                tint = if (canSendOutbound) colors.textPrimary else colors.textSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -3300,6 +3565,8 @@ private fun MessageBubbleRow(
     senderAvatarPath: String? = null,
     quotedDisplay: SenderDisplayInfo? = null,
     quotedMentionsCsv: String = "",
+    quotedMediaPath: String? = null,
+    quotedMsgType: String? = null,
     mentionDisplayResolver: ((String) -> String?)? = null,
     onClickSenderAvatar: () -> Unit = {},
     ghostPlayedActive: Boolean,
@@ -3502,7 +3769,7 @@ private fun MessageBubbleRow(
                     }
                 }
 
-                // Quoted Context Banner
+                // Quoted Context Banner with full-height accent bar + 52dp right-edge media thumbnail
                 if (!msg.quotedId.isNullOrBlank()) {
                     val rawQuoted = msg.quotedSender.orEmpty()
                     val qPrimary = quotedDisplay?.primary?.takeIf { it.isNotBlank() } ?: when {
@@ -3524,14 +3791,38 @@ private fun MessageBubbleRow(
                             Color(0xFFF48FB1)
                         )[abs((quotedDisplay?.keyForColor ?: rawQuoted).hashCode()) % 4]
                     }
+                    val qTypeUpper = quotedMsgType.orEmpty().uppercase()
+                    val hasQuotedThumb = !quotedMediaPath.isNullOrBlank() &&
+                        (qTypeUpper == "IMAGE" || qTypeUpper == "VIDEO" || qTypeUpper == "GIF" || qTypeUpper == "STICKER")
+                    val quotedThumbBmp by produceState<ImageBitmap?>(
+                        initialValue = null,
+                        key1 = quotedMediaPath,
+                        key2 = qTypeUpper
+                    ) {
+                        value = if (hasQuotedThumb) {
+                            withContext(Dispatchers.IO) {
+                                decodeQuotedThumbnailBitmap(quotedMediaPath!!, qTypeUpper == "VIDEO")
+                            }
+                        } else null
+                    }
+                    val mediaTypeFallback = when (qTypeUpper) {
+                        "IMAGE" -> "Photo"
+                        "VIDEO" -> "Video"
+                        "PTT", "AUDIO" -> "Voice message"
+                        "DOCUMENT" -> "Document"
+                        "STICKER" -> "Sticker"
+                        "GIF" -> "GIF"
+                        else -> ""
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(
                                 start = if (isMediaCard) 3.dp else 0.dp,
                                 end = if (isMediaCard) 3.dp else 0.dp,
-                                bottom = 5.dp
+                                bottom = 6.dp
                             )
+                            .height(IntrinsicSize.Min)
                             .clip(RoundedCornerShape(10.dp))
                             .background(colors.quotedBg)
                             .combinedClickable(
@@ -3542,17 +3833,21 @@ private fun MessageBubbleRow(
                                     }
                                 },
                                 onLongClick = onLongPress
-                            )
-                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .width(3.dp)
-                                .height(30.dp)
-                                .background(qAccent, RoundedCornerShape(2.dp))
+                                .width(3.5.dp)
+                                .fillMaxHeight()
+                                .background(qAccent)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 9.dp, vertical = 6.5.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -3562,7 +3857,7 @@ private fun MessageBubbleRow(
                                     text = qPrimary,
                                     color = qAccent,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 11.5.sp,
+                                    fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
@@ -3582,12 +3877,27 @@ private fun MessageBubbleRow(
                             } else {
                                 msg.quotedBody.orEmpty()
                             }
+                            val displayQuotedText = resolvedQuotedBody.ifBlank {
+                                mediaTypeFallback.ifBlank { "Message" }
+                            }
                             Text(
-                                text = resolvedQuotedBody,
+                                text = displayQuotedText,
                                 color = colors.textSecondary,
-                                fontSize = 12.sp,
+                                fontSize = 12.5.sp,
+                                lineHeight = 16.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (quotedThumbBmp != null) {
+                            Image(
+                                bitmap = quotedThumbBmp!!,
+                                contentDescription = mediaTypeFallback.ifBlank { "Quoted media" },
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .width(52.dp)
+                                    .fillMaxHeight()
+                                    .sizeIn(minHeight = 52.dp)
                             )
                         }
                     }
@@ -3606,7 +3916,7 @@ private fun MessageBubbleRow(
                 }
 
                 when {
-                    // Already opened / stripped View-Once (original WhatsApp style)
+                    // Already opened / stripped View-Once
                     msg.viewOnceState == "STRIPPED" || msg.msgType == "VIEW_ONCE_STRIPPED" -> {
                         val voSubType = when (msg.msgType.uppercase()) {
                             "VIDEO" -> " · Video"
@@ -3616,28 +3926,37 @@ private fun MessageBubbleRow(
                         }
                         Row(
                             modifier = Modifier
-                                .widthIn(min = 165.dp)
-                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                                .widthIn(min = 175.dp)
+                                .padding(horizontal = 2.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(R.drawable.vec_ic_view_once),
-                                contentDescription = "View once opened",
-                                tint = colors.textSecondary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.textSecondary.copy(alpha = 0.14f))
+                                    .border(0.65.dp, colors.textSecondary.copy(alpha = 0.22f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.vec_ic_view_once),
+                                    contentDescription = "View once opened",
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text(
                                     text = "Opened$voSubType",
                                     color = colors.textSecondary,
                                     fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                     text = "Opened on phone",
-                                    color = colors.textSecondary.copy(alpha = 0.85f),
-                                    fontSize = 11.sp
+                                    color = colors.textSecondary.copy(alpha = 0.78f),
+                                    fontSize = 11.5.sp
                                 )
                             }
                         }
@@ -3665,8 +3984,8 @@ private fun MessageBubbleRow(
                         val subLabel = if (msg.durationSec > 0) "${formatVideoDuration(msg.durationSec)} · Open on phone" else "Open on phone"
                         Row(
                             modifier = Modifier
-                                .widthIn(min = 175.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .widthIn(min = 185.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .combinedClickable(
                                     onClick = {
                                         Toast.makeText(
@@ -3677,27 +3996,36 @@ private fun MessageBubbleRow(
                                     },
                                     onLongClick = onLongPress
                                 )
-                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                                .padding(horizontal = 2.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(R.drawable.vec_ic_view_once),
-                                contentDescription = "View once $voLabel",
-                                tint = tintColor,
-                                modifier = Modifier.size(21.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(tintColor.copy(alpha = 0.16f))
+                                    .border(0.65.dp, tintColor.copy(alpha = 0.34f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.vec_ic_view_once),
+                                    contentDescription = "View once $voLabel",
+                                    tint = tintColor,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text(
                                     text = voLabel,
                                     color = tintColor,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     fontSize = 14.5.sp
                                 )
                                 Text(
                                     text = subLabel,
                                     color = colors.textSecondary,
-                                    fontSize = 11.sp
+                                    fontSize = 11.5.sp
                                 )
                             }
                         }
@@ -3729,7 +4057,9 @@ private fun MessageBubbleRow(
                             msg = msg,
                             ghostPlayedActive = ghostPlayedActive,
                             onManualSendPlayedReceipt = onManualSendPlayedReceipt,
-                            onRequestDownload = onRequestDownload
+                            onRequestDownload = onRequestDownload,
+                            avatarPath = if (msg.isFromMe) null else senderAvatarPath,
+                            onClickAvatar = if (msg.isFromMe) null else onClickSenderAvatar
                         )
                     }
 
@@ -4226,7 +4556,8 @@ private fun formatChatDateHeader(timestamp: Long): String {
 @Composable
 private fun DateHeaderPill(timestamp: Long) {
     val colors = LocalWaColors.current
-    val pillBg = if (colors.isDark) Color(0xFF182229) else Color(0xFFE7EFF3)
+    val pillBg = if (colors.isDark) Color(0xE60F1318) else Color(0xF0ECF2F6)
+    val pillBorder = if (colors.isDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.06f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -4235,14 +4566,15 @@ private fun DateHeaderPill(timestamp: Long) {
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .clip(CircleShape)
                 .background(pillBg)
-                .padding(horizontal = 12.dp, vertical = 5.dp)
+                .border(0.65.dp, pillBorder, CircleShape)
+                .padding(horizontal = 13.dp, vertical = 5.dp)
         ) {
             Text(
                 text = formatChatDateHeader(timestamp),
                 color = colors.textSecondary,
-                fontSize = 12.5.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -4253,7 +4585,8 @@ private fun DateHeaderPill(timestamp: Long) {
 private fun SystemNoticePill(text: String) {
     if (text.isBlank()) return
     val colors = LocalWaColors.current
-    val pillBg = if (colors.isDark) Color(0xFF182229) else Color(0xFFE7EFF3)
+    val pillBg = if (colors.isDark) Color(0xE60F1318) else Color(0xF0ECF2F6)
+    val pillBorder = if (colors.isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -4262,14 +4595,15 @@ private fun SystemNoticePill(text: String) {
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(pillBg)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .border(0.65.dp, pillBorder, RoundedCornerShape(14.dp))
+                .padding(horizontal = 13.dp, vertical = 6.dp)
         ) {
             Text(
                 text = text,
                 color = colors.textSecondary,
-                fontSize = 12.5.sp
+                fontSize = 12.sp
             )
         }
     }
@@ -4295,6 +4629,25 @@ private fun extractVideoThumbnailBitmap(path: String): Bitmap? {
     } finally {
         runCatching { retriever.release() }
     }
+}
+
+private fun decodeQuotedThumbnailBitmap(path: String, isVideo: Boolean): ImageBitmap? {
+    val file = File(path)
+    if (!file.exists() || file.length() <= 0L) return null
+    return runCatching {
+        if (isVideo) {
+            extractVideoThumbnailBitmap(path)?.asImageBitmap()
+        } else {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var sample = 1
+            while (bounds.outWidth / sample > 180 || bounds.outHeight / sample > 180) {
+                sample *= 2
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeFile(path, opts)?.asImageBitmap()
+        }
+    }.getOrNull()
 }
 
 private fun formatMediaSizeLabel(bytes: Long): String {

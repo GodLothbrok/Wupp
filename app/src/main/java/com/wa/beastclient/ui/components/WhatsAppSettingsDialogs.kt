@@ -2,6 +2,7 @@ package com.wa.beastclient.ui.components
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,60 +111,98 @@ fun SettingsProfileHeaderCard(
     onClick: () -> Unit
 ) {
     val colors = LocalWaColors.current
+    val displayName = profile.pushName.ifBlank {
+        profile.phone.ifBlank { "My Account" }
+    }
+    val aboutText = profile.about.ifBlank { "Tap to add your status bio" }
+    val cardBorder = if (colors.isDark) Color.White.copy(alpha = 0.07f) else colors.divider
+
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = colors.elevatedBar,
+        shape = RoundedCornerShape(22.dp),
+        color = colors.elevatedBar.copy(alpha = if (colors.isDark) 0.94f else 0.99f),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .border(0.65.dp, cardBorder, RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            WhatsAppAvatar(
-                jid = ownJid.ifBlank { profile.ownJid },
-                avatarPath = avatarPath,
-                isGroup = false,
-                size = 56.dp
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(colors.pillInactiveBg)
+                    .border(0.6.dp, cardBorder, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
                 Text(
-                    text = profile.pushName.ifBlank {
-                        profile.phone.ifBlank { "My WhatsApp Account" }
-                    },
-                    color = colors.textPrimary,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = profile.about.ifBlank { "Tap to edit display name & About" },
+                    text = aboutText,
                     color = colors.textSecondary,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (profile.phone.isNotBlank()) {
-                    Text(
-                        text = profile.phone,
-                        color = colors.accentGreen,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
             }
-            Icon(
-                imageVector = Icons.Rounded.Edit,
-                contentDescription = "Edit profile",
-                tint = colors.accentGreen,
-                modifier = Modifier.size(20.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .border(2.dp, colors.accentGreen.copy(alpha = 0.45f), CircleShape)
+                    .padding(3.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                WhatsAppAvatar(
+                    jid = ownJid.ifBlank { profile.ownJid },
+                    avatarPath = avatarPath,
+                    isGroup = false,
+                    size = 90.dp
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = displayName,
+                color = colors.textPrimary,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            if (profile.phone.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = profile.phone,
+                    color = colors.textSecondary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(colors.accentGreen.copy(alpha = if (colors.isDark) 0.18f else 0.12f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Edit,
+                    contentDescription = null,
+                    tint = colors.accentGreen,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "Edit Profile",
+                    color = colors.accentGreen,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }

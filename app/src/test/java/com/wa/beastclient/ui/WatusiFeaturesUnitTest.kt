@@ -44,6 +44,14 @@ class WatusiFeaturesUnitTest {
     }
 
     @Test
+    fun amoledIsDefaultThemeMode() {
+        assertEquals(WuppThemeMode.AMOLED, com.wa.beastclient.domain.stealth.GlobalStealthConfig().themeMode)
+        assertEquals(WuppThemeMode.AMOLED, WuppThemeMode.fromStorageKey(null, legacyDarkFallback = true))
+        assertEquals(WuppThemeMode.LIGHT, WuppThemeMode.fromStorageKey(null, legacyDarkFallback = false))
+        assertEquals(WuppThemeMode.DARK, WuppThemeMode.fromStorageKey("dark", legacyDarkFallback = true))
+    }
+
+    @Test
     fun fontStyleFromStorageMigratesLegacySystemFontFlag() {
         assertEquals(WuppFontStyle.SYSTEM, WuppFontStyle.fromStorageKey(null, legacyUseSystemFont = true))
         assertEquals(WuppFontStyle.ROBO_CLEAN, WuppFontStyle.fromStorageKey(null, legacyUseSystemFont = false))

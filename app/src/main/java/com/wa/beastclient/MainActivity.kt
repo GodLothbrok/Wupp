@@ -158,7 +158,7 @@ class MainActivity : FragmentActivity() {
             val isNativeLoaded = remember { Whatsbridge.isNativeLoaded }
             if (!isNativeLoaded) {
                 WhatsAppTheme(
-                    themeMode = com.wa.beastclient.ui.theme.WuppThemeMode.DARK,
+                    themeMode = com.wa.beastclient.ui.theme.WuppThemeMode.AMOLED,
                     assetManager = assets
                 ) {
                     val colors = LocalWaColors.current

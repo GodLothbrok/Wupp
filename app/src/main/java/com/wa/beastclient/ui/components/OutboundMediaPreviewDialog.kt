@@ -1,9 +1,15 @@
 package com.wa.beastclient.ui.components
 
+import android.content.ContentValues
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.Toast
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
@@ -33,18 +39,18 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.CropRotate
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEmotions
-import androidx.compose.material.icons.rounded.Hd
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -55,8 +61,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -74,9 +82,11 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.wa.beastclient.R
 import com.wa.beastclient.data.media.OutboundQualityMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 
 data class StagedOutboundMedia(
     val file: File,
@@ -87,17 +97,12 @@ data class StagedOutboundMedia(
 )
 
 /**
- * Full-screen native WhatsApp-style pre-send editor for picked photos and videos, featuring:
- * - Freehand doodle / pen drawing with WhatsApp color palette
- * - Text overlay tool with color picker & drag placement
- * - Sticker / emoji stamp tool with drag placement
- * - 90-degree crop & rotation
- * - Photo color filters (Normal, Vivid, B&W, Cool, Warm, Vintage)
- * - Undo history stack
- * - Video playback surface for video clips
- * - HD / SD / RAW quality mode selector
- * - View-Once toggle
- * - Caption input and recipient pill
+ * Full-screen AMOLED media pre-send editor:
+ * - Left circular X close button; right uniform circular toolbar (Download, HD, Crop/Rotate, Stickers, Aa, Pen)
+ * - Clean centered overlay status text when toggling View Once or HD quality
+ * - Subtle floating Filters pill above the caption bar for photos
+ * - Bottom dark caption capsule with integrated crisp-white (1) View-Once toggle on the right
+ * - Recipient pill bottom-left + circular green Send FAB bottom-right
  */
 @Composable
 fun OutboundMediaPreviewDialog(
@@ -122,6 +127,20 @@ fun OutboundMediaPreviewDialog(
                 initialQualityMode
             }
         )
+    }
+
+    // Transient centered status notice (e.g. "Media set to view once", "HD quality enabled")
+    var statusNoticeText by remember(staged.file.absolutePath) { mutableStateOf<String?>(null) }
+    var statusNoticeSeq by remember(staged.file.absolutePath) { mutableIntStateOf(0) }
+    LaunchedEffect(statusNoticeSeq) {
+        if (statusNoticeSeq > 0) {
+            delay(2_200L)
+            statusNoticeText = null
+        }
+    }
+    val showStatusNotice: (String) -> Unit = { msg ->
+        statusNoticeText = msg
+        statusNoticeSeq += 1
     }
 
     // Photo Editing States
@@ -177,28 +196,16 @@ fun OutboundMediaPreviewDialog(
         }
     }
 
-    val sizeBadge = remember(staged.fileSize, staged.durationSec, staged.isVideo) {
-        val sizeStr = if (staged.fileSize >= 1024L * 1024L) {
-            String.format(Locale.US, "%.1f MB", staged.fileSize / (1024.0 * 1024.0))
-        } else {
-            "${maxOf(1L, staged.fileSize / 1024L)} kB"
-        }
-        if (staged.isVideo && staged.durationSec > 0) {
-            "%d:%02d · %s".format(staged.durationSec / 60, staged.durationSec % 60, sizeStr)
-        } else {
-            sizeStr
-        }
-    }
+    val hasPhotoEdits = !staged.isVideo && (
+        rotationAngle % 360 != 0 ||
+            activeFilter != PhotoFilterPreset.NORMAL ||
+            strokes.isNotEmpty() ||
+            textOverlays.isNotEmpty() ||
+            stickerOverlays.isNotEmpty()
+        )
 
     val handleSendAction: () -> Unit = {
         if (!isRendering) {
-            val hasPhotoEdits = !staged.isVideo && (
-                rotationAngle % 360 != 0 ||
-                activeFilter != PhotoFilterPreset.NORMAL ||
-                strokes.isNotEmpty() ||
-                textOverlays.isNotEmpty() ||
-                stickerOverlays.isNotEmpty()
-            )
             if (hasPhotoEdits) {
                 isRendering = true
                 scope.launch {
@@ -222,6 +229,36 @@ fun OutboundMediaPreviewDialog(
         }
     }
 
+    val handleSaveCopy: () -> Unit = {
+        if (!isRendering) {
+            scope.launch {
+                val targetFile = if (hasPhotoEdits) {
+                    isRendering = true
+                    val rendered = runCatching {
+                        renderEditedPhotoToFile(
+                            context = context,
+                            sourceFile = staged.file,
+                            rotationAngle = rotationAngle,
+                            filter = activeFilter,
+                            strokes = strokes.toList(),
+                            textOverlays = textOverlays.toList(),
+                            stickerOverlays = stickerOverlays.toList()
+                        )
+                    }.getOrDefault(staged.file)
+                    isRendering = false
+                    rendered
+                } else {
+                    staged.file
+                }
+                val saved = saveStagedPreviewToGallery(context, targetFile, staged.mimeType, staged.isVideo)
+                showStatusNotice(if (saved) "Saved to gallery" else "Could not save copy")
+            }
+        }
+    }
+
+    val darkOrbBg = Color(0xFF14171A)
+    val darkOrbBorder = Color.White.copy(alpha = 0.08f)
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -242,7 +279,7 @@ fun OutboundMediaPreviewDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 64.dp, bottom = 112.dp)
+                        .padding(top = 62.dp, bottom = 122.dp)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -263,9 +300,10 @@ fun OutboundMediaPreviewDialog(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(64.dp)
+                                .size(66.dp)
                                 .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.56f)),
+                                .background(Color(0xB8101419))
+                                .border(0.75.dp, Color.White.copy(alpha = 0.20f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -309,7 +347,7 @@ fun OutboundMediaPreviewDialog(
                     },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 64.dp, bottom = 112.dp)
+                        .padding(top = 62.dp, bottom = 122.dp)
                 )
             }
 
@@ -324,214 +362,164 @@ fun OutboundMediaPreviewDialog(
                 )
             }
 
-            // 3. Filter Carousel Bar (When Filter tool is opened)
-            if (showFilterBar && !staged.isVideo) {
-                PhotoEditorFilterBar(
-                    selectedFilter = activeFilter,
-                    onFilterSelected = { activeFilter = it },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 118.dp)
-                )
+            // 3. Subtle Floating Filters Pill / Filter Bar above caption capsule (for photos)
+            if (!staged.isVideo) {
+                if (showFilterBar) {
+                    PhotoEditorFilterBar(
+                        selectedFilter = activeFilter,
+                        onFilterSelected = { activeFilter = it },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 132.dp)
+                    )
+                } else {
+                    val filterInteraction = remember { MutableInteractionSource() }
+                    val filterActive = activeFilter != PhotoFilterPreset.NORMAL
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 128.dp)
+                            .expressivePressScale(filterInteraction, pressedScale = 0.94f)
+                            .clip(CircleShape)
+                            .background(Color(0x99161A1E))
+                            .border(
+                                width = 0.65.dp,
+                                color = if (filterActive) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.14f),
+                                shape = CircleShape
+                            )
+                            .clickable(
+                                interactionSource = filterInteraction,
+                                indication = null
+                            ) { showFilterBar = true }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = "Filters",
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (filterActive) "Filter · ${activeFilter.label}" else "Filters",
+                            color = Color.White,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
 
-            // 4. Top Action Toolbar: Close + Editor Tools + Quality Badge
-            Column(
+            // 4. Clean Centered Overlay Notice ("Media set to view once", "HD quality enabled")
+            AnimatedVisibility(
+                visible = statusNoticeText != null,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(240)),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                statusNoticeText?.let { notice ->
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.42f))
+                            .padding(horizontal = 16.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = notice,
+                            color = Color.White.copy(alpha = 0.94f),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            style = TextStyle(
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    offset = Offset(0f, 1.5f),
+                                    blurRadius = 6f
+                                )
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 5. Top Action Toolbar: Left X + Right 6 Uniform Circular Orbs (Download, HD, Rotate, Stickers, Aa, Pen)
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.76f), Color.Transparent)
+                            listOf(Color.Black.copy(alpha = 0.80f), Color.Transparent)
                         )
                     )
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                PreviewGlassOrbButton(
+                    onClick = onDismiss,
+                    bgColor = darkOrbBg,
+                    borderColor = darkOrbBorder
                 ) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.14f))
-                    ) {
-                        Icon(Icons.Rounded.Close, "Close", tint = Color.White)
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.weight(1f))
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color.White.copy(alpha = 0.14f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = sizeBadge,
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Photo-Specific WhatsApp Editor Tools
-                    if (!staged.isVideo) {
-                        // Undo Button
-                        IconButton(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    // Undo button (only appears when there are photo edits)
+                    if (!staged.isVideo && undoStack.isNotEmpty()) {
+                        PreviewGlassOrbButton(
                             onClick = {
                                 val lastAction = undoStack.removeLastOrNull()
                                 if (lastAction != null) {
                                     applyUndoAction(lastAction, strokes, textOverlays, stickerOverlays)
                                 }
                             },
-                            enabled = undoStack.isNotEmpty(),
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = if (undoStack.isNotEmpty()) 0.18f else 0.08f))
+                            bgColor = darkOrbBg,
+                            borderColor = darkOrbBorder
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.Undo,
                                 contentDescription = "Undo",
-                                tint = if (undoStack.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.size(18.dp)
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
                             )
                         }
-
-                        Spacer(modifier = Modifier.width(5.dp))
-
-                        // Crop / Rotate 90° Clockwise
-                        IconButton(
-                            onClick = { rotationAngle = (rotationAngle + 90) % 360 },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (rotationAngle % 360 != 0) Color(0xFF25D366).copy(alpha = 0.28f)
-                                    else Color.White.copy(alpha = 0.14f)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CropRotate,
-                                contentDescription = "Rotate",
-                                tint = if (rotationAngle % 360 != 0) Color(0xFF25D366) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(5.dp))
-
-                        // Sticker / Emoji Tool
-                        IconButton(
-                            onClick = { showEmojiSheet = true },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (stickerOverlays.isNotEmpty()) Color(0xFF25D366).copy(alpha = 0.28f)
-                                    else Color.White.copy(alpha = 0.14f)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.EmojiEmotions,
-                                contentDescription = "Stickers",
-                                tint = if (stickerOverlays.isNotEmpty()) Color(0xFF25D366) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(5.dp))
-
-                        // Text Tool (T)
-                        IconButton(
-                            onClick = { showTextInputDialog = true },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (textOverlays.isNotEmpty()) Color(0xFF25D366).copy(alpha = 0.28f)
-                                    else Color.White.copy(alpha = 0.14f)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.TextFields,
-                                contentDescription = "Text",
-                                tint = if (textOverlays.isNotEmpty()) Color(0xFF25D366) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(5.dp))
-
-                        // Pen / Doodle Drawing Tool
-                        IconButton(
-                            onClick = { isPenActive = !isPenActive },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isPenActive) Color(0xFF25D366)
-                                    else Color.White.copy(alpha = 0.14f)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Edit,
-                                contentDescription = "Pen",
-                                tint = if (isPenActive) Color(0xFF0B141A) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(5.dp))
-
-                        // Filters Tool
-                        IconButton(
-                            onClick = { showFilterBar = !showFilterBar },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (showFilterBar || activeFilter != PhotoFilterPreset.NORMAL) Color(0xFF25D366).copy(alpha = 0.28f)
-                                    else Color.White.copy(alpha = 0.14f)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = "Filters",
-                                tint = if (showFilterBar || activeFilter != PhotoFilterPreset.NORMAL) Color(0xFF25D366) else Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(5.dp))
                     }
 
-                    // HD Quality Toggle Badge
+                    // Download / Save copy button (matches ↓ icon in top toolbar)
+                    PreviewGlassOrbButton(
+                        onClick = handleSaveCopy,
+                        bgColor = darkOrbBg,
+                        borderColor = darkOrbBorder
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = "Save copy",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Monochrome Boxed HD / RAW / SD Quality Orb
                     val isHdActive = qualityMode != OutboundQualityMode.STANDARD
-                    val qualityPillLabel = when {
+                    val qualityBadgeLabel = when {
                         staged.isVideo -> "HD"
                         qualityMode == OutboundQualityMode.ORIGINAL -> "RAW"
-                        qualityMode == OutboundQualityMode.HD -> "HD"
-                        else -> "SD"
+                        else -> "HD"
                     }
-                    Row(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(
-                                if (isHdActive) Color(0xFF25D366).copy(alpha = 0.22f)
-                                else Color.White.copy(alpha = 0.14f)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = if (isHdActive) Color(0xFF25D366) else Color.White.copy(alpha = 0.45f),
-                                shape = CircleShape
-                            )
-                            .clickable(enabled = !staged.isVideo) {
+                    val hdColor = if (isHdActive) Color.White else Color.White.copy(alpha = 0.48f)
+                    PreviewGlassOrbButton(
+                        onClick = {
+                            if (!staged.isVideo) {
                                 qualityMode = when (qualityMode) {
                                     OutboundQualityMode.STANDARD -> OutboundQualityMode.HD
                                     OutboundQualityMode.HD -> if (isViewOnce) OutboundQualityMode.STANDARD else OutboundQualityMode.ORIGINAL
@@ -539,58 +527,155 @@ fun OutboundMediaPreviewDialog(
                                     OutboundQualityMode.STICKER,
                                     OutboundQualityMode.GIF -> OutboundQualityMode.STANDARD
                                 }
+                                showStatusNotice(
+                                    when (qualityMode) {
+                                        OutboundQualityMode.HD -> "Photo set to HD quality"
+                                        OutboundQualityMode.ORIGINAL -> "Photo set to original quality"
+                                        else -> "Photo set to standard quality"
+                                    }
+                                )
                             }
-                            .padding(horizontal = 9.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        },
+                        enabled = !staged.isVideo,
+                        bgColor = darkOrbBg,
+                        borderColor = if (isHdActive) Color.White.copy(alpha = 0.24f) else darkOrbBorder
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Hd,
-                            contentDescription = "Quality",
-                            tint = if (isHdActive) Color(0xFF25D366) else Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = qualityPillLabel,
-                            color = if (isHdActive) Color(0xFF25D366) else Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .border(
+                                    width = 1.25.dp,
+                                    color = hdColor,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 3.5.dp, vertical = 1.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = qualityBadgeLabel,
+                                color = hdColor,
+                                fontSize = if (qualityBadgeLabel.length > 2) 8.sp else 9.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.2).sp
+                            )
+                        }
+                    }
+
+                    if (!staged.isVideo) {
+                        // Crop / Rotate 90°
+                        val isRotated = rotationAngle % 360 != 0
+                        PreviewGlassOrbButton(
+                            onClick = { rotationAngle = (rotationAngle + 90) % 360 },
+                            bgColor = darkOrbBg,
+                            borderColor = if (isRotated) Color.White.copy(alpha = 0.28f) else darkOrbBorder
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CropRotate,
+                                contentDescription = "Crop and rotate",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Stickers / Emoji Tool
+                        val hasStickers = stickerOverlays.isNotEmpty()
+                        PreviewGlassOrbButton(
+                            onClick = { showEmojiSheet = true },
+                            bgColor = darkOrbBg,
+                            borderColor = if (hasStickers) Color.White.copy(alpha = 0.28f) else darkOrbBorder
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.EmojiEmotions,
+                                contentDescription = "Stickers",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Text Overlay Tool (Aa)
+                        val hasText = textOverlays.isNotEmpty()
+                        PreviewGlassOrbButton(
+                            onClick = { showTextInputDialog = true },
+                            bgColor = darkOrbBg,
+                            borderColor = if (hasText) Color.White.copy(alpha = 0.28f) else darkOrbBorder
+                        ) {
+                            Text(
+                                text = "Aa",
+                                color = Color.White,
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = (-0.3).sp
+                            )
+                        }
+
+                        // Pen / Doodle Drawing Tool
+                        PreviewGlassOrbButton(
+                            onClick = {
+                                isPenActive = !isPenActive
+                                if (isPenActive) showFilterBar = false
+                            },
+                            bgColor = if (isPenActive) Color.White else darkOrbBg,
+                            borderColor = if (isPenActive) Color.White else darkOrbBorder
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = "Draw",
+                                tint = if (isPenActive) Color.Black else Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // 5. Bottom Caption Input + View Once + Send FAB
+            // 6. Bottom 2-Row Controls:
+            //    Row 1: Full-width dark AMOLED caption capsule with crisp white (1) View-Once button inside right edge
+            //    Row 2: Subtle dark recipient pill on left + circular green Send button on right
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.84f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))
                         )
                     )
                     .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Row 1: Caption capsule + integrated (1) View Once button
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp, max = 112.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(Color(0xFF121518))
+                        .border(
+                            width = 0.6.dp,
+                            color = Color.White.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(26.dp)
+                        )
+                        .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Collections,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.42f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 46.dp, max = 110.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color(0xFF1F2C34).copy(alpha = 0.92f))
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(vertical = 4.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (caption.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.chat_media_add_caption),
-                                color = Color(0xFF8696A0),
-                                fontSize = 15.sp
+                                color = Color(0xFFA0A8B0),
+                                fontSize = 15.5.sp
                             )
                         }
                         BasicTextField(
@@ -598,7 +683,7 @@ fun OutboundMediaPreviewDialog(
                             onValueChange = { caption = it },
                             textStyle = TextStyle(
                                 color = Color.White,
-                                fontSize = 15.sp,
+                                fontSize = 15.5.sp,
                                 lineHeight = 20.sp
                             ),
                             cursorBrush = SolidColor(Color(0xFF25D366)),
@@ -606,81 +691,103 @@ fun OutboundMediaPreviewDialog(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // View-Once (1) Toggle Pill
+                    // Integrated View-Once (1) button inside right end of caption capsule
+                    val voInteraction = remember { MutableInteractionSource() }
+                    val voBg by animateColorAsState(
+                        targetValue = if (isViewOnce) Color.White else Color.Transparent,
+                        animationSpec = tween(160),
+                        label = "view_once_bg"
+                    )
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(28.dp)
+                            .expressivePressScale(voInteraction, pressedScale = 0.88f)
                             .clip(CircleShape)
-                            .background(
-                                if (isViewOnce) Color(0xFF25D366).copy(alpha = 0.24f)
-                                else Color(0xFF1F2C34).copy(alpha = 0.92f)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = if (isViewOnce) Color(0xFF25D366) else Color.White.copy(alpha = 0.35f),
-                                shape = CircleShape
-                            )
-                            .clickable {
+                            .background(voBg)
+                            .clickable(
+                                interactionSource = voInteraction,
+                                indication = null
+                            ) {
                                 isViewOnce = !isViewOnce
                                 if (isViewOnce && qualityMode == OutboundQualityMode.ORIGINAL) {
                                     qualityMode = OutboundQualityMode.HD
                                 }
-                                val kind = if (staged.isVideo) "Video" else "Photo"
-                                val msg = if (isViewOnce) "$kind set to view once" else "View once off"
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                showStatusNotice(
+                                    if (isViewOnce) "Media set to view once" else "View once turned off"
+                                )
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(R.drawable.vec_ic_view_once),
-                            contentDescription = "View once",
-                            tint = if (isViewOnce) Color(0xFF25D366) else Color.White,
-                            modifier = Modifier.size(21.dp)
-                        )
+                        if (isViewOnce) {
+                            Text(
+                                text = "1",
+                                color = Color(0xFF0A0D10),
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(R.drawable.vec_ic_view_once),
+                                contentDescription = "View once",
+                                tint = Color.White.copy(alpha = 0.86f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Row 2: Recipient Pill (left) + Circular Vibrant Green Send Button (right)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    if (recipientLabel.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color(0xFF14171A))
+                                .padding(horizontal = 15.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = recipientLabel,
+                                color = Color(0xFF8C969E),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Send Action FAB
+                    val sendInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(50.dp)
+                            .expressivePressScale(sendInteraction, pressedScale = 0.90f)
                             .clip(CircleShape)
                             .background(Color(0xFF25D366))
-                            .clickable { handleSendAction() },
+                            .clickable(
+                                interactionSource = sendInteraction,
+                                indication = null
+                            ) { handleSendAction() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.Send,
                             contentDescription = "Send",
-                            tint = Color(0xFF0B141A),
+                            tint = Color(0xFF07130C),
                             modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-
-                if (recipientLabel.isNotBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF1F2C34))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = recipientLabel,
-                            color = Color(0xFFE9EDEF),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
 
-            // 6. Text Overlay Input Modal
+            // 7. Text Overlay Input Modal
             if (showTextInputDialog) {
                 PhotoEditorTextInputDialog(
                     onDismiss = { showTextInputDialog = false },
@@ -693,7 +800,7 @@ fun OutboundMediaPreviewDialog(
                 )
             }
 
-            // 7. Sticker / Emoji Picker Sheet
+            // 8. Sticker / Emoji Picker Sheet
             if (showEmojiSheet) {
                 PhotoEditorEmojiSheet(
                     onDismiss = { showEmojiSheet = false },
@@ -705,12 +812,12 @@ fun OutboundMediaPreviewDialog(
                 )
             }
 
-            // 8. Background Rendering Indicator
+            // 9. Background Rendering Indicator
             if (isRendering) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.65f)),
+                        .background(Color.Black.copy(alpha = 0.68f)),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(
@@ -720,5 +827,67 @@ fun OutboundMediaPreviewDialog(
                 }
             }
         }
+    }
+}
+
+private suspend fun saveStagedPreviewToGallery(
+    context: Context,
+    file: File,
+    mimeType: String,
+    isVideo: Boolean
+): Boolean = withContext(Dispatchers.IO) {
+    runCatching {
+        val ext = file.extension.ifBlank { if (isVideo) "mp4" else "jpg" }
+        val displayName = "WUPP_${System.currentTimeMillis()}.$ext"
+        val resolvedMime = mimeType.ifBlank { if (isVideo) "video/mp4" else "image/jpeg" }
+        val collection = if (isVideo) {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, resolvedMime)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    if (isVideo) "${Environment.DIRECTORY_MOVIES}/Wupp" else "${Environment.DIRECTORY_PICTURES}/Wupp"
+                )
+            }
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(collection, values) ?: return@runCatching false
+        resolver.openOutputStream(uri)?.use { out ->
+            file.inputStream().use { input -> input.copyTo(out) }
+        } ?: return@runCatching false
+        true
+    }.getOrDefault(false)
+}
+
+@Composable
+private fun PreviewGlassOrbButton(
+    onClick: () -> Unit,
+    bgColor: Color,
+    borderColor: Color,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .size(41.dp)
+            .expressivePressScale(interactionSource, pressedScale = 0.88f)
+            .clip(CircleShape)
+            .background(bgColor)
+            .border(0.6.dp, borderColor, CircleShape)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
     }
 }

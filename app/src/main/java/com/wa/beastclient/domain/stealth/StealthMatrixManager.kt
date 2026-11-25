@@ -98,7 +98,7 @@ data class GlobalStealthConfig(
     val hideTypingRecording: Boolean = true,
     val antiDeleteEnabled: Boolean = true,
     val disappearingImmunity: Boolean = true,
-    val themeMode: WuppThemeMode = WuppThemeMode.DARK,
+    val themeMode: WuppThemeMode = WuppThemeMode.AMOLED,
     val accentColor: WuppAccentColor = WuppAccentColor.DEFAULT,
     val useSystemFont: Boolean = false,
     val quickReactionEmojis: List<String> = StealthMatrixManager.DEFAULT_QUICK_REACTIONS,

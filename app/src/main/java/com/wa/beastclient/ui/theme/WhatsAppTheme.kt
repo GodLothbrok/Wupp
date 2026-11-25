@@ -53,7 +53,7 @@ enum class WuppThemeMode(
     companion object {
         fun fromStorageKey(key: String?, legacyDarkFallback: Boolean): WuppThemeMode {
             entries.firstOrNull { it.storageKey.equals(key, ignoreCase = true) }?.let { return it }
-            return if (legacyDarkFallback) DARK else LIGHT
+            return if (legacyDarkFallback) AMOLED else LIGHT
         }
     }
 }
@@ -261,21 +261,21 @@ val WaAmoledColors = WaColors(
     isDark = true,
     chatCanvas = Color(0xFF000000),
     appSurface = Color(0xFF000000),
-    elevatedBar = Color(0xFF0B0F12),
-    outgoingBubble = Color(0xFF004D40),
-    incomingBubble = Color(0xFF12171B),
+    elevatedBar = Color(0xFF121518),
+    outgoingBubble = Color(0xFF005C4B),
+    incomingBubble = Color(0xFF1C1F24),
     accentGreen = Color(0xFF00C49A),
     brightGreen = Color(0xFF25D366),
     blueTick = Color(0xFF53BDEB),
-    textPrimary = Color(0xFFF3F6F8),
-    textSecondary = Color(0xFF82919C),
-    pillActiveBg = Color(0xFF072B24),
+    textPrimary = Color(0xFFF5F7FA),
+    textSecondary = Color(0xFF8C969E),
+    pillActiveBg = Color(0xFF0A332B),
     pillActiveText = Color(0xFF2FE676),
-    pillInactiveBg = Color(0xFF12171B),
+    pillInactiveBg = Color(0xFF16191D),
     antiDeleteRed = Color(0xFFFF5C72),
     warningAmber = Color(0xFFFFB74D),
-    quotedBg = Color(0x38000000),
-    divider = Color(0xFF182026),
+    quotedBg = Color(0x3D000000),
+    divider = Color(0xFF1F2329),
     mediaScrim = Color(0x80000000),
     doodleColor = Color(0xFFCBD5E1),
     doodleTintAlpha = 0.045f
@@ -557,7 +557,7 @@ fun colorsForTheme(
     return resolved
 }
 
-val LocalWaColors = staticCompositionLocalOf { WaDarkColors }
+val LocalWaColors = staticCompositionLocalOf { WaAmoledColors }
 val LocalWaMonoFamily = staticCompositionLocalOf<FontFamily> { FontFamily.Monospace }
 val LocalWuppShowSeconds = staticCompositionLocalOf { false }
 val LocalWuppUse24Hour = staticCompositionLocalOf { false }
@@ -568,7 +568,7 @@ val LocalWuppBubbleRadiusDp = staticCompositionLocalOf { 17 }
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WhatsAppTheme(
-    themeMode: WuppThemeMode = WuppThemeMode.DARK,
+    themeMode: WuppThemeMode = WuppThemeMode.AMOLED,
     accentColor: WuppAccentColor = WuppAccentColor.DEFAULT,
     pureBlackOled: Boolean = false,
     dynamicColors: Boolean = false,

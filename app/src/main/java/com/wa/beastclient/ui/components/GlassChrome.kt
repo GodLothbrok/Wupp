@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -27,8 +28,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Campaign
@@ -182,7 +185,7 @@ fun WuppGlassContainer(
         isDark = colors.isDark,
         renderEffectSupported = hasLiveBackdrop
     )
-    val surfaceTint = if (colors.isDark) Color(0xFF141E24) else Color(0xFFF6F9F7)
+    val surfaceTint = if (colors.isDark) Color(0xFF151A20) else Color(0xFFF7F9FC)
 
     Box(
         modifier = modifier
@@ -227,6 +230,205 @@ fun WuppGlassContainer(
         contentAlignment = contentAlignment
     ) {
         content()
+    }
+}
+
+/**
+ * Circular Liquid Glass icon button with spring press feedback and subtle specular rim,
+ * used in floating headers, chat actions, scroll-to-bottom orb, and companion nav buttons.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun WuppGlassCircleButton(
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    imageVector: ImageVector? = null,
+    drawableRes: Int? = null,
+    size: Dp = 38.dp,
+    iconSize: Dp = 20.dp,
+    tint: Color? = null,
+    accentFill: Boolean = false,
+    backdropState: WuppBackdropState? = null,
+    classicMode: Boolean = LocalWuppClassicUi.current,
+    enabled: Boolean = true
+) {
+    val colors = LocalWaColors.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val resolvedTint = tint ?: if (accentFill) {
+        colors.brightGreen.contrastingContentColor()
+    } else {
+        colors.textPrimary
+    }
+
+    if (accentFill) {
+        Box(
+            modifier = modifier
+                .size(size)
+                .expressivePressScale(interactionSource, pressedScale = 0.90f)
+                .shadow(
+                    elevation = if (classicMode) 3.dp else 10.dp,
+                    shape = CircleShape,
+                    ambientColor = colors.brightGreen.copy(alpha = 0.32f),
+                    spotColor = colors.brightGreen.copy(alpha = 0.36f)
+                )
+                .clip(CircleShape)
+                .background(colors.brightGreen)
+                .border(
+                    width = 0.65.dp,
+                    color = Color.White.copy(alpha = 0.28f),
+                    shape = CircleShape
+                )
+                .clickable(
+                    enabled = enabled,
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (drawableRes != null) {
+                Icon(
+                    painter = painterResource(drawableRes),
+                    contentDescription = contentDescription,
+                    tint = resolvedTint,
+                    modifier = Modifier.size(iconSize)
+                )
+            } else if (imageVector != null) {
+                Icon(
+                    imageVector = imageVector,
+                    contentDescription = contentDescription,
+                    tint = resolvedTint,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+        return
+    }
+
+    WuppGlassContainer(
+        modifier = modifier
+            .size(size)
+            .expressivePressScale(interactionSource, pressedScale = 0.90f)
+            .clip(CircleShape)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        colors = colors,
+        shape = CircleShape,
+        elevation = if (size >= 48.dp) 14.dp else 6.dp,
+        backdropState = backdropState,
+        blurRadius = if (size >= 48.dp) 9.dp else 7.dp,
+        refractionHeight = if (size >= 48.dp) 12.dp else 8.dp,
+        refractionAmount = if (size >= 48.dp) 22.dp else 14.dp,
+        classicMode = classicMode,
+        contentAlignment = Alignment.Center
+    ) {
+        if (drawableRes != null) {
+            Icon(
+                painter = painterResource(drawableRes),
+                contentDescription = contentDescription,
+                tint = resolvedTint,
+                modifier = Modifier.size(iconSize)
+            )
+        } else if (imageVector != null) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                tint = resolvedTint,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+    }
+}
+
+/**
+ * Floating translucent Liquid Glass top bar with live backdrop blur and a razor-thin bottom hairline.
+ * Falls back cleanly to a flat elevated bar in Classic mode.
+ */
+@Composable
+fun WuppGlassTopBar(
+    modifier: Modifier = Modifier,
+    backdropState: WuppBackdropState? = null,
+    classicMode: Boolean = LocalWuppClassicUi.current,
+    showBottomDivider: Boolean = true,
+    height: Dp = 54.dp,
+    leading: @Composable RowScope.() -> Unit = {},
+    center: @Composable BoxScope.() -> Unit = {},
+    trailing: @Composable RowScope.() -> Unit = {}
+) {
+    val colors = LocalWaColors.current
+    val hasLiveBackdrop = !classicMode && backdropState != null && isRenderEffectSupported()
+    val backdrop: Backdrop = backdropState?.backdrop ?: emptyBackdrop()
+    val barTint = if (colors.isDark) Color(0xFF0A0D10) else Color(0xFFF6F8FA)
+    val barAlpha = when {
+        classicMode -> 1f
+        hasLiveBackdrop -> if (colors.isDark) 0.64f else 0.74f
+        else -> if (colors.isDark) 0.92f else 0.96f
+    }
+
+    val barModifier = if (classicMode) {
+        modifier
+            .fillMaxWidth()
+            .background(colors.appSurface)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { RectangleShape },
+                effects = {
+                    if (hasLiveBackdrop) {
+                        vibrancy()
+                        blur(12.dp.toPx())
+                    }
+                },
+                onDrawSurface = {
+                    drawRect(barTint.copy(alpha = barAlpha))
+                }
+            )
+    }
+
+    Column(modifier = barModifier.statusBarsPadding()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier.align(Alignment.CenterStart),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                content = leading
+            )
+            Box(
+                modifier = Modifier.align(Alignment.Center),
+                contentAlignment = Alignment.Center,
+                content = center
+            )
+            Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                content = trailing
+            )
+        }
+        if (showBottomDivider) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .background(
+                        if (colors.isDark) Color.White.copy(alpha = 0.08f)
+                        else colors.divider
+                    )
+            )
+        }
     }
 }
 
@@ -278,6 +480,11 @@ fun WuppGlassNavBar(
     communitiesLabel: String = "Communities",
     callsLabel: String = "Calls",
     settingsLabel: String = "Settings",
+    trailingActionIcon: ImageVector? = null,
+    trailingActionDrawableRes: Int? = null,
+    trailingActionDescription: String = "",
+    trailingActionAccentFill: Boolean = false,
+    onTrailingActionClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = LocalWaColors.current
@@ -506,6 +713,7 @@ fun WuppGlassNavBar(
         }
     }
 
+    val hasTrailingOrb = !classicMode && onTrailingActionClick != null && (trailingActionIcon != null || trailingActionDrawableRes != null)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -517,12 +725,25 @@ fun WuppGlassNavBar(
                 )
             )
             .navigationBarsPadding()
-            .padding(horizontal = if (sevenTabs) 4.dp else if (sixTabs) 6.dp else if (fiveTabs) 10.dp else 14.dp, vertical = 10.dp)
+            .padding(
+                horizontal = when {
+                    sevenTabs -> 4.dp
+                    sixTabs -> 6.dp
+                    fiveTabs -> 10.dp
+                    else -> 12.dp
+                },
+                vertical = 10.dp
+            )
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
         BoxWithConstraints(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp)
+                .weight(1f)
+                .height(62.dp)
                 .graphicsLayer { translationX = panelOffsetPx }
                 .drawBackdrop(
                     backdrop = outerBackdrop,
@@ -749,6 +970,20 @@ fun WuppGlassNavBar(
                         }
                     )
             )
+        }
+        if (hasTrailingOrb) {
+            WuppGlassCircleButton(
+                onClick = { onTrailingActionClick?.invoke() },
+                contentDescription = trailingActionDescription.ifBlank { "Quick action" },
+                imageVector = trailingActionIcon,
+                drawableRes = trailingActionDrawableRes,
+                size = 56.dp,
+                iconSize = 23.dp,
+                accentFill = trailingActionAccentFill,
+                backdropState = backdropState,
+                classicMode = false
+            )
+        }
         }
     }
 }

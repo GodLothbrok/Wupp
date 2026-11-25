@@ -284,10 +284,13 @@ fun FirstInstallSetupScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                val setupCardBorder = if (colors.isDark) Color.White.copy(alpha = 0.07f) else colors.divider
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     color = colors.elevatedBar,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(0.65.dp, setupCardBorder, RoundedCornerShape(18.dp))
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         SetupChecklistRow(

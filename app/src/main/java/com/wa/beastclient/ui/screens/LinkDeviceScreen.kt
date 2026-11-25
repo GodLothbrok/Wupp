@@ -215,56 +215,51 @@ fun LinkDeviceScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Material 3 Expressive connected toggle button group (QR code vs Phone number)
-            val toggleColors = ToggleButtonDefaults.colors(
-                containerColor = colors.elevatedBar,
-                contentColor = colors.textSecondary,
-                checkedContainerColor = colors.pillActiveBg,
-                checkedContentColor = colors.pillActiveText
-            )
+            // Clean segmented pill control (QR code vs Phone number)
+            val segBorder = if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.elevatedBar)
+                    .border(0.65.dp, segBorder, RoundedCornerShape(16.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                ToggleButton(
-                    checked = selectedMode == 0,
-                    onCheckedChange = { if (it) selectedMode = 0 },
-                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                    colors = toggleColors,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.QrCode2,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.link_mode_qr),
-                        fontSize = 13.5.sp,
-                        fontWeight = if (selectedMode == 0) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-                ToggleButton(
-                    checked = selectedMode == 1,
-                    onCheckedChange = { if (it) selectedMode = 1 },
-                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                    colors = toggleColors,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PhoneAndroid,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.link_mode_phone),
-                        fontSize = 13.5.sp,
-                        fontWeight = if (selectedMode == 1) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1
-                    )
+                val modes = listOf(
+                    Triple(0, Icons.Rounded.QrCode2, stringResource(R.string.link_mode_qr)),
+                    Triple(1, Icons.Rounded.PhoneAndroid, stringResource(R.string.link_mode_phone))
+                )
+                modes.forEach { (idx, icon, label) ->
+                    val active = selectedMode == idx
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (active) colors.accentGreen.copy(alpha = if (colors.isDark) 0.22f else 0.16f)
+                                else Color.Transparent
+                            )
+                            .clickable { selectedMode = idx }
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = if (active) colors.accentGreen else colors.textSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = label,
+                            color = if (active) colors.accentGreen else colors.textSecondary,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
