@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -66,6 +67,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.automirrored.rounded.CallMissed
 import androidx.compose.material.icons.automirrored.rounded.CallReceived
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Archive
@@ -85,10 +87,13 @@ import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Dialpad
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Flight
 import androidx.compose.material.icons.rounded.FormatSize
@@ -100,6 +105,7 @@ import androidx.compose.material.icons.rounded.KeyboardReturn
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
@@ -111,8 +117,10 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SignalCellularAlt
+import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Translate
@@ -296,7 +304,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** Returns the bottom-bar tab IDs in swipeable left-to-right order. */
+/** Returns the bottom-bar tab IDs in swipeable left-to-right Wupp order. */
 internal fun resolveHomeTabOrder(
     separateGroupsAndChats: Boolean,
     separateChannelsTab: Boolean = false
@@ -421,8 +429,7 @@ fun HomeScreen(
         }
     }
 
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
-    var updatesFabExpanded by rememberSaveable { mutableStateOf(false) }
+    var editProfileRequestNonce by remember { mutableIntStateOf(0) }
     var overflowExpanded by remember { mutableStateOf(false) }
     var showPairingDialog by remember { mutableStateOf(false) }
     var showQuickContactPicker by remember { mutableStateOf(false) }
@@ -610,9 +617,6 @@ fun HomeScreen(
             selectedChatJids = emptySet()
             selectionOverflowExpanded = false
         }
-        if (currentTab != 1 && updatesFabExpanded) {
-            updatesFabExpanded = false
-        }
     }
 
     BackHandler(enabled = peekChat != null) {
@@ -778,46 +782,320 @@ fun HomeScreen(
                         }
                     )
                 } else {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.appSurface,
-                        titleContentColor = if (colors.isDark) colors.textPrimary else colors.accentGreen
-                    ),
-                    title = {
-                        if (currentTab == 0) {
-                            val badge = resolveTopBarConnectionBadge(
-                                connectionState = bridgeStatus.connectionState,
-                                offlineMode = stealth.offlineMode
-                            )
-                            val statusColor by animateColorAsState(
-                                targetValue = when (badge.tone) {
-                                    TopBarStatusTone.LIVE -> colors.brightGreen
-                                    TopBarStatusTone.SYNCING -> colors.warningAmber
-                                    TopBarStatusTone.OFFLINE -> Color(0xFFE53935)
-                                    TopBarStatusTone.IDLE -> colors.textSecondary.copy(alpha = 0.55f)
-                                },
-                                animationSpec = motionScheme.fastEffectsSpec(),
-                                label = "top_bar_status_dot"
-                            )
-                            val showBadge = !stealth.hideStealthStatusBadges ||
-                                badge.tone == TopBarStatusTone.OFFLINE
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(9.dp)
-                            ) {
-                                Image(
-                                    painter = painterResource(R.drawable.wupp_logo),
-                                    contentDescription = "Wupp",
+                val iosCircleBg = if (colors.isDark) Color(0xFF1F2024) else Color(0xFFEBEBF0)
+                val showCollapsedSettingsTitle = currentTab == 3 &&
+                    (toolsListState.firstVisibleItemIndex > 0 || toolsListState.firstVisibleItemScrollOffset > 120)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.appSurface)
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    // Row 1: iOS circular utility bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                    ) {
+                        // Left circular control
+                        Box(modifier = Modifier.align(Alignment.CenterStart)) {
+                            if (currentTab == 3) {
+                                Box(
                                     modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(RoundedCornerShape(9.dp))
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(iosCircleBg)
+                                        .clickable { showThemePickerDialog = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Palette,
+                                        contentDescription = "Theme",
+                                        tint = colors.textPrimary,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(iosCircleBg)
+                                        .clickable { overflowExpanded = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.MoreHoriz,
+                                        contentDescription = "Menu",
+                                        tint = colors.textPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = overflowExpanded,
+                                    onDismissRequest = { overflowExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("New chat") },
+                                        leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showQuickContactPicker = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Linked devices") },
+                                        leadingIcon = { Icon(Icons.Rounded.QrCode2, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showPairingDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Switch account") },
+                                        leadingIcon = { Icon(Icons.Rounded.ManageAccounts, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showAccountSwitcherSheet = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Starred messages") },
+                                        leadingIcon = { Icon(Icons.Rounded.StarOutline, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            viewModel.selectFilter(HomeFilterChip.FAVORITES)
+                                            onSelectTab(0)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (includeArchived) stringResource(R.string.home_back_to_active_chats)
+                                                else stringResource(R.string.home_archived_chats)
+                                            )
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.Archive, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            viewModel.toggleArchivedIncluded()
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.nav_settings)) },
+                                        leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            onSelectTab(3)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Check for updates") },
+                                        leadingIcon = { Icon(Icons.Rounded.SystemUpdate, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            viewModel.checkForUpdates(silent = false)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Report bug / Feedback") },
+                                        leadingIcon = { Icon(Icons.Rounded.BugReport, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            activeFeedbackType = GitHubFeedbackType.BUG
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Theme · ${stealth.themeMode.label}") },
+                                        leadingIcon = { Icon(Icons.Rounded.Palette, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showThemePickerDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Message history") },
+                                        leadingIcon = { Icon(Icons.Rounded.History, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            messageHistoryChatFilter = null
+                                            showMessageHistorySheet = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Scheduled messages") },
+                                        leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showScheduledSheet = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Media vault") },
+                                        leadingIcon = { Icon(Icons.Rounded.Shield, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showMediaVaultSheet = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Sticker studio") },
+                                        leadingIcon = { Icon(Icons.Rounded.AutoFixHigh, null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            showStickerStudioDialog = true
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Centered scrolled title on You / Settings tab
+                        if (showCollapsedSettingsTitle) {
+                            Text(
+                                text = stringResource(R.string.nav_settings),
+                                color = colors.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
+
+                        // Right circular controls
+                        Row(
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            when (currentTab) {
+                                0, 4 -> {
+                                    if (!stealth.hideHomeCameraShortcut) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(iosCircleBg)
+                                                .clickable { showPairingDialog = true },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.vec_ic_camera_reply),
+                                                contentDescription = "Camera",
+                                                tint = colors.textPrimary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.brightGreen)
+                                            .clickable { showQuickContactPicker = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Add,
+                                            contentDescription = "New Chat",
+                                            tint = colors.brightGreen.contrastingContentColor(),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                5 -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(iosCircleBg)
+                                            .clickable { showQuickContactPicker = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Add,
+                                            contentDescription = "New Call",
+                                            tint = colors.textPrimary,
+                                            modifier = Modifier.size(21.dp)
+                                        )
+                                    }
+                                }
+                                3 -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(iosCircleBg)
+                                            .clickable { showAccountSwitcherSheet = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Add,
+                                            contentDescription = "Switch account",
+                                            tint = colors.textPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(iosCircleBg)
+                                            .clickable { editProfileRequestNonce++ },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Edit,
+                                            contentDescription = "Edit profile",
+                                            tint = colors.textPrimary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Row 2: Large bold iOS section title (omitted on You tab which uses centered Profile Hero)
+                    if (currentTab != 3) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            val titleText = when (currentTab) {
+                                0 -> stringResource(R.string.nav_chats)
+                                4 -> stringResource(R.string.nav_groups)
+                                1 -> stringResource(R.string.nav_updates)
+                                6 -> stringResource(R.string.nav_channels)
+                                2 -> stringResource(R.string.nav_communities)
+                                else -> stringResource(R.string.nav_calls)
+                            }
+                            Text(
+                                text = titleText,
+                                color = colors.textPrimary,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.7).sp
+                            )
+                            if (currentTab == 0) {
+                                val badge = resolveTopBarConnectionBadge(
+                                    connectionState = bridgeStatus.connectionState,
+                                    offlineMode = stealth.offlineMode
                                 )
-                                Text(
-                                    text = "Wupp",
-                                    fontSize = 25.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = (-0.5).sp
+                                val statusColor by animateColorAsState(
+                                    targetValue = when (badge.tone) {
+                                        TopBarStatusTone.LIVE -> colors.brightGreen
+                                        TopBarStatusTone.SYNCING -> colors.warningAmber
+                                        TopBarStatusTone.OFFLINE -> Color(0xFFE53935)
+                                        TopBarStatusTone.IDLE -> colors.textSecondary.copy(alpha = 0.55f)
+                                    },
+                                    animationSpec = motionScheme.fastEffectsSpec(),
+                                    label = "top_bar_status_dot"
                                 )
+                                val showBadge = !stealth.hideStealthStatusBadges ||
+                                    badge.tone == TopBarStatusTone.OFFLINE
                                 if (showBadge) {
                                     Row(
                                         modifier = Modifier
@@ -859,189 +1137,10 @@ fun HomeScreen(
                                     }
                                 }
                             }
-                        } else {
-                            Text(
-                                text = when (currentTab) {
-                                    4 -> stringResource(R.string.nav_groups)
-                                    1 -> stringResource(R.string.nav_updates)
-                                    6 -> stringResource(R.string.nav_channels)
-                                    2 -> stringResource(R.string.nav_communities)
-                                    5 -> stringResource(R.string.nav_calls)
-                                    else -> stringResource(R.string.nav_settings)
-                                },
-                                fontSize = 25.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = (-0.4).sp
-                            )
-                        }
-                    },
-                    actions = {
-                        if ((currentTab == 0 || currentTab == 4) && !stealth.hideHomeCameraShortcut) {
-                            IconButton(onClick = { showPairingDialog = true }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.vec_ic_camera_reply),
-                                    contentDescription = "Camera",
-                                    tint = colors.textPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        } else if (currentTab == 1 || currentTab == 6 || currentTab == 2 || currentTab == 5) {
-                            IconButton(onClick = {
-                                searchExpanded = !searchExpanded
-                                if (!searchExpanded) viewModel.updateHomeSearch("")
-                            }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.vec_ic_search),
-                                    contentDescription = "Search",
-                                    tint = colors.textPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                        IconButton(onClick = { overflowExpanded = true }) {
-                            Icon(Icons.Rounded.MoreVert, "Menu", tint = colors.textPrimary)
-                        }
-                        DropdownMenu(
-                            expanded = overflowExpanded,
-                            onDismissRequest = { overflowExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("New chat") },
-                                leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showQuickContactPicker = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Linked devices") },
-                                leadingIcon = { Icon(Icons.Rounded.QrCode2, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showPairingDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Switch account") },
-                                leadingIcon = { Icon(Icons.Rounded.ManageAccounts, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showAccountSwitcherSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Starred messages") },
-                                leadingIcon = { Icon(Icons.Rounded.Star, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    viewModel.selectFilter(HomeFilterChip.FAVORITES)
-                                    onSelectTab(0)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (includeArchived) stringResource(R.string.home_back_to_active_chats)
-                                        else stringResource(R.string.home_archived_chats)
-                                    )
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.Archive, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    viewModel.toggleArchivedIncluded()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.nav_settings)) },
-                                leadingIcon = { Icon(Icons.Rounded.Settings, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    onSelectTab(3)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Check for updates") },
-                                leadingIcon = { Icon(Icons.Rounded.SystemUpdate, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    viewModel.checkForUpdates(silent = false)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Report bug / Feedback") },
-                                leadingIcon = { Icon(Icons.Rounded.BugReport, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    activeFeedbackType = GitHubFeedbackType.BUG
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Theme · ${stealth.themeMode.label}") },
-                                leadingIcon = {
-                                    Icon(Icons.Rounded.Palette, null)
-                                },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showThemePickerDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Message history") },
-                                leadingIcon = { Icon(Icons.Rounded.History, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    messageHistoryChatFilter = null
-                                    showMessageHistorySheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Scheduled messages") },
-                                leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showScheduledSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Media vault") },
-                                leadingIcon = { Icon(Icons.Rounded.Shield, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showMediaVaultSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Sticker studio") },
-                                leadingIcon = { Icon(Icons.Rounded.AutoFixHigh, null) },
-                                onClick = {
-                                    overflowExpanded = false
-                                    showStickerStudioDialog = true
-                                }
-                            )
                         }
                     }
-                )
                 }
                 }
-
-                AnimatedVisibility(visible = searchExpanded && currentTab != 0 && currentTab != 4) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.updateHomeSearch(it) },
-                        placeholder = { Text("Search...") },
-                        singleLine = true,
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.updateHomeSearch("") }) {
-                                    Icon(Icons.Rounded.Close, "Clear")
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
                 }
             }
         },
@@ -1061,84 +1160,8 @@ fun HomeScreen(
                 channelsLabel = stringResource(R.string.nav_channels),
                 communitiesLabel = stringResource(R.string.nav_communities),
                 callsLabel = stringResource(R.string.nav_calls),
-                settingsLabel = stringResource(R.string.nav_settings)
+                youLabel = "You"
             )
-        },
-        floatingActionButton = {
-            when (currentTab) {
-                0, 4 -> {
-                    FloatingActionButton(
-                        onClick = { showQuickContactPicker = true },
-                        containerColor = colors.brightGreen,
-                        contentColor = colors.brightGreen.contrastingContentColor(),
-                        shape = RoundedCornerShape(18.dp),
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 4.dp,
-                            pressedElevation = 8.dp
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.ChatBubbleOutline,
-                            contentDescription = "New Chat",
-                            modifier = Modifier.size(23.dp)
-                        )
-                    }
-                }
-                1 -> {
-                    FloatingActionButtonMenu(
-                        expanded = updatesFabExpanded,
-                        button = {
-                            ToggleFloatingActionButton(
-                                checked = updatesFabExpanded,
-                                onCheckedChange = { updatesFabExpanded = it },
-                                containerColor = ToggleFloatingActionButtonDefaults.containerColor(
-                                    initialColor = colors.brightGreen,
-                                    finalColor = colors.accentGreen
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = if (updatesFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
-                                    contentDescription = if (updatesFabExpanded) "Close status actions" else "Status actions",
-                                    tint = (if (updatesFabExpanded) colors.accentGreen else colors.brightGreen)
-                                        .contrastingContentColor()
-                                )
-                            }
-                        }
-                    ) {
-                        FloatingActionButtonMenuItem(
-                            onClick = {
-                                updatesFabExpanded = false
-                                statusComposerInitialMode = StatusComposerMode.TEXT
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Edit,
-                                    contentDescription = null
-                                )
-                            },
-                            text = { Text("Text status", fontWeight = FontWeight.SemiBold) },
-                            containerColor = colors.elevatedBar,
-                            contentColor = colors.textPrimary
-                        )
-                        FloatingActionButtonMenuItem(
-                            onClick = {
-                                updatesFabExpanded = false
-                                statusComposerInitialMode = StatusComposerMode.MEDIA
-                            },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.vec_ic_camera_reply),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            text = { Text("Camera status", fontWeight = FontWeight.SemiBold) },
-                            containerColor = colors.pillActiveBg,
-                            contentColor = colors.pillActiveText
-                        )
-                    }
-                }
-            }
         }
     ) { innerPadding ->
         val contentBottomPad = innerPadding.calculateBottomPadding() + 14.dp
@@ -1282,6 +1305,7 @@ fun HomeScreen(
                         verticalStatusLayout = stealth.statusVerticalLayout,
                         hideChannels = stealth.hideChannels || showChannelsTab,
                         showSeconds = showSeconds,
+                        onSearchChange = { viewModel.updateHomeSearch(it) },
                         onOpenStatus = { activeStatusViewer = it },
                         onAddStatus = { mode -> statusComposerInitialMode = mode },
                         onOpenChannel = { onOpenChat(it) }
@@ -1310,11 +1334,13 @@ fun HomeScreen(
                         allContacts = allContacts,
                         hiddenLockedJids = hiddenLockedJids,
                         searchQuery = searchQuery,
+                        onSearchChange = { viewModel.updateHomeSearch(it) },
                         listState = callsListState,
                         bottomPadding = contentBottomPad,
                         showSeconds = showSeconds,
                         onOpenChat = onOpenChat,
                         onStartCall = launchHomeCall,
+                        onNewCallClick = { showQuickContactPicker = true },
                         onOpenCallingSettings = { showHomeCallingSetupDialog = true }
                     )
 
@@ -1324,6 +1350,11 @@ fun HomeScreen(
                         bottomPadding = contentBottomPad,
                         savedHistoryCount = (deletedHistory.asSequence().map { it.id } + editedHistory.asSequence().map { it.id }).toSet().size,
                         customStickerCount = customStickers.size,
+                        editProfileRequestNonce = editProfileRequestNonce,
+                        onOpenStarredChats = {
+                            viewModel.selectFilter(HomeFilterChip.FAVORITES)
+                            onSelectTab(0)
+                        },
                         onOpenMessageHistory = {
                             messageHistoryChatFilter = null
                             showMessageHistorySheet = true
@@ -1892,6 +1923,115 @@ private data class PendingHomeCallRequest(
 )
 
 @Composable
+private fun IosInlineSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String = "Search",
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalWaColors.current
+    val fill = if (colors.isDark) Color(0xFF1C1C1E) else Color(0xFFEBEBF0)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .height(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(fill)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.vec_ic_search),
+            contentDescription = "Search",
+            tint = colors.textSecondary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.5.sp),
+            cursorBrush = SolidColor(colors.brightGreen),
+            decorationBox = { innerTextField ->
+                if (query.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = colors.textSecondary,
+                        fontSize = 15.5.sp
+                    )
+                }
+                innerTextField()
+            },
+            modifier = Modifier.weight(1f)
+        )
+        if (query.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(colors.textSecondary.copy(alpha = 0.28f))
+                    .clickable { onQueryChange("") },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Clear search",
+                    tint = colors.appSurface,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IosQuickActionCircle(
+    icon: ImageVector,
+    label: String,
+    active: Boolean = false,
+    onClick: () -> Unit
+) {
+    val colors = LocalWaColors.current
+    val circleBg = when {
+        active -> colors.brightGreen.copy(alpha = 0.22f)
+        colors.isDark -> Color(0xFF1F272B)
+        else -> Color(0xFFEBEBF0)
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(circleBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (active) colors.brightGreen else colors.textPrimary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = label,
+            color = if (active) colors.brightGreen else colors.textSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
 private fun CallsTab(
     ownJid: String,
     stealth: GlobalStealthConfig,
@@ -1900,16 +2040,19 @@ private fun CallsTab(
     allContacts: List<ContactEntity>,
     hiddenLockedJids: Set<String> = emptySet(),
     searchQuery: String,
+    onSearchChange: (String) -> Unit = {},
     listState: LazyListState,
     bottomPadding: Dp,
     showSeconds: Boolean,
     onOpenChat: (String) -> Unit,
     onStartCall: (peerJid: String, peerName: String, avatarPath: String?, isVideo: Boolean) -> Unit,
+    onNewCallClick: () -> Unit = {},
     onOpenCallingSettings: () -> Unit
 ) {
     val colors = LocalWaColors.current
     val use24Hour = LocalWuppUse24Hour.current
     val isCallingReady = stealth.callBackendMode != CallBackendMode.OFF
+    var favoritesOnly by remember { mutableStateOf(false) }
 
     AnimatedContent(
         targetState = isCallingReady,
@@ -2044,94 +2187,116 @@ private fun CallsTab(
             narrowed.take(80)
         }
 
+        val displayedLogs = remember(filteredLogs, favoritesOnly, chatLookup) {
+            if (!favoritesOnly) filteredLogs
+            else filteredLogs.filter { log ->
+                val bare = log.chatJid.substringBefore("@").substringBefore(":")
+                chatLookup[log.chatJid]?.isFavorite == true || chatLookup[bare]?.isFavorite == true
+            }
+        }
+        val callsScope = rememberCoroutineScope()
+
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 8.dp, bottom = bottomPadding + 18.dp)
+            contentPadding = PaddingValues(top = 2.dp, bottom = bottomPadding + 18.dp)
         ) {
-            item(key = "calls_mode_banner") {
+            item(key = "calls_ios_search") {
+                IosInlineSearchBar(
+                    query = searchQuery,
+                    onQueryChange = onSearchChange,
+                    placeholder = "Search"
+                )
+            }
+
+            item(key = "calls_ios_quick_actions") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            if (stealth.offlineMode) colors.warningAmber.copy(alpha = 0.14f)
-                            else colors.elevatedBar
-                        )
-                        .border(
-                            0.8.dp,
-                            if (stealth.offlineMode) colors.warningAmber.copy(alpha = 0.45f)
-                            else colors.divider,
-                            RoundedCornerShape(16.dp)
-                        )
-                        .clickable { onOpenCallingSettings() }
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
+                    IosQuickActionCircle(
+                        icon = Icons.Rounded.Call,
+                        label = "Call",
+                        onClick = onNewCallClick
+                    )
+                    IosQuickActionCircle(
+                        icon = Icons.Rounded.Tune,
+                        label = "Setup",
+                        onClick = onOpenCallingSettings
+                    )
+                    IosQuickActionCircle(
+                        icon = Icons.Rounded.Dialpad,
+                        label = "Contacts",
+                        onClick = {
+                            callsScope.launch {
+                                val targetIdx = (displayedLogs.size + 4).coerceAtLeast(3)
+                                runCatching { listState.animateScrollToItem(targetIdx) }
+                            }
+                        }
+                    )
+                    IosQuickActionCircle(
+                        icon = if (favoritesOnly) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        label = "Favorites",
+                        active = favoritesOnly,
+                        onClick = { favoritesOnly = !favoritesOnly }
+                    )
+                }
+            }
+
+            if (stealth.offlineMode) {
+                item(key = "calls_mode_banner") {
+                    Row(
                         modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (stealth.offlineMode) colors.warningAmber.copy(alpha = 0.2f)
-                                else colors.brightGreen.copy(alpha = 0.15f)
-                            ),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.warningAmber.copy(alpha = 0.14f))
+                            .border(0.8.dp, colors.warningAmber.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                            .clickable { onOpenCallingSettings() }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = if (stealth.offlineMode) Icons.Rounded.Flight else Icons.Rounded.Call,
+                            imageVector = Icons.Rounded.Flight,
                             contentDescription = null,
-                            tint = if (stealth.offlineMode) colors.warningAmber else colors.brightGreen,
+                            tint = colors.warningAmber,
                             modifier = Modifier.size(18.dp)
                         )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (stealth.offlineMode) "Calling Paused (Offline Mode)" else "In-App Calling Ready",
+                            text = "Offline Mode active — calls paused",
                             color = colors.textPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = if (stealth.offlineMode) {
-                                "Turn off Offline Mode to place or receive calls"
-                            } else {
-                                "${stealth.callBackendMode.title} · Change in Settings"
-                            },
-                            color = colors.textSecondary,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            text = "Mode",
+                            color = colors.brightGreen,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Mode",
-                        color = colors.brightGreen,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
                 }
             }
 
             item(key = "calls_recent_header") {
                 Text(
-                    text = "Recent Calls",
-                    color = colors.textSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    text = if (favoritesOnly) "Recent Favorites" else "Recent",
+                    color = colors.textPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 6.dp)
                 )
             }
 
-            if (filteredLogs.isEmpty()) {
+            if (displayedLogs.isEmpty()) {
                 item(key = "calls_recent_empty") {
                     Text(
-                        text = if (normalizedQuery.isNotEmpty()) {
+                        text = if (normalizedQuery.isNotEmpty() || favoritesOnly) {
                             "No matching call history"
                         } else {
                             "No recent calls yet — tap any contact below to start a call."
@@ -2142,7 +2307,7 @@ private fun CallsTab(
                     )
                 }
             } else {
-                items(items = filteredLogs, key = { "call_log_${it.id}" }) { log ->
+                items(items = displayedLogs, key = { "call_log_${it.id}" }) { log ->
                     val bare = log.chatJid.substringBefore("@").substringBefore(":")
                     val chatMatch = chatLookup[log.chatJid] ?: chatLookup[bare]
                     val contactMatch = contactLookup[log.chatJid] ?: contactLookup[bare]
@@ -2523,67 +2688,13 @@ private fun ChatsTabContent(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = bottomPadding)
     ) {
-        // Inline search bar (Kyant0 Liquid Glass or flat classic WhatsApp look)
+        // Inline iOS-style rounded search bar
         item(key = "inline_search_bar") {
-            val isClassicUi = com.wa.beastclient.ui.theme.LocalWuppClassicUi.current
-            WuppGlassContainer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .height(48.dp),
-                colors = colors,
-                shape = CircleShape,
-                elevation = 6.dp,
-                backdropState = null,
-                classicMode = isClassicUi,
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.vec_ic_search),
-                        contentDescription = "Search",
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = onSearchChange,
-                        singleLine = true,
-                        textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.5.sp),
-                        cursorBrush = SolidColor(colors.brightGreen),
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = stringResource(R.string.home_search_placeholder),
-                                    color = colors.textSecondary,
-                                    fontSize = 15.5.sp
-                                )
-                            }
-                            innerTextField()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSearchChange("") },
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = "Clear search",
-                                tint = colors.textSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            IosInlineSearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchChange,
+                placeholder = stringResource(R.string.home_search_placeholder)
+            )
         }
 
         // 14-Day Primary Heartbeat countdown warning banner (>= 10 days elapsed)
@@ -3321,6 +3432,7 @@ private fun UpdatesStatusTab(
     verticalStatusLayout: Boolean = false,
     hideChannels: Boolean = false,
     showSeconds: Boolean = false,
+    onSearchChange: (String) -> Unit = {},
     onOpenStatus: (StatusEntity) -> Unit,
     onAddStatus: (StatusComposerMode) -> Unit,
     onOpenChannel: (String) -> Unit
@@ -3367,20 +3479,68 @@ private fun UpdatesStatusTab(
     val filteredChannels = remember(channels, searchQuery) {
         filterChannelsByQuery(channels, searchQuery)
     }
+    val iosCircleBg = if (colors.isDark) Color(0xFF1F2024) else Color(0xFFEBEBF0)
 
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)
     ) {
-        item(key = "updates_status_header") {
-            Text(
-                text = "Status",
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = colors.textPrimary,
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 10.dp)
+        item(key = "updates_ios_search") {
+            IosInlineSearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchChange,
+                placeholder = "Search"
             )
+        }
+
+        item(key = "updates_status_header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Status",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(iosCircleBg)
+                            .clickable { onAddStatus(StatusComposerMode.MEDIA) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.vec_ic_camera_reply),
+                            contentDescription = "Camera status",
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(iosCircleBg)
+                            .clickable { onAddStatus(StatusComposerMode.TEXT) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = "Text status",
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
         }
 
         if (verticalStatusLayout) {
@@ -4549,6 +4709,8 @@ private fun ToolsVaultTab(
     bottomPadding: Dp = 96.dp,
     savedHistoryCount: Int = 0,
     customStickerCount: Int = 0,
+    editProfileRequestNonce: Int = 0,
+    onOpenStarredChats: () -> Unit = {},
     onOpenMessageHistory: () -> Unit = {},
     onOpenMediaVault: () -> Unit = {},
     onOpenStickerStudio: () -> Unit = {},
@@ -4572,6 +4734,11 @@ private fun ToolsVaultTab(
     var infoDialogContent by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showAccountSwitcherSheet by remember { mutableStateOf(false) }
     var showProfileEditorDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(editProfileRequestNonce) {
+        if (editProfileRequestNonce > 0) {
+            showProfileEditorDialog = true
+        }
+    }
     var showAccountPrivacyDialog by remember { mutableStateOf(false) }
     var showBlockedContactsDialog by remember { mutableStateOf(false) }
     var showCompanionScopeDialog by remember { mutableStateOf(false) }
@@ -4846,6 +5013,62 @@ private fun ToolsVaultTab(
                         avatarPath = ownAvatarPath,
                         onClick = { showProfileEditorDialog = true }
                     )
+                }
+
+                item(key = "patch_ios_quick_group_card") {
+                    val cardBg = if (colors.isDark) Color(0xFF1A1B1E) else colors.elevatedBar
+                    val dividerColor = if (colors.isDark) Color.White.copy(alpha = 0.08f) else colors.divider
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = cardBg,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            val quickRows = listOf(
+                                Triple(Icons.Rounded.StarOutline, "Starred messages", onOpenStarredChats),
+                                Triple(Icons.Rounded.History, if (savedHistoryCount > 0) "Message history ($savedHistoryCount)" else "Message history", onOpenMessageHistory),
+                                Triple(Icons.Rounded.Shield, "Media vault", onOpenMediaVault),
+                                Triple(Icons.Rounded.AutoFixHigh, if (customStickerCount > 0) "Sticker studio ($customStickerCount)" else "Sticker studio", onOpenStickerStudio)
+                            )
+                            quickRows.forEachIndexed { idx, (icon, label, action) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(onClick = action)
+                                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = colors.textPrimary,
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Text(
+                                        text = label,
+                                        color = colors.textPrimary,
+                                        fontSize = 15.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = colors.textSecondary.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                if (idx < quickRows.lastIndex) {
+                                    HorizontalDivider(
+                                        color = dividerColor,
+                                        thickness = 0.6.dp,
+                                        modifier = Modifier.padding(start = 51.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

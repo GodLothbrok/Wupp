@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.9-pre.4] - 2026-11-25
+
+### ✨ Features
+- 🎨 Redesigned Home tabs (**Chats**, **Updates**, **Calls**, and **You**) with a native iOS-style header, inline search bars, circular quick actions, and a centered **You** profile hero while keeping Wupp's tab order.
+- ⚙️ Kept Settings accessible from both the **You** tab and the top-left `⋯` overflow menu.
+
 ## [0.3.9-pre.3] - 2026-11-24
 
 ### ✨ Features

@@ -110,59 +110,66 @@ fun SettingsProfileHeaderCard(
     onClick: () -> Unit
 ) {
     val colors = LocalWaColors.current
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = colors.elevatedBar,
+    val pillBg = if (colors.isDark) Color(0xFF262629) else Color(0xFFE9E9EE)
+    val displayName = profile.pushName.ifBlank {
+        profile.phone.ifBlank { "My Account" }
+    }
+    val aboutLabel = profile.about.ifBlank { "What's new?" }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
+            .padding(top = 6.dp, bottom = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Floating iOS-style status/about thought pill
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = pillBg
         ) {
-            WhatsAppAvatar(
-                jid = ownJid.ifBlank { profile.ownJid },
-                avatarPath = avatarPath,
-                isGroup = false,
-                size = 56.dp
+            Text(
+                text = aboutLabel,
+                color = colors.textSecondary,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
             )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = profile.pushName.ifBlank {
-                        profile.phone.ifBlank { "My WhatsApp Account" }
-                    },
-                    color = colors.textPrimary,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = profile.about.ifBlank { "Tap to edit display name & About" },
-                    color = colors.textSecondary,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (profile.phone.isNotBlank()) {
-                    Text(
-                        text = profile.phone,
-                        color = colors.accentGreen,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.Rounded.Edit,
-                contentDescription = "Edit profile",
-                tint = colors.accentGreen,
-                modifier = Modifier.size(20.dp)
+        }
+        Spacer(modifier = Modifier.height(3.dp))
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(pillBg)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        WhatsAppAvatar(
+            jid = ownJid.ifBlank { profile.ownJid },
+            avatarPath = avatarPath,
+            isGroup = false,
+            size = 92.dp
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = displayName,
+            color = colors.textPrimary,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.4).sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (profile.phone.isNotBlank() && profile.phone != displayName) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = profile.phone,
+                color = colors.textSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
