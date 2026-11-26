@@ -604,11 +604,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun canInitiateOutbound(chatJid: String): Flow<Boolean> {
         val ownJid = bridgeStatus.value.ownJid
-        return if (chatJid.endsWith("@g.us") || StealthMatrixManager.isSelfChatJid(chatJid, ownJid)) {
-            MutableStateFlow(true)
-        } else {
-            activeDaoFlow.flatMapLatest { d ->
-                d.observeRecentMessages(chatJid, 1).map { it.isNotEmpty() }
+        if (chatJid.endsWith("@g.us") ||
+            chatJid == "status@broadcast" ||
+            chatJid.endsWith("@newsletter") ||
+            StealthMatrixManager.isSelfChatJid(chatJid, ownJid)
+        ) {
+            return MutableStateFlow(true)
+        }
+        return activeDaoFlow.flatMapLatest { d ->
+            combine(
+                d.observeContact(chatJid),
+                d.observeChat(chatJid),
+                d.observeRecentMessages(chatJid, 1)
+            ) { contact, chat, recentMsgs ->
+                val aliasAllowed = if (
+                    recentMsgs.isEmpty() &&
+                    contact?.isSaved != true &&
+                    (chat?.lastMessageTimestamp ?: 0L) <= 0L
+                ) {
+                    val aliases = WaRealtimeService.findKnownAliasesFor(appContext, chatJid)
+                    StealthMatrixManager.canInitiateOutboundMessage(
+                        dao = d,
+                        chatJid = chatJid,
+                        ownJid = ownJid,
+                        context = appContext,
+                        aliasJids = aliases
+                    )
+                } else {
+                    true
+                }
+                aliasAllowed
             }
         }
     }
@@ -747,9 +772,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return result.getOrNull()
     }
 
-    fun saveCustomStickerAndSend(chatJid: String, bitmap: android.graphics.Bitmap, label: String) {
+    fun saveCustomStickerAndSend(
+        chatJid: String,
+        bitmap: android.graphics.Bitmap,
+        label: String,
+        allowUnsavedColdStart: Boolean = false
+    ) {
         val saved = saveCustomSticker(bitmap, label) ?: return
-        sendSticker(chatJid, File(saved.filePath))
+        sendSticker(chatJid, File(saved.filePath), allowUnsavedColdStart = allowUnsavedColdStart)
     }
 
     fun deleteCustomSticker(id: String) {
@@ -1255,11 +1285,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chatJid: String,
         text: String,
         quoted: MessageEntity?,
-        ghostMentionEveryone: Boolean
+        ghostMentionEveryone: Boolean,
+        allowUnsavedColdStart: Boolean = false
     ) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            WaRealtimeService.sendTextMessage(appContext, chatJid, text.trim(), quoted, ghostMentionEveryone)
+            WaRealtimeService.sendTextMessage(
+                context = appContext,
+                chatJid = chatJid,
+                text = text.trim(),
+                quoted = quoted,
+                ghostMentionEveryone = ghostMentionEveryone,
+                allowUnsavedColdStart = allowUnsavedColdStart
+            )
                 .onFailure { err ->
                     showToast(err.message ?: "Send failed")
                 }
@@ -1271,7 +1309,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         displayName: String,
         phoneNumber: String,
         vcard: String,
-        quoted: MessageEntity? = null
+        quoted: MessageEntity? = null,
+        allowUnsavedColdStart: Boolean = false
     ) {
         viewModelScope.launch {
             WaRealtimeService.sendContactMessage(
@@ -1280,7 +1319,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 displayName = displayName,
                 phoneNumber = phoneNumber,
                 vcard = vcard,
-                quoted = quoted
+                quoted = quoted,
+                allowUnsavedColdStart = allowUnsavedColdStart
             ).onFailure { err ->
                 showToast(err.message ?: "Failed to send contact")
             }
@@ -1450,7 +1490,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         staged: StagedOutboundMedia,
         caption: String,
         qualityMode: OutboundQualityMode,
-        isViewOnce: Boolean = false
+        isViewOnce: Boolean = false,
+        allowUnsavedColdStart: Boolean = false
     ) {
         viewModelScope.launch {
             WaRealtimeService.sendMediaMessage(
@@ -1462,7 +1503,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 qualityMode = qualityMode,
                 isVoiceNote = false,
                 durationSec = staged.durationSec,
-                isViewOnce = isViewOnce
+                isViewOnce = isViewOnce,
+                allowUnsavedColdStart = allowUnsavedColdStart
             ).onFailure { err ->
                 showToast(err.message ?: "Media send failed")
             }
@@ -1474,7 +1516,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uri: Uri,
         mimeType: String,
         caption: String,
-        qualityMode: OutboundQualityMode
+        qualityMode: OutboundQualityMode,
+        allowUnsavedColdStart: Boolean = false
     ) {
         viewModelScope.launch {
             val staged = stageMediaForPreview(uri, mimeType) ?: return@launch
@@ -1486,14 +1529,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 caption = caption,
                 qualityMode = qualityMode,
                 isVoiceNote = false,
-                durationSec = staged.durationSec
+                durationSec = staged.durationSec,
+                allowUnsavedColdStart = allowUnsavedColdStart
             ).onFailure { err ->
                 showToast(err.message ?: "Media send failed")
             }
         }
     }
 
-    fun sendSticker(chatJid: String, stickerFile: File) {
+    fun sendSticker(chatJid: String, stickerFile: File, allowUnsavedColdStart: Boolean = false) {
         viewModelScope.launch {
             if (!stickerFile.exists() || stickerFile.length() == 0L) {
                 showToast("Sticker file not found")
@@ -1507,14 +1551,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 caption = "",
                 qualityMode = OutboundQualityMode.STICKER,
                 isVoiceNote = false,
-                durationSec = 0
+                durationSec = 0,
+                allowUnsavedColdStart = allowUnsavedColdStart
             ).onFailure { err ->
                 showToast(err.message ?: "Failed to send sticker")
             }
         }
     }
 
-    fun sendGifMessage(chatJid: String, gifMp4File: File, caption: String = "", durationSec: Int = 0) {
+    fun sendGifMessage(
+        chatJid: String,
+        gifMp4File: File,
+        caption: String = "",
+        durationSec: Int = 0,
+        allowUnsavedColdStart: Boolean = false
+    ) {
         viewModelScope.launch {
             if (!gifMp4File.exists() || gifMp4File.length() == 0L) {
                 showToast("GIF file not found")
@@ -1528,7 +1579,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 caption = caption,
                 qualityMode = OutboundQualityMode.GIF,
                 isVoiceNote = false,
-                durationSec = durationSec
+                durationSec = durationSec,
+                allowUnsavedColdStart = allowUnsavedColdStart
             ).onFailure { err ->
                 showToast(err.message ?: "Failed to send GIF")
             }
@@ -1549,7 +1601,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return stickerFavoritesStore.isFavorite(key)
     }
 
-    fun sendStickerFromUri(chatJid: String, uri: Uri) {
+    fun sendStickerFromUri(chatJid: String, uri: Uri, allowUnsavedColdStart: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             val cachedFile = EagerMediaVault.copyUriToCacheFile(appContext, uri, "webp") ?: return@launch
             val prepared = EagerMediaVault.prepareOutboundMedia(
@@ -1558,13 +1610,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 mimeType = "image/webp",
                 mode = OutboundQualityMode.STICKER
             )
-            sendSticker(chatJid, prepared.file)
+            sendSticker(chatJid, prepared.file, allowUnsavedColdStart = allowUnsavedColdStart)
         }
     }
 
-    fun toggleVoiceRecording(chatJid: String, hasRecordPermission: Boolean) {
+    fun toggleVoiceRecording(chatJid: String, hasRecordPermission: Boolean, allowUnsavedColdStart: Boolean = false) {
         if (_isRecordingVoice.value) {
-            stopAndSendVoiceRecording(chatJid)
+            stopAndSendVoiceRecording(chatJid, allowUnsavedColdStart = allowUnsavedColdStart)
         } else {
             startVoiceRecording(hasRecordPermission)
         }
@@ -1665,7 +1717,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isRecordingVoice.value = false
     }
 
-    private fun stopAndSendVoiceRecording(chatJid: String) {
+    private fun stopAndSendVoiceRecording(chatJid: String, allowUnsavedColdStart: Boolean = false) {
         val opusRec = activeOpusRecorder
         activeOpusRecorder = null
         val rec = activeRecorder
@@ -1718,7 +1770,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 qualityMode = OutboundQualityMode.STANDARD,
                 isVoiceNote = dispatch.isVoiceNote,
                 durationSec = validatedDurationSec,
-                waveformCsvOverride = if (dispatch.isVoiceNote) recordedWaveformCsv else ""
+                waveformCsvOverride = if (dispatch.isVoiceNote) recordedWaveformCsv else "",
+                allowUnsavedColdStart = allowUnsavedColdStart
             ).onFailure { err ->
                 showToast(err.message ?: "Voice send failed")
             }

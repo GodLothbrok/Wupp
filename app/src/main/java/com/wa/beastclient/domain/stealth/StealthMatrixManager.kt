@@ -863,10 +863,18 @@ object StealthMatrixManager {
     }
 
     /**
-     * Error 463 Ban Guard: Blocks sending an initial companion message to an unsaved/unknown
-     * 1-on-1 contact that has 0 prior messages in local Room history.
+     * Pure policy helper for Error 463 cold-start guard: returns true if the chat is a group/
+     * channel/self-chat, has prior synced or alias message history, or belongs to a saved contact.
      */
-    suspend fun canInitiateOutboundMessage(dao: WaDao, chatJid: String, ownJid: String = ""): Boolean {
+    internal fun isKnownOrPriorHistoryChat(
+        chatJid: String,
+        ownJid: String = "",
+        messageCount: Int = 0,
+        aliasMessageCount: Int = 0,
+        hasChatHistoryTimestamp: Boolean = false,
+        isContactSaved: Boolean = false,
+        isPhonebookSaved: Boolean = false
+    ): Boolean {
         if (chatJid.endsWith("@g.us") ||
             chatJid == "status@broadcast" ||
             chatJid.endsWith("@newsletter") ||
@@ -874,6 +882,62 @@ object StealthMatrixManager {
         ) {
             return true
         }
-        return dao.countMessagesInChat(chatJid) > 0
+        return messageCount > 0 ||
+            aliasMessageCount > 0 ||
+            hasChatHistoryTimestamp ||
+            isContactSaved ||
+            isPhonebookSaved
+    }
+
+    /**
+     * Error 463 Ban Guard: Returns true when outbound messaging to [chatJid] is safe without a
+     * cold-start confirmation prompt (saved contact, device phonebook match, existing chat/alias
+     * history, group, channel, or self-chat).
+     */
+    suspend fun canInitiateOutboundMessage(
+        dao: WaDao,
+        chatJid: String,
+        ownJid: String = "",
+        context: Context? = null,
+        aliasJids: List<String> = emptyList()
+    ): Boolean {
+        if (chatJid.endsWith("@g.us") ||
+            chatJid == "status@broadcast" ||
+            chatJid.endsWith("@newsletter") ||
+            isSelfChatJid(chatJid, ownJid)
+        ) {
+            return true
+        }
+        val msgCount = dao.countMessagesInChat(chatJid)
+        var aliasMsgCount = 0
+        for (alias in aliasJids) {
+            if (alias.isNotBlank() && alias != chatJid) {
+                aliasMsgCount += dao.countMessagesInChat(alias)
+                if (aliasMsgCount > 0) break
+            }
+        }
+        val chat = dao.getChat(chatJid)
+        val contact = dao.getContact(chatJid) ?: aliasJids.firstNotNullOfOrNull { a ->
+            if (a.isNotBlank() && a != chatJid) dao.getContact(a) else null
+        }
+        val hasChatHistoryTs = (chat?.lastMessageTimestamp ?: 0L) > 0L
+        val isPhonebookSaved = context?.let { ctx ->
+            val alt = aliasJids.firstOrNull { it.isNotBlank() && it != chatJid }.orEmpty()
+            com.wa.beastclient.domain.contacts.DeviceContactFallbackResolver.hasSavedPhonebookContact(
+                ctx,
+                chatJid,
+                alt
+            )
+        } ?: false
+
+        return isKnownOrPriorHistoryChat(
+            chatJid = chatJid,
+            ownJid = ownJid,
+            messageCount = msgCount,
+            aliasMessageCount = aliasMsgCount,
+            hasChatHistoryTimestamp = hasChatHistoryTs,
+            isContactSaved = contact?.isSaved == true,
+            isPhonebookSaved = isPhonebookSaved
+        )
     }
 }

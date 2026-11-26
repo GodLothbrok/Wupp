@@ -223,7 +223,7 @@ object DeviceContactFallbackResolver {
     }
 
     private fun getOrLoadIndex(context: Context, forceRefresh: Boolean = false): DeviceContactIndex {
-        if (!isFallbackEnabled() || !hasReadContactsPermission(context)) {
+        if (!hasReadContactsPermission(context)) {
             clearCache()
             return DeviceContactIndex.EMPTY
         }
@@ -274,6 +274,21 @@ object DeviceContactFallbackResolver {
         val index = getOrLoadIndex(context, forceRefresh = forceRefresh)
         if (index.isEmpty) return null
         return index.lookup(phone, jid, altJid)
+    }
+
+    /**
+     * Returns true if [jid] (or [altJid]) matches an entry saved in the device phonebook
+     * when READ_CONTACTS permission is granted.
+     */
+    fun hasSavedPhonebookContact(
+        context: Context,
+        jid: String,
+        altJid: String = ""
+    ): Boolean {
+        if (!hasReadContactsPermission(context)) return false
+        val index = getOrLoadIndex(context, forceRefresh = false)
+        if (index.isEmpty) return false
+        return !index.lookup("", jid, altJid).isNullOrBlank()
     }
 
     suspend fun restoreServerNames(

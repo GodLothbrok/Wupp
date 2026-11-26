@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.9-pre.8] - 2026-11-26
+
+### ✨ Features
+- Enabled the Message info option for all 1-on-1 and group messages with delivery, read, and played details.
+
+### 🛠️ Fixes
+- Fixed Error 463 Guard blocking saved contacts, phonebook contacts, and alias-linked chats (#154).
+- Replaced the Error 463 composer lock with an unsaved-number confirmation warning so users can message new numbers directly (#143, #157).
+
 ## [0.3.9-pre.7] - 2026-11-26
 
 ### 🛠️ Fixes
