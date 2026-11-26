@@ -24,11 +24,21 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
+        val appCtx = context.applicationContext
+        when (action) {
+            ACTION_VOICE_TOGGLE_PAUSE -> {
+                com.wa.beastclient.data.media.VoiceNotePlaybackManager.toggleCurrentPlayPause(appCtx)
+                return
+            }
+            ACTION_VOICE_STOP -> {
+                com.wa.beastclient.data.media.VoiceNotePlaybackManager.stop(appCtx)
+                return
+            }
+        }
         if (action != ACTION_INLINE_REPLY && action != ACTION_MARK_READ) return
         val chatJid = intent.getStringExtra(EXTRA_CHAT_JID)?.trim().orEmpty()
         if (chatJid.isBlank()) return
         val notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
-        val appCtx = context.applicationContext
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -126,6 +136,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_INLINE_REPLY = "com.wupp.app.action.NOTIFICATION_INLINE_REPLY"
         const val ACTION_MARK_READ = "com.wupp.app.action.NOTIFICATION_MARK_READ"
+        const val ACTION_VOICE_TOGGLE_PAUSE = "com.wupp.app.action.VOICE_TOGGLE_PAUSE"
+        const val ACTION_VOICE_STOP = "com.wupp.app.action.VOICE_STOP"
         const val KEY_REPLY_TEXT = "key_notification_reply_text"
         const val EXTRA_CHAT_JID = "extra_chat_jid"
         const val EXTRA_MESSAGE_ID = "extra_message_id"

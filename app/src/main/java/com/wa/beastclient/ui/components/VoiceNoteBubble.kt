@@ -1,6 +1,5 @@
 package com.wa.beastclient.ui.components
 
-import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -36,11 +35,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,14 +62,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackParameters
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import com.wa.beastclient.R
 import com.wa.beastclient.data.db.MessageEntity
+import com.wa.beastclient.data.media.VoiceNotePlaybackManager
 import com.wa.beastclient.ui.screens.WhatsAppAvatar
 import com.wa.beastclient.ui.theme.LocalWaColors
 import com.wa.beastclient.ui.theme.LocalWaMonoFamily
@@ -107,66 +100,39 @@ fun VoiceNoteBubble(
         else List(40) { idx -> parsed.getOrElse(idx) { 18 + ((idx * 17) % 64) } }
     }
 
-    var isPlaying by remember { mutableStateOf(false) }
-    var isScrubbing by remember { mutableStateOf(false) }
-    var isDownloading by remember { mutableStateOf(false) }
-    var autoPlayOnDownload by remember { mutableStateOf(false) }
-    var playbackFraction by remember { mutableFloatStateOf(0f) }
-    var currentSec by remember { mutableIntStateOf(0) }
-    var speedIndex by remember { mutableIntStateOf(0) }
-    val speeds = listOf(1.0f, 1.5f, 2.0f)
+    val playbackState by VoiceNotePlaybackManager.state.collectAsState()
+    val isThisActive = playbackState.activeMessageId == msg.id
+    val isPlaying = isThisActive && playbackState.isPlaying
+
+    var isScrubbing by remember(msg.id) { mutableStateOf(false) }
+    var scrubFraction by remember(msg.id) { mutableFloatStateOf(0f) }
+    var isDownloading by remember(msg.id) { mutableStateOf(false) }
+    var autoPlayOnDownload by remember(msg.id) { mutableStateOf(false) }
+    val speedIndex = playbackState.speedIndex
 
     val mediaFileExists = remember(msg.localMediaPath) {
         !msg.localMediaPath.isNullOrBlank() &&
             File(msg.localMediaPath).let { it.exists() && it.length() > 0L }
     }
-    val exoPlayer = remember(msg.id, msg.localMediaPath, mediaFileExists) {
+    val senderLabel = remember(msg.isFromMe, msg.senderName, msg.senderJid) {
+        if (msg.isFromMe) "You"
+        else msg.senderName.ifBlank { msg.senderJid.substringBefore("@") }
+    }
+
+    LaunchedEffect(mediaFileExists, autoPlayOnDownload) {
         if (mediaFileExists) {
-            val audioAttrs = AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .build()
-            ExoPlayer.Builder(context)
-                .setAudioAttributes(audioAttrs, true)
-                .build()
-                .apply {
-                    setMediaItem(MediaItem.fromUri(Uri.fromFile(File(msg.localMediaPath!!))))
-                    prepare()
-                }
-        } else null
-    }
-
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
-                    isPlaying = false
-                    playbackFraction = 0f
-                    currentSec = 0
-                    exoPlayer?.seekTo(0L)
-                    exoPlayer?.playWhenReady = false
-                }
-            }
-        }
-        exoPlayer?.addListener(listener)
-        onDispose {
-            exoPlayer?.removeListener(listener)
-            exoPlayer?.release()
-        }
-    }
-
-    LaunchedEffect(exoPlayer, autoPlayOnDownload) {
-        if (exoPlayer != null) {
             isDownloading = false
-            if (autoPlayOnDownload) {
+            if (autoPlayOnDownload && !msg.localMediaPath.isNullOrBlank()) {
                 autoPlayOnDownload = false
-                exoPlayer.playbackParameters = PlaybackParameters(speeds[speedIndex])
-                exoPlayer.play()
-                isPlaying = true
+                VoiceNotePlaybackManager.play(
+                    context = context,
+                    messageId = msg.id,
+                    chatJid = msg.chatJid,
+                    senderLabel = senderLabel,
+                    filePath = msg.localMediaPath,
+                    durationHintSec = msg.durationSec,
+                    initialSeekFraction = scrubFraction
+                )
                 if (!msg.isFromMe && msg.deliveryStatus != "PLAYED" && !ghostPlayedActive) {
                     onManualSendPlayedReceipt()
                 }
@@ -182,20 +148,34 @@ fun VoiceNoteBubble(
         }
     }
 
-    LaunchedEffect(isPlaying, isScrubbing, exoPlayer, speedIndex) {
-        exoPlayer?.playbackParameters = PlaybackParameters(speeds[speedIndex])
-        while (isPlaying && !isScrubbing && exoPlayer != null) {
-            val dur = max(1L, exoPlayer.duration)
-            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
-            playbackFraction = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
-            currentSec = (pos / 1000L).toInt()
-            delay(40L)
-        }
+    val totalDurationSec = remember(msg.durationSec, isThisActive, playbackState.durationMs) {
+        val playerSec = if (isThisActive && playbackState.durationMs > 0L) {
+            (playbackState.durationMs / 1000L).toInt()
+        } else 0
+        max(1, if (playerSec > 0) playerSec else msg.durationSec)
     }
 
-    val totalDurationSec = remember(msg.durationSec, exoPlayer?.duration) {
-        val playerSec = exoPlayer?.duration?.takeIf { it > 0L }?.let { (it / 1000L).toInt() } ?: 0
-        max(1, if (playerSec > 0) playerSec else msg.durationSec)
+    val playbackFraction = if (isScrubbing) {
+        scrubFraction
+    } else if (isThisActive) {
+        val durMs = playbackState.durationMs.takeIf { it > 0L } ?: (totalDurationSec * 1000L)
+        VoiceNotePlaybackManager.computePlaybackFraction(playbackState.currentPositionMs, durMs)
+    } else {
+        scrubFraction
+    }
+
+    val currentSec = if (isScrubbing) {
+        (totalDurationSec * scrubFraction).toInt()
+    } else if (isThisActive) {
+        (playbackState.currentPositionMs / 1000L).toInt()
+    } else {
+        (totalDurationSec * scrubFraction).toInt()
+    }
+
+    LaunchedEffect(isThisActive, playbackState.isEnded) {
+        if (isThisActive && playbackState.isEnded) {
+            scrubFraction = 0f
+        }
     }
 
     val showSeconds = LocalWuppShowSeconds.current
@@ -230,8 +210,7 @@ fun VoiceNoteBubble(
                                 interactionSource = speedInteraction,
                                 indication = null
                             ) {
-                                speedIndex = (speedIndex + 1) % speeds.size
-                                exoPlayer?.playbackParameters = PlaybackParameters(speeds[speedIndex])
+                                VoiceNotePlaybackManager.cycleSpeed()
                             }
                             .semantics { contentDescription = "Playback speed. Tap to change." },
                         contentAlignment = Alignment.Center
@@ -305,19 +284,21 @@ fun VoiceNoteBubble(
                     interactionSource = playInteraction,
                     indication = null
                 ) {
-                    if (exoPlayer != null) {
-                        if (exoPlayer.isPlaying) {
-                            exoPlayer.pause()
-                        } else {
-                            if (exoPlayer.playbackState == Player.STATE_ENDED) {
-                                exoPlayer.seekTo(0L)
+                    if (mediaFileExists && !msg.localMediaPath.isNullOrBlank()) {
+                        VoiceNotePlaybackManager.togglePlayPause(
+                            context = context,
+                            messageId = msg.id,
+                            chatJid = msg.chatJid,
+                            senderLabel = senderLabel,
+                            filePath = msg.localMediaPath,
+                            durationHintSec = msg.durationSec,
+                            initialSeekFraction = scrubFraction,
+                            onStartedPlaying = {
+                                if (!msg.isFromMe && msg.deliveryStatus != "PLAYED" && !ghostPlayedActive) {
+                                    onManualSendPlayedReceipt()
+                                }
                             }
-                            exoPlayer.playbackParameters = PlaybackParameters(speeds[speedIndex])
-                            exoPlayer.play()
-                            if (!msg.isFromMe && msg.deliveryStatus != "PLAYED" && !ghostPlayedActive) {
-                                onManualSendPlayedReceipt()
-                            }
-                        }
+                        )
                     } else {
                         isDownloading = true
                         autoPlayOnDownload = true
@@ -328,13 +309,13 @@ fun VoiceNoteBubble(
                     contentDescription = when {
                         isDownloading -> "Downloading voice message"
                         isPlaying -> "Pause voice message"
-                        exoPlayer == null -> "Download voice message"
+                        !mediaFileExists -> "Download voice message"
                         else -> "Play voice message"
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (isDownloading && exoPlayer == null) {
+            if (isDownloading && !mediaFileExists) {
                 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
                 LoadingIndicator(
                     modifier = Modifier.size(22.dp),
@@ -344,12 +325,12 @@ fun VoiceNoteBubble(
                 Icon(
                     imageVector = when {
                         isPlaying -> Icons.Rounded.Pause
-                        exoPlayer == null -> Icons.Rounded.Download
+                        !mediaFileExists -> Icons.Rounded.Download
                         else -> Icons.Rounded.PlayArrow
                     },
                     contentDescription = null,
                     tint = colors.textSecondary.copy(alpha = 0.95f),
-                    modifier = Modifier.size(if (exoPlayer == null) 22.dp else 30.dp)
+                    modifier = Modifier.size(if (!mediaFileExists) 22.dp else 30.dp)
                 )
             }
         }
@@ -400,43 +381,38 @@ fun VoiceNoteBubble(
                             contentDescription = "Voice message playback position"
                             progressBarRangeInfo = ProgressBarRangeInfo(playbackFraction, 0f..1f)
                             setProgress { target ->
-                                val player = exoPlayer
-                                if (player != null && player.duration > 0L) {
+                                if (mediaFileExists) {
                                     val fraction = target.coerceIn(0f, 1f)
-                                    player.seekTo((player.duration * fraction).toLong())
-                                    playbackFraction = fraction
-                                    currentSec = ((player.duration * fraction) / 1000f).toInt()
+                                    scrubFraction = fraction
+                                    if (isThisActive) {
+                                        VoiceNotePlaybackManager.seekToFraction(msg.id, fraction)
+                                    }
                                     true
                                 } else false
                             }
                         }
-                        .pointerInput(exoPlayer, peaks, totalDurationSec) {
+                        .pointerInput(msg.id, isThisActive, peaks, totalDurationSec) {
                             detectTapGestures { offset ->
                                 val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                playbackFraction = frac
-                                currentSec = (totalDurationSec * frac).toInt()
-                                if (exoPlayer != null && exoPlayer.duration > 0) {
-                                    exoPlayer.seekTo((exoPlayer.duration * frac).toLong())
+                                scrubFraction = frac
+                                if (isThisActive) {
+                                    VoiceNotePlaybackManager.seekToFraction(msg.id, frac)
                                 }
                             }
                         }
-                        .pointerInput(exoPlayer, peaks, totalDurationSec) {
+                        .pointerInput(msg.id, isThisActive, peaks, totalDurationSec) {
                             detectHorizontalDragGestures(
                                 onDragStart = { offset ->
                                     isScrubbing = true
-                                    val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    playbackFraction = frac
-                                    currentSec = (totalDurationSec * frac).toInt()
+                                    scrubFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                                 },
                                 onHorizontalDrag = { change, _ ->
                                     change.consume()
-                                    val frac = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    playbackFraction = frac
-                                    currentSec = (totalDurationSec * frac).toInt()
+                                    scrubFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
                                 },
                                 onDragEnd = {
-                                    if (exoPlayer != null && exoPlayer.duration > 0) {
-                                        exoPlayer.seekTo((exoPlayer.duration * playbackFraction).toLong())
+                                    if (isThisActive) {
+                                        VoiceNotePlaybackManager.seekToFraction(msg.id, scrubFraction)
                                     }
                                     isScrubbing = false
                                 },
