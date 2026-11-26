@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.9-pre.7] - 2026-11-26
+
+### 🛠️ Fixes
+- Fixed voice notes cutting off when scrolling or leaving a chat, and added background playback with notification controls (#159).
+
 ## [0.3.9-pre.6] - 2026-11-26
 
 ### ✨ Features
