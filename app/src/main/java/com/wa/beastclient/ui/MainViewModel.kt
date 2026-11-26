@@ -563,6 +563,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (status.isViewed) return
         viewModelScope.launch {
             WaRealtimeService.markStatusViewed(appContext, status)
+                .onSuccess { sentToServer ->
+                    showToast(
+                        if (sentToServer) "Marked status as viewed"
+                        else "Marked status viewed locally"
+                    )
+                }
+                .onFailure { err ->
+                    showToast(err.message ?: "Failed to mark status as viewed")
+                }
         }
     }
 

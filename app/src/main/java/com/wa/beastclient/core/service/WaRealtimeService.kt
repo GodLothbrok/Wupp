@@ -3888,38 +3888,49 @@ class WaRealtimeService : Service() {
 
         private val sentStatusReceiptIds = ConcurrentHashMap.newKeySet<String>()
 
-        suspend fun markStatusViewed(context: Context, status: StatusEntity) =
+        suspend fun markStatusViewed(context: Context, status: StatusEntity): Result<Boolean> =
             withContext(Dispatchers.IO) {
                 runCatching {
                     val appCtx = context.applicationContext
                     val dao = WaUiDatabase.getInstance(appCtx).waDao()
                     dao.markStatusViewed(status.id)
 
-                    if (status.isViewed) return@runCatching
+                    if (status.isViewed) return@runCatching false
                     val cfg = StealthMatrixManager.config.value
-                    if (cfg.offlineMode) return@runCatching
                     val sender = status.senderJid.trim()
-                    if (sender.isBlank() ||
+                    val isOwnOrSystem = sender.isBlank() ||
                         sender.endsWith("@newsletter") ||
                         sender.endsWith("@g.us") ||
                         isOwnStatusSender(sender, _bridgeStatus.value.ownJid)
+                    val isLoggedIn = runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)
+                    if (!shouldSendManualStatusViewReceipt(
+                            isAlreadyViewed = status.isViewed,
+                            offlineMode = cfg.offlineMode,
+                            isOwnOrSystemSender = isOwnOrSystem,
+                            isLoggedIn = isLoggedIn
+                        )
                     ) {
-                        return@runCatching
+                        return@runCatching false
                     }
-                    val privacy = StealthMatrixManager.getEffectivePrivacy(dao, sender)
-                    if (!privacy.sendReadReceipts) return@runCatching
-                    if (!runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) return@runCatching
                     if (sentStatusReceiptIds.size > 1024) {
                         sentStatusReceiptIds.clear()
                     }
-                    if (!sentStatusReceiptIds.add(status.id)) return@runCatching
+                    if (!sentStatusReceiptIds.add(status.id)) return@runCatching false
 
                     Whatsbridge.markReadManual("status@broadcast", sender, status.id)
+                    true
                 }.onFailure { err ->
                     sentStatusReceiptIds.remove(status.id)
                     Log.w(TAG, "markStatusViewed failed for ${status.id}: ${err.message}")
                 }
             }
+
+        internal fun shouldSendManualStatusViewReceipt(
+            isAlreadyViewed: Boolean,
+            offlineMode: Boolean,
+            isOwnOrSystemSender: Boolean,
+            isLoggedIn: Boolean
+        ): Boolean = !isAlreadyViewed && !offlineMode && !isOwnOrSystemSender && isLoggedIn
 
         suspend fun markChatReadExplicitly(context: Context, chatJid: String): Result<Int> =
             withContext(Dispatchers.IO) {

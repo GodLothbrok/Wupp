@@ -226,4 +226,48 @@ class StatusUtilsTest {
         assertFalse(summaries[1].hasUnviewed)
         assertEquals("seen_latest", summaries[1].representativeStatus.id)
     }
+
+    @Test
+    fun manualStatusViewReceipt_requiresUnviewedOnlineContactAndLoggedInSession() {
+        assertTrue(
+            com.wa.beastclient.core.service.WaRealtimeService.shouldSendManualStatusViewReceipt(
+                isAlreadyViewed = false,
+                offlineMode = false,
+                isOwnOrSystemSender = false,
+                isLoggedIn = true
+            )
+        )
+        assertFalse(
+            com.wa.beastclient.core.service.WaRealtimeService.shouldSendManualStatusViewReceipt(
+                isAlreadyViewed = true,
+                offlineMode = false,
+                isOwnOrSystemSender = false,
+                isLoggedIn = true
+            )
+        )
+        assertFalse(
+            com.wa.beastclient.core.service.WaRealtimeService.shouldSendManualStatusViewReceipt(
+                isAlreadyViewed = false,
+                offlineMode = true,
+                isOwnOrSystemSender = false,
+                isLoggedIn = true
+            )
+        )
+        assertFalse(
+            com.wa.beastclient.core.service.WaRealtimeService.shouldSendManualStatusViewReceipt(
+                isAlreadyViewed = false,
+                offlineMode = false,
+                isOwnOrSystemSender = true,
+                isLoggedIn = true
+            )
+        )
+        assertFalse(
+            com.wa.beastclient.core.service.WaRealtimeService.shouldSendManualStatusViewReceipt(
+                isAlreadyViewed = false,
+                offlineMode = false,
+                isOwnOrSystemSender = false,
+                isLoggedIn = false
+            )
+        )
+    }
 }
