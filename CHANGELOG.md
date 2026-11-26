@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.9-pre.6] - 2026-11-26
+
+### ✨ Features
+- Added a manual "Mark viewed" button to the status viewer so contacts only see you viewed their status after you tap it (#161).
+
 ## [0.3.9-pre.5] - 2026-11-25
 
 ### ✨ Features

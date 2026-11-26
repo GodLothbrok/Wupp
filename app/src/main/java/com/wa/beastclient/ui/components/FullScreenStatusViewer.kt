@@ -37,10 +37,12 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -424,9 +426,10 @@ private fun StatusGroupPage(
     val failedReason = failedStatusIds[current.id]
     val isMediaPending = isMediaStatus && ((isVideo && mediaFile == null) || (!isVideo && bitmap == null))
 
-    LaunchedEffect(current.id, isPageActive) {
-        if (isPageActive && !current.isViewed) {
-            onStatusViewed(current)
+    var markedViewedLocally by remember(current.id) { mutableStateOf(current.isViewed) }
+    LaunchedEffect(current.isViewed) {
+        if (current.isViewed) {
+            markedViewedLocally = true
         }
     }
 
@@ -691,6 +694,40 @@ private fun StatusGroupPage(
                         fontSize = 12.sp
                     )
                 }
+                if (!group.isOwn) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(
+                                if (markedViewedLocally) Color(0xFF25D366).copy(alpha = 0.22f)
+                                else Color(0xFF202C33).copy(alpha = 0.85f)
+                            )
+                            .clickable {
+                                if (!markedViewedLocally) {
+                                    markedViewedLocally = true
+                                    onStatusViewed(current)
+                                } else {
+                                    Toast.makeText(context, "Already marked as viewed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (markedViewedLocally) Icons.Rounded.DoneAll else Icons.Rounded.Visibility,
+                            contentDescription = if (markedViewedLocally) "Viewed" else "Mark as viewed",
+                            tint = if (markedViewedLocally) Color(0xFF25D366) else Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (markedViewedLocally) "Viewed" else "Mark viewed",
+                            color = if (markedViewedLocally) Color(0xFF25D366) else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 Box {
                     IconButton(onClick = { showOverflow = true }) {
                         Icon(
@@ -704,6 +741,16 @@ private fun StatusGroupPage(
                         onDismissRequest = { showOverflow = false },
                         containerColor = Color(0xFF233138)
                     ) {
+                        if (!group.isOwn && !markedViewedLocally) {
+                            DropdownMenuItem(
+                                text = { Text("Mark as viewed", color = Color.White) },
+                                onClick = {
+                                    showOverflow = false
+                                    markedViewedLocally = true
+                                    onStatusViewed(current)
+                                }
+                            )
+                        }
                         if (mediaFile != null) {
                             DropdownMenuItem(
                                 text = { Text("Save to gallery", color = Color.White) },
