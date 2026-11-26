@@ -27,7 +27,7 @@ class MessageSelectionBarLayoutTest {
     )
 
     @Test
-    fun outgoingTextInDmShowsAllSixIconsDirectlyWithoutOverflow() {
+    fun outgoingTextInDmKeepsDirectBarCappedAndIncludesMessageInfoInOverflow() {
         val layout = resolveSelectionBarLayout(
             msg = msg(isFromMe = true, msgType = "TEXT", body = "hi"),
             isChannel = false,
@@ -41,16 +41,21 @@ class MessageSelectionBarLayoutTest {
                 SelectionBarAction.FORWARD,
                 SelectionBarAction.PIN_UNPIN,
                 SelectionBarAction.EDIT,
-                SelectionBarAction.COPY,
                 SelectionBarAction.DELETE
             ),
             layout.directActions
         )
-        assertTrue(layout.overflowActions.isEmpty())
+        assertEquals(
+            listOf(
+                SelectionBarAction.COPY,
+                SelectionBarAction.MESSAGE_INFO
+            ),
+            layout.overflowActions
+        )
     }
 
     @Test
-    fun incomingMediaWithoutCaptionShowsForwardPinAndSaveDirectly() {
+    fun incomingMediaWithoutCaptionShowsForwardPinSaveAndInfoDirectly() {
         val layout = resolveSelectionBarLayout(
             msg = msg(isFromMe = false, msgType = "IMAGE", body = "", localMediaPath = "/tmp/a.jpg"),
             isChannel = false,
@@ -64,6 +69,7 @@ class MessageSelectionBarLayoutTest {
                 SelectionBarAction.FORWARD,
                 SelectionBarAction.PIN_UNPIN,
                 SelectionBarAction.SAVE_MEDIA,
+                SelectionBarAction.MESSAGE_INFO,
                 SelectionBarAction.DELETE
             ),
             layout.directActions
@@ -112,6 +118,9 @@ class MessageSelectionBarLayoutTest {
         assertEquals(5, layout.directActions.size)
         assertTrue(layout.directActions.contains(SelectionBarAction.FORWARD))
         assertTrue(layout.directActions.contains(SelectionBarAction.SAVE_MEDIA))
-        assertEquals(listOf(SelectionBarAction.COPY, SelectionBarAction.OPEN_DOCUMENT), layout.overflowActions)
+        assertEquals(
+            listOf(SelectionBarAction.COPY, SelectionBarAction.OPEN_DOCUMENT, SelectionBarAction.MESSAGE_INFO),
+            layout.overflowActions
+        )
     }
 }

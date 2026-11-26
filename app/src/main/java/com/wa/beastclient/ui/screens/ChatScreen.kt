@@ -273,6 +273,7 @@ import com.wa.beastclient.ui.components.resolveDocumentMimeType
 import com.wa.beastclient.ui.components.ContactMessageCard
 import com.wa.beastclient.ui.components.ContactSharingHelper
 import com.wa.beastclient.ui.components.InAppContactPickerSheet
+import com.wa.beastclient.ui.components.MessageInfoSheet
 import com.wa.beastclient.ui.components.SendContactPreviewDialog
 import com.wa.beastclient.ui.components.SharedContactPreview
 import com.wa.beastclient.ui.components.isContactMessage
@@ -356,14 +357,29 @@ fun ChatScreen(
     val hasChatWallpaperOverride = remember(chatJid, stealthConfig) {
         StealthMatrixManager.hasChatWallpaperOverride(chatJid, cfg = stealthConfig)
     }
-    val canSendOutbound by remember(chatJid) { viewModel.canInitiateOutbound(chatJid) }.collectAsState(initial = true)
+    val isKnownChatOrContact by remember(chatJid) { viewModel.canInitiateOutbound(chatJid) }.collectAsState(initial = true)
+    var coldStartConfirmed by remember(chatJid) { mutableStateOf(false) }
+    val coldStartWarningActive = !isChannel && !isGroupAnnounceLocked && !isKnownChatOrContact && !coldStartConfirmed
+    val canSendOutbound = true
+    val allowUnsavedColdStartFlag = !isKnownChatOrContact || coldStartConfirmed
     var pendingGhostGuardAction by remember(chatJid) { mutableStateOf<(() -> Unit)?>(null) }
-    val runWithOutboundGuard: (() -> Unit) -> Unit = { action ->
+    var pendingColdStartAction by remember(chatJid) { mutableStateOf<(() -> Unit)?>(null) }
+    val runWithGhostGuardOnly: (() -> Unit) -> Unit = { action ->
         if (stealthConfig.ghostPresence && stealthConfig.ghostOutboundGuardPrompt) {
             pendingGhostGuardAction = action
         } else {
             action()
         }
+    }
+    val runWithOutboundGuard: (() -> Unit) -> Unit = { action ->
+        val afterGhost: () -> Unit = {
+            if (coldStartWarningActive) {
+                pendingColdStartAction = action
+            } else {
+                action()
+            }
+        }
+        runWithGhostGuardOnly(afterGhost)
     }
     val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
     val bridgeStatus by viewModel.bridgeStatus.collectAsState()
@@ -422,7 +438,7 @@ fun ChatScreen(
     }
 
     val proceedWithGuardsAndCall: (Boolean) -> Unit = { isVideo ->
-        runWithOutboundGuard {
+        runWithGhostGuardOnly {
             if (isColdCallBlocked(contact?.isSaved == true, pagedItems.itemCount, chatJid.endsWith("@g.us"))) {
                 pendingColdCallVideo = isVideo
             } else {
@@ -800,7 +816,14 @@ fun ChatScreen(
         } else {
             runWithOutboundGuard {
                 scrollToBottomPending = true
-                viewModel.sendPickedMedia(chatJid, uri, mime, draftValue.text.trim(), qualityMode)
+                viewModel.sendPickedMedia(
+                    chatJid = chatJid,
+                    uri = uri,
+                    mimeType = mime,
+                    caption = draftValue.text.trim(),
+                    qualityMode = qualityMode,
+                    allowUnsavedColdStart = allowUnsavedColdStartFlag
+                )
                 draftValue = TextFieldValue("")
                 scope.launch { listState.animateScrollToItem(0) }
             }
@@ -837,7 +860,7 @@ fun ChatScreen(
     ) { uri ->
         if (uri != null) {
             runWithOutboundGuard {
-                viewModel.sendStickerFromUri(chatJid, uri)
+                viewModel.sendStickerFromUri(chatJid, uri, allowUnsavedColdStart = allowUnsavedColdStartFlag)
             }
         }
     }
@@ -846,7 +869,9 @@ fun ChatScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            viewModel.toggleVoiceRecording(chatJid, true)
+            runWithOutboundGuard {
+                viewModel.toggleVoiceRecording(chatJid, true, allowUnsavedColdStart = allowUnsavedColdStartFlag)
+            }
         } else {
             Toast.makeText(context, "Microphone permission required to record voice notes", Toast.LENGTH_SHORT).show()
         }
@@ -1509,23 +1534,35 @@ fun ChatScreen(
                     .navigationBarsPadding()
             ) {
                 ActiveCallFloatingBar()
-                // Error 463 Ban Guard Banner on unsaved first-contact chats (not channels or admin-only groups)
-                if (!isChannel && !isGroupAnnounceLocked && !canSendOutbound) {
+                // Error 463 Ban Guard Warning Banner on genuinely unsaved zero-history chats (non-blocking)
+                if (coldStartWarningActive) {
+                    val warnAmber = Color(0xFFFFB020)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(colors.antiDeleteRed.copy(alpha = 0.18f))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .background(warnAmber.copy(alpha = 0.14f))
+                            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Rounded.Warning, null, tint = colors.antiDeleteRed, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Warning, null, tint = warnAmber, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Error 463 Guard: 0 prior messages with unsaved contact. Send initial greeting from official primary app first.",
+                            text = "Unsaved number · 0 prior messages. First message carries Error 463 risk.",
                             color = colors.textPrimary,
                             fontSize = 12.sp,
-                            lineHeight = 16.sp
+                            lineHeight = 16.sp,
+                            modifier = Modifier.weight(1f)
                         )
+                        TextButton(
+                            onClick = { coldStartConfirmed = true }
+                        ) {
+                            Text(
+                                text = "Allow",
+                                color = warnAmber,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
@@ -2285,7 +2322,11 @@ fun ChatScreen(
                                                 indication = null
                                             ) {
                                                 scrollToBottomPending = true
-                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                viewModel.toggleVoiceRecording(
+                                                    chatJid,
+                                                    true,
+                                                    allowUnsavedColdStart = allowUnsavedColdStartFlag
+                                                )
                                                 scope.launch { listState.animateScrollToItem(0) }
                                             },
                                         contentAlignment = Alignment.Center
@@ -2310,7 +2351,11 @@ fun ChatScreen(
                                                 indication = null
                                             ) {
                                                 scrollToBottomPending = true
-                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                viewModel.toggleVoiceRecording(
+                                                    chatJid,
+                                                    true,
+                                                    allowUnsavedColdStart = allowUnsavedColdStartFlag
+                                                )
                                                 scope.launch { listState.animateScrollToItem(0) }
                                             },
                                         contentAlignment = Alignment.Center
@@ -2489,16 +2534,22 @@ fun ChatScreen(
                                         Box(modifier = Modifier.weight(1f).padding(vertical = 5.dp)) {
                                             if (draftValue.text.isEmpty()) {
                                                 Text(
-                                                    text = if (canSendOutbound) stringResource(R.string.chat_input_placeholder) else "Blocked by Error 463 guard",
+                                                    text = stringResource(R.string.chat_input_placeholder),
                                                     color = colors.textSecondary,
                                                     fontSize = 15.5.sp
                                                 )
                                             }
                                             val sendCurrentDraft: () -> Unit = {
-                                                if (canSendOutbound && draftValue.text.isNotBlank()) {
+                                                if (draftValue.text.isNotBlank()) {
                                                     runWithOutboundGuard {
                                                         scrollToBottomPending = true
-                                                        viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
+                                                        viewModel.sendText(
+                                                            chatJid = chatJid,
+                                                            text = draftValue.text,
+                                                            quoted = replyTarget,
+                                                            ghostMentionEveryone = ghostMentionEveryone,
+                                                            allowUnsavedColdStart = allowUnsavedColdStartFlag
+                                                        )
                                                         draftValue = TextFieldValue("")
                                                         replyTarget = null
                                                         ghostMentionEveryone = false
@@ -2509,7 +2560,7 @@ fun ChatScreen(
                                             BasicTextField(
                                                 value = draftValue,
                                                 onValueChange = { draftValue = it },
-                                                enabled = canSendOutbound,
+                                                enabled = true,
                                                 interactionSource = draftInteractionSource,
                                                 textStyle = TextStyle(
                                                     color = colors.textPrimary,
@@ -2592,7 +2643,13 @@ fun ChatScreen(
                                                 onClick = {
                                                     runWithOutboundGuard {
                                                         scrollToBottomPending = true
-                                                        viewModel.sendText(chatJid, draftValue.text, replyTarget, ghostMentionEveryone)
+                                                        viewModel.sendText(
+                                                            chatJid = chatJid,
+                                                            text = draftValue.text,
+                                                            quoted = replyTarget,
+                                                            ghostMentionEveryone = ghostMentionEveryone,
+                                                            allowUnsavedColdStart = allowUnsavedColdStartFlag
+                                                        )
                                                         draftValue = TextFieldValue("")
                                                         replyTarget = null
                                                         ghostMentionEveryone = false
@@ -2651,7 +2708,11 @@ fun ChatScreen(
                                                         ) == PackageManager.PERMISSION_GRANTED
                                                         if (hasMic) {
                                                             runWithOutboundGuard {
-                                                                viewModel.toggleVoiceRecording(chatJid, true)
+                                                                viewModel.toggleVoiceRecording(
+                                                                    chatJid,
+                                                                    true,
+                                                                    allowUnsavedColdStart = allowUnsavedColdStartFlag
+                                                                )
                                                             }
                                                         } else {
                                                             micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -2739,21 +2800,21 @@ fun ChatScreen(
                                         val file = File(path)
                                         if (file.exists() && file.length() > 0L) {
                                             runWithOutboundGuard {
-                                                viewModel.sendSticker(chatJid, file)
+                                                viewModel.sendSticker(chatJid, file, allowUnsavedColdStart = allowUnsavedColdStartFlag)
                                             }
                                         }
                                     }
                                 },
                                 onSendBuiltinSticker = { builtinSticker ->
                                     runWithOutboundGuard {
-                                        viewModel.sendSticker(chatJid, builtinSticker.file)
+                                        viewModel.sendSticker(chatJid, builtinSticker.file, allowUnsavedColdStart = allowUnsavedColdStartFlag)
                                     }
                                 },
                                 onSendCustomSticker = { customSticker ->
                                     val file = File(customSticker.filePath)
                                     if (file.exists() && file.length() > 0L) {
                                         runWithOutboundGuard {
-                                            viewModel.sendSticker(chatJid, file)
+                                            viewModel.sendSticker(chatJid, file, allowUnsavedColdStart = allowUnsavedColdStartFlag)
                                         }
                                     }
                                 },
@@ -2810,7 +2871,12 @@ fun ChatScreen(
             onSaveToPack = { bmp, label -> viewModel.saveCustomSticker(bmp, label) },
             onSaveAndSend = { bmp, label ->
                 runWithOutboundGuard {
-                    viewModel.saveCustomStickerAndSend(chatJid, bmp, label)
+                    viewModel.saveCustomStickerAndSend(
+                        chatJid = chatJid,
+                        bitmap = bmp,
+                        label = label,
+                        allowUnsavedColdStart = allowUnsavedColdStartFlag
+                    )
                 }
             },
             onDismiss = { showStickerStudioDialog = false }
@@ -3019,7 +3085,8 @@ fun ChatScreen(
                         displayName = confirmedContact.displayName,
                         phoneNumber = confirmedContact.phoneNumber,
                         vcard = vcard,
-                        quoted = replyTarget
+                        quoted = replyTarget,
+                        allowUnsavedColdStart = allowUnsavedColdStartFlag
                     )
                     replyTarget = null
                     draftValue = androidx.compose.ui.text.input.TextFieldValue("")
@@ -3078,36 +3145,19 @@ fun ChatScreen(
         }
     }
 
-    // Group Receipts Bottom Sheet
+    // Message Info Bottom Sheet (DMs & Groups)
     groupReceiptsTarget?.let { target ->
         val receipts by viewModel.observeGroupReceipts(target.id).collectAsState(initial = emptyList())
-        ModalBottomSheet(
-            onDismissRequest = { groupReceiptsTarget = null },
-            containerColor = colors.elevatedBar
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Group Per-Participant Receipts", fontWeight = FontWeight.Bold, color = colors.textPrimary, fontSize = 16.sp)
-                if (receipts.isEmpty()) {
-                    Text("No individual receipts recorded for this message yet.", color = colors.textSecondary)
-                } else {
-                    receipts.forEach { r ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(r.participantName.ifBlank { r.participantJid }, color = colors.textPrimary)
-                            Text("${r.status} · ${formatMessageClock(r.timestamp, includeSeconds = showSeconds, use24Hour = use24Hour)}", color = colors.blueTick, fontFamily = mono, fontSize = 12.sp)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(18.dp))
-            }
-        }
+        MessageInfoSheet(
+            msg = target,
+            isGroup = chat?.isGroup == true,
+            groupReceipts = receipts,
+            colors = colors,
+            mono = mono,
+            showSeconds = showSeconds,
+            use24Hour = use24Hour,
+            onDismiss = { groupReceiptsTarget = null }
+        )
     }
 
     // Edit Message Text Dialog
@@ -3257,7 +3307,14 @@ fun ChatScreen(
                     } else {
                         staged
                     }
-                    viewModel.sendStagedMedia(chatJid, targetStaged, captionText, chosenQuality, isViewOnce)
+                    viewModel.sendStagedMedia(
+                        chatJid = chatJid,
+                        staged = targetStaged,
+                        caption = captionText,
+                        qualityMode = chosenQuality,
+                        isViewOnce = isViewOnce,
+                        allowUnsavedColdStart = allowUnsavedColdStartFlag
+                    )
                     draftValue = TextFieldValue("")
                     scope.launch { listState.animateScrollToItem(0) }
                 }
@@ -3292,6 +3349,41 @@ fun ChatScreen(
             dismissButton = {
                 TextButton(
                     onClick = { pendingGhostGuardAction = null }
+                ) {
+                    Text("Cancel", color = colors.textSecondary)
+                }
+            }
+        )
+    }
+
+    pendingColdStartAction?.let {
+        AlertDialog(
+            onDismissRequest = { pendingColdStartAction = null },
+            containerColor = colors.elevatedBar,
+            titleContentColor = colors.textPrimary,
+            textContentColor = colors.textSecondary,
+            title = { Text("Unsaved Number Warning", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    "This number isn't saved in your contacts and has no synced chat history. Starting a chat with an unsaved number from a companion device can trigger WhatsApp Error 463 anti-spam checks.\n\nSend anyway or message from your primary phone first?",
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val act = pendingColdStartAction
+                        pendingColdStartAction = null
+                        coldStartConfirmed = true
+                        act?.invoke()
+                    }
+                ) {
+                    Text("Send Anyway", color = colors.brightGreen, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingColdStartAction = null }
                 ) {
                     Text("Cancel", color = colors.textSecondary)
                 }
@@ -3516,7 +3608,7 @@ internal fun resolveSelectionBarLayout(
         if (!msg.localMediaPath.isNullOrBlank() && isDocument) {
             add(SelectionBarAction.OPEN_DOCUMENT)
         }
-        if (isGroup) add(SelectionBarAction.MESSAGE_INFO)
+        add(SelectionBarAction.MESSAGE_INFO)
         if (msg.isEdited) add(SelectionBarAction.EDIT_HISTORY)
         add(SelectionBarAction.DELETE)
     }

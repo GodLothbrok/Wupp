@@ -2508,6 +2508,34 @@ class WaRealtimeService : Service() {
             loadPersistedAliases(context)
         }
 
+        internal suspend fun findKnownAliasesFor(
+            context: Context,
+            chatJid: String
+        ): List<String> {
+            loadPersistedAliases(context)
+            val clean = chatJid.trim()
+            if (clean.isBlank()) return emptyList()
+            val aliases = LinkedHashSet<String>()
+            if (clean.endsWith("@lid")) {
+                persistedLidToPn[clean]?.let { if (it.isNotBlank() && it != clean) aliases.add(it) }
+            } else {
+                for ((lid, pn) in persistedLidToPn) {
+                    if (pn == clean && lid.isNotBlank() && lid != clean) {
+                        aliases.add(lid)
+                    }
+                }
+            }
+            val aliasJson = runCatching { Whatsbridge.resolveLocalDmAliasesJson(clean) }.getOrNull()
+            if (!aliasJson.isNullOrBlank()) {
+                runCatching {
+                    val obj = JSONObject(aliasJson)
+                    val direct = obj.optString(clean).trim()
+                    if (direct.isNotBlank() && direct != clean) aliases.add(direct)
+                }
+            }
+            return aliases.toList()
+        }
+
         internal suspend fun resolveCanonicalOutboundChatJid(
             context: Context,
             dao: WaDao,
@@ -3335,14 +3363,24 @@ class WaRealtimeService : Service() {
             text: String,
             quoted: MessageEntity?,
             ghostMentionEveryone: Boolean,
-            requireLinkedSession: Boolean = false
+            requireLinkedSession: Boolean = false,
+            allowUnsavedColdStart: Boolean = false
         ): Result<MessageEntity> = withContext(Dispatchers.IO) {
             runCatching {
                 ensureOnlineForOutbound()
                 val dao = WaUiDatabase.getInstance(context).waDao()
                 val effectiveChatJid = resolveCanonicalOutboundChatJid(context, dao, chatJid)
-                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, effectiveChatJid, _bridgeStatus.value.ownJid)) {
-                    error("ERROR_463_GUARD: First message to unsaved contact blocked to protect companion Error 463 ban. Start chat on primary phone first.")
+                val aliases = findKnownAliasesFor(context, effectiveChatJid)
+                if (!allowUnsavedColdStart &&
+                    !StealthMatrixManager.canInitiateOutboundMessage(
+                        dao = dao,
+                        chatJid = effectiveChatJid,
+                        ownJid = _bridgeStatus.value.ownJid,
+                        context = context,
+                        aliasJids = aliases
+                    )
+                ) {
+                    error("ERROR_463_GUARD: First message to unsaved contact blocked to protect companion Error 463 ban. Confirm cold-start send first.")
                 }
 
                 val privacy = StealthMatrixManager.getEffectivePrivacy(dao, effectiveChatJid)
@@ -3414,14 +3452,24 @@ class WaRealtimeService : Service() {
             phoneNumber: String,
             vcard: String,
             quoted: MessageEntity? = null,
-            requireLinkedSession: Boolean = false
+            requireLinkedSession: Boolean = false,
+            allowUnsavedColdStart: Boolean = false
         ): Result<MessageEntity> = withContext(Dispatchers.IO) {
             runCatching {
                 ensureOnlineForOutbound()
                 val dao = WaUiDatabase.getInstance(context).waDao()
                 val effectiveChatJid = resolveCanonicalOutboundChatJid(context, dao, chatJid)
-                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, effectiveChatJid, _bridgeStatus.value.ownJid)) {
-                    error("ERROR_463_GUARD: First message to unsaved contact blocked to protect companion Error 463 ban. Start chat on primary phone first.")
+                val aliases = findKnownAliasesFor(context, effectiveChatJid)
+                if (!allowUnsavedColdStart &&
+                    !StealthMatrixManager.canInitiateOutboundMessage(
+                        dao = dao,
+                        chatJid = effectiveChatJid,
+                        ownJid = _bridgeStatus.value.ownJid,
+                        context = context,
+                        aliasJids = aliases
+                    )
+                ) {
+                    error("ERROR_463_GUARD: First message to unsaved contact blocked to protect companion Error 463 ban. Confirm cold-start send first.")
                 }
                 val ownJid = _bridgeStatus.value.ownJid.ifBlank { "me@s.whatsapp.net" }
                 val stanzaId = if (runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) {
@@ -3706,13 +3754,23 @@ class WaRealtimeService : Service() {
             isVoiceNote: Boolean,
             durationSec: Int,
             isViewOnce: Boolean = false,
-            waveformCsvOverride: String = ""
+            waveformCsvOverride: String = "",
+            allowUnsavedColdStart: Boolean = false
         ): Result<MessageEntity> = withContext(Dispatchers.IO) {
             runCatching {
                 ensureOnlineForOutbound()
                 val dao = WaUiDatabase.getInstance(context).waDao()
                 val effectiveChatJid = resolveCanonicalOutboundChatJid(context, dao, chatJid)
-                if (!StealthMatrixManager.canInitiateOutboundMessage(dao, effectiveChatJid, _bridgeStatus.value.ownJid)) {
+                val aliases = findKnownAliasesFor(context, effectiveChatJid)
+                if (!allowUnsavedColdStart &&
+                    !StealthMatrixManager.canInitiateOutboundMessage(
+                        dao = dao,
+                        chatJid = effectiveChatJid,
+                        ownJid = _bridgeStatus.value.ownJid,
+                        context = context,
+                        aliasJids = aliases
+                    )
+                ) {
                     error("ERROR_463_GUARD: First message to unsaved contact blocked to protect account reputation.")
                 }
 
